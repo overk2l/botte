@@ -708,7 +708,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "toggle_dropdown_clear_button") { // New button action to toggle dropdown clear roles button
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-            const menu = db.getMenu(targetMenuId);
+            const menu = db.get(targetMenuId);
             if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
             const newState = !menu.enableDropdownClearRolesButton;
@@ -1480,10 +1480,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
     let message;
     if (menu.sendViaWebhook && process.env.WEBHOOK_URL) {
         const webhookClient = new WebhookClient({ url: process.env.WEBHOOK_URL });
-        // Send via webhook
+        // Send via webhook, allowing webhook's own username/avatar to be used
         message = await webhookClient.send({
-            username: client.user.username, // Use bot's current username
-            avatarURL: client.user.displayAvatarURL(), // Use bot's current avatar
             embeds: [embed],
             components,
         });
