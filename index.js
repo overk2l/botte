@@ -42,6 +42,8 @@ const db = {
       limitExceededMessage: "❌ You have reached the maximum number of roles for this menu or region.", // New: Custom limit message
       dropdownRoleOrder: [], // New: Custom order for dropdown roles
       buttonRoleOrder: [],   // New: Custom order for button roles
+      dropdownRoleDescriptions: {}, // New: Descriptions for dropdown roles
+      roleRequirements: {},   // New: { targetRoleId: [requiredRoleId1, requiredRoleId2] }
       channelId: null,
       messageId: null,
       // Embed Customization Fields
@@ -88,21 +90,31 @@ const db = {
     if (!menu) return;
     menu.exclusionMap = exclusionMap;
   },
-  saveMaxRolesLimit(menuId, limit) { // New function to save max roles limit
+  saveMaxRolesLimit(menuId, limit) { 
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.maxRolesLimit = limit;
   },
-  saveCustomMessages(menuId, messages) { // New function to save custom messages
+  saveCustomMessages(menuId, messages) { 
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     Object.assign(menu, messages);
   },
-  saveRoleOrder(menuId, order, type) { // New function to save role order
+  saveRoleOrder(menuId, order, type) { 
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     if (type === "dropdown") menu.dropdownRoleOrder = order;
     if (type === "button") menu.buttonRoleOrder = order;
+  },
+  saveRoleDescriptions(menuId, descriptions) { // New function to save role descriptions
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    Object.assign(menu.dropdownRoleDescriptions, descriptions); // For now, only for dropdowns
+  },
+  saveRoleRequirements(menuId, roleRequirements) { // New function to save role requirements
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.roleRequirements = roleRequirements;
   },
   saveEmbedCustomization(menuId, embedSettings) { 
     const menu = this.menuData.get(menuId);
@@ -118,6 +130,12 @@ const db = {
     menu.channelId = channelId;
     menu.messageId = messageId;
   },
+  clearMessageId(menuId) { // New function to clear message ID
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.channelId = null;
+    menu.messageId = null;
+  }
 };
 
 // Helper function to parse emoji strings for Discord components
@@ -156,6 +174,22 @@ function checkRegionalLimits(member, menu, newRoleIds) {
 
   return violations;
 }
+
+// Helper function to check role requirements
+function checkRoleRequirements(member, menu, targetRoleId) {
+    const requiredRoleIds = menu.roleRequirements[targetRoleId];
+    if (!requiredRoleIds || requiredRoleIds.length === 0) {
+        return true; // No requirements set for this role
+    }
+
+    const missingRoles = requiredRoleIds.filter(reqId => !member.roles.cache.has(reqId));
+    if (missingRoles.length > 0) {
+        const missingRoleNames = missingRoles.map(id => member.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+        return `You need the role(s): ${missingRoleNames} to get <@&${targetRoleId}>.`;
+    }
+    return true; // All requirements met
+}
+
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -218,6 +252,82 @@ client.on("interactionCreate", async (interaction) => {
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
           return publishMenu(interaction, targetMenuId);
         }
+
+        if (action === "edit_published") { // New button action for editing published message
+            const targetMenuId = extra;
+            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(targetMenuId);
+            if (!menu || !menu.channelId || !menu.messageId) {
+                return interaction.reply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
+            }
+            const channel = interaction.guild.channels.cache.get(menu.channelId);
+            if (!channel) return interaction.reply({ content: "❌ Published channel not found.", ephemeral: true });
+            
+            try {
+                const message = await channel.messages.fetch(menu.messageId);
+                return publishMenu(interaction, targetMenuId, message); // Pass the fetched message to edit
+            } catch (error) {
+                console.error("Error fetching message to edit:", error);
+                return interaction.reply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
+            }
+        }
+
+        if (action === "delete_published") { // New button action for deleting published message
+            const targetMenuId = extra;
+            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(targetMenuId);
+            if (!menu || !menu.channelId || !menu.messageId) {
+                return interaction.reply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
+            }
+
+            // Confirmation step for deletion
+            const confirmButton = new ButtonBuilder()
+                .setCustomId(`rr:confirm_delete_published:${targetMenuId}`)
+                .setLabel("Confirm Delete")
+                .setStyle(ButtonStyle.Danger);
+            const cancelButton = new ButtonBuilder()
+                .setCustomId(`rr:cancel_delete_published:${targetMenuId}`)
+                .setLabel("Cancel")
+                .setStyle(ButtonStyle.Secondary);
+            const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+            return interaction.reply({
+                content: "⚠️ Are you sure you want to delete the published reaction role message? This cannot be undone.",
+                components: [row],
+                ephemeral: true
+            });
+        }
+
+        if (action === "confirm_delete_published") { // Confirmation handler
+            const targetMenuId = extra;
+            const menu = db.getMenu(targetMenuId);
+            if (!menu || !menu.channelId || !menu.messageId) {
+                return interaction.update({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
+            }
+            const channel = interaction.guild.channels.cache.get(menu.channelId);
+            if (!channel) {
+                db.clearMessageId(targetMenuId); // Clear if channel is gone
+                return interaction.update({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
+            }
+
+            try {
+                const message = await channel.messages.fetch(menu.messageId);
+                await message.delete();
+                db.clearMessageId(targetMenuId); // Clear message ID from DB
+                await interaction.update({ content: "✅ Published reaction role message deleted successfully!", components: [], ephemeral: true });
+                return showMenuConfiguration(interaction, targetMenuId); // Refresh config view
+            } catch (error) {
+                console.error("Error deleting message:", error);
+                db.clearMessageId(targetMenuId); // Clear message ID if it's already deleted or inaccessible
+                return interaction.update({ content: "❌ Failed to delete published message. It might have been deleted manually or bot lacks permissions. Message ID cleared.", components: [], ephemeral: true });
+            }
+        }
+
+        if (action === "cancel_delete_published") { // Cancellation handler
+            const targetMenuId = extra;
+            return interaction.update({ content: "Deletion cancelled.", components: [], ephemeral: true });
+        }
+
 
         if (action === "type") {
           const targetMenuId = menuId; 
@@ -446,7 +556,7 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        if (action === "customize_messages") { // New button action for custom messages
+        if (action === "customize_messages") { 
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(targetMenuId);
@@ -487,11 +597,30 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        if (action === "set_role_order") { // New button action for role order
+        if (action === "set_role_order") { 
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(targetMenuId);
             if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+            // Get roles assigned to this menu for pre-filling
+            const dropdownRolesInMenu = menu.dropdownRoles.map(id => interaction.guild.roles.cache.get(id)).filter(Boolean);
+            const buttonRolesInMenu = menu.buttonRoles.map(id => interaction.guild.roles.cache.get(id)).filter(Boolean);
+
+            // Format existing order or default to all roles assigned to the menu
+            const currentDropdownOrder = menu.dropdownRoleOrder.length > 0
+                ? menu.dropdownRoleOrder.map(id => {
+                    const role = interaction.guild.roles.cache.get(id);
+                    return role ? `${role.name} (${role.id})` : null;
+                }).filter(Boolean).join(', ')
+                : dropdownRolesInMenu.map(role => `${role.name} (${role.id})`).join(', ');
+
+            const currentButtonOrder = menu.buttonRoleOrder.length > 0
+                ? menu.buttonRoleOrder.map(id => {
+                    const role = interaction.guild.roles.cache.get(id);
+                    return role ? `${role.name} (${role.id})` : null;
+                }).filter(Boolean).join(', ');
+                : buttonRolesInMenu.map(role => `${role.name} (${role.id})`).join(', ');
 
             const modal = new ModalBuilder()
                 .setCustomId(`rr:modal:set_role_order:${targetMenuId}`)
@@ -500,23 +629,99 @@ client.on("interactionCreate", async (interaction) => {
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("dropdown_order")
-                            .setLabel("Dropdown Role Order (Comma-separated IDs)")
+                            .setLabel("Dropdown Roles Order (Comma-separated: Name (ID))")
                             .setStyle(TextInputStyle.Paragraph)
                             .setRequired(false)
-                            .setPlaceholder("roleId1,roleId2,roleId3")
-                            .setValue(menu.dropdownRoleOrder.join(',') || "")
+                            .setPlaceholder("Role Name 1 (ID1), Role Name 2 (ID2)")
+                            .setValue(currentDropdownOrder)
                     ),
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("button_order")
-                            .setLabel("Button Role Order (Comma-separated IDs)")
+                            .setLabel("Button Roles Order (Comma-separated: Name (ID))")
                             .setStyle(TextInputStyle.Paragraph)
                             .setRequired(false)
-                            .setPlaceholder("roleIdA,roleIdB,roleIdC")
-                            .setValue(menu.buttonRoleOrder.join(',') || "")
+                            .setPlaceholder("Role Name A (IDA), Role Name B (IDB)")
+                            .setValue(currentButtonOrder)
                     )
                 );
             return interaction.showModal(modal);
+        }
+
+        if (action === "set_role_descriptions") { // New button action for role descriptions
+            const targetMenuId = extra;
+            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(targetMenuId);
+            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+            const modal = new ModalBuilder()
+                .setCustomId(`rr:modal:set_role_descriptions:${targetMenuId}`)
+                .setTitle("Set Dropdown Role Descriptions");
+            
+            if (!menu.dropdownRoles.length) {
+                return interaction.reply({ content: "No dropdown roles configured to add descriptions for.", ephemeral: true });
+            }
+
+            // Add text inputs for each dropdown role
+            // Discord modals limit to 5 action rows (5 text inputs)
+            const rolesForDescription = menu.dropdownRoles.slice(0, 5); // Limit to first 5 for simplicity
+            rolesForDescription.forEach(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                if (role) {
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId(roleId)
+                                .setLabel(`Description for ${role.name}`)
+                                .setStyle(TextInputStyle.Paragraph)
+                                .setRequired(false)
+                                .setPlaceholder(`Short description for ${role.name} (max 100 chars)`)
+                                .setValue(menu.dropdownRoleDescriptions[roleId] || "")
+                                .setMaxLength(100) // Discord dropdown description limit
+                        )
+                    );
+                }
+            });
+
+            if (menu.dropdownRoles.length > 5) {
+                // Inform user about limitation or suggest pagination if this were a full app
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId("info_message")
+                            .setLabel("Note: Only first 5 roles shown due to Discord limits.")
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(false)
+                            .setDisabled(true)
+                            .setValue("")
+                    )
+                );
+            }
+
+            return interaction.showModal(modal);
+        }
+
+        if (action === "set_role_requirements") { // New button action for role requirements
+            const targetMenuId = extra;
+            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(targetMenuId);
+            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+            const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+            if (!allRoles.size) return interaction.reply({ content: "No roles available to set requirements.", ephemeral: true });
+
+            const selectTargetRole = new StringSelectMenuBuilder()
+                .setCustomId(`rr:select_requirement_target_role:${targetMenuId}`)
+                .setPlaceholder("Select a role that will have requirements...")
+                .setMinValues(1)
+                .setMaxValues(1)
+                .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+            
+            return interaction.update({
+                content: "Please select the role for which you want to set requirements:",
+                components: [new ActionRowBuilder().addComponents(selectTargetRole)],
+                ephemeral: true
+            });
         }
 
         if (action === "config") {
@@ -531,7 +736,7 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
 
       // All modal submits related to dashboard config should also have a permission check
-      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] !== "create") { // Exclude 'create' as it's the first step
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] !== "create") { 
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
               return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
           }
@@ -580,7 +785,7 @@ client.on("interactionCreate", async (interaction) => {
           const euLimit = interaction.fields.getTextInputValue("eu_limit"); 
           const naLimit = interaction.fields.getTextInputValue("na_limit"); 
           const regionalRoleAssignmentsRaw = interaction.fields.getTextInputValue("regional_role_assignments"); 
-          const maxRolesLimitInput = interaction.fields.getTextInputValue("max_roles_limit"); // New input
+          const maxRolesLimitInput = interaction.fields.getTextInputValue("max_roles_limit"); 
 
           let regionalRoleAssignments = {};
           if (regionalRoleAssignmentsRaw && regionalRoleAssignmentsRaw.trim()) {
@@ -616,9 +821,9 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           db.saveRegionalLimits(menuId, regionalLimits);
-          db.saveMaxRolesLimit(menuId, maxRolesLimit); // Save max roles limit
+          db.saveMaxRolesLimit(menuId, maxRolesLimit); 
           await interaction.reply({ content: "✅ Regional limits and max roles limit saved.", ephemeral: true });
-          return showMenuConfiguration(interaction, menuId); // Refresh config view
+          return showMenuConfiguration(interaction, menuId); 
         } catch (error) {
           console.error("Error saving regional limits or max roles limit:", error);
           return interaction.reply({ content: "❌ Invalid JSON format in regional role assignments or invalid limit value.", ephemeral: true });
@@ -659,7 +864,7 @@ client.on("interactionCreate", async (interaction) => {
         return showMenuConfiguration(interaction, menuId); 
       }
 
-      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "customize_messages") { // New modal submit handler for custom messages
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "customize_messages") { 
           const menuId = parts[3];
           const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -675,7 +880,7 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId);
       }
 
-      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_order") { // New modal submit handler for role order
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_order") { 
           const menuId = parts[3];
           const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -683,8 +888,22 @@ client.on("interactionCreate", async (interaction) => {
           const dropdownOrderRaw = interaction.fields.getTextInputValue("dropdown_order");
           const buttonOrderRaw = interaction.fields.getTextInputValue("button_order");
 
-          const dropdownOrder = dropdownOrderRaw ? dropdownOrderRaw.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
-          const buttonOrder = buttonOrderRaw ? buttonOrderRaw.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
+          const idRegex = /\((\d+)\)/g;
+
+          const extractIds = (rawString, allowedRoles) => {
+              const extracted = [];
+              let match;
+              while ((match = idRegex.exec(rawString)) !== null) {
+                  const id = match[1];
+                  if (allowedRoles.includes(id)) {
+                      extracted.push(id);
+                  }
+              }
+              return extracted;
+          };
+
+          const dropdownOrder = extractIds(dropdownOrderRaw, menu.dropdownRoles);
+          const buttonOrder = extractIds(buttonOrderRaw, menu.buttonRoles);
 
           db.saveRoleOrder(menuId, dropdownOrder, "dropdown");
           db.saveRoleOrder(menuId, buttonOrder, "button");
@@ -692,12 +911,55 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.reply({ content: "✅ Role display order saved!", ephemeral: true });
           return showMenuConfiguration(interaction, menuId);
       }
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_descriptions") { // New modal submit handler for role descriptions
+          const menuId = parts[3];
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+          const descriptions = {};
+          for (const [roleId, input] of interaction.fields.fields) {
+              if (roleId === "info_message") continue; // Skip the info message field
+              const desc = input.value.trim();
+              if (desc) {
+                  descriptions[roleId] = desc;
+              } else {
+                  delete descriptions[roleId]; // Remove if empty
+              }
+          }
+          db.saveRoleDescriptions(menuId, descriptions);
+          await interaction.reply({ content: "✅ Dropdown role descriptions saved!", ephemeral: true });
+          return showMenuConfiguration(interaction, menuId);
+      }
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_requirements") { // New modal submit handler for role requirements
+        const [_, __, menuId, targetRoleId] = interaction.customId.split(":");
+        const requiredRoleIds = interaction.values; // This will be from a select menu, not modal text inputs
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const currentRoleRequirements = menu.roleRequirements;
+        currentRoleRequirements[targetRoleId] = requiredRoleIds;
+        db.saveRoleRequirements(menuId, currentRoleRequirements);
+
+        const targetRoleName = interaction.guild.roles.cache.get(targetRoleId)?.name || "Unknown Role";
+        const requiredRoleNames = requiredRoleIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`rr:set_role_requirements:${menuId}`).setLabel("➕ Add Another Requirement").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`rr:config:${menuId}`).setLabel("🔙 Back to Menu Config").setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.update({
+            content: `✅ Requirement saved: Picking **${targetRoleName}** now requires: ${requiredRoleNames || "no roles"}. What would you like to do next?`,
+            components: [row],
+            ephemeral: true
+        });
+      }
     }
 
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId.startsWith("rr:selectroles:")) {
-        // Permission check for user-facing interaction (not config)
-        // No permission check needed here as this is for regular users selecting roles.
         const [_, __, type, menuId] = interaction.customId.split(":");
         if (!interaction.values.length) return interaction.reply({ content: "❌ No roles selected.", ephemeral: true });
 
@@ -729,7 +991,6 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId.startsWith("rr:select_trigger_role:")) { 
-        // No permission check needed here as this is part of the config flow, already checked by the button
         const menuId = interaction.customId.split(":")[2];
         const triggerRoleId = interaction.values[0];
         const menu = db.getMenu(menuId);
@@ -759,7 +1020,6 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId.startsWith("rr:select_excluded_roles:")) { 
-        // No permission check needed here as this is part of the config flow, already checked by the button
         const [_, __, menuId, triggerRoleId] = interaction.customId.split(":");
         const excludedRoleIds = interaction.values;
         const menu = db.getMenu(menuId);
@@ -768,6 +1028,52 @@ client.on("interactionCreate", async (interaction) => {
         const currentExclusionMap = menu.exclusionMap;
         currentExclusionMap[triggerRoleId] = excludedRoleIds;
         db.saveExclusionMap(menuId, currentExclusionMap);
+
+        return showMenuConfiguration(interaction, menuId);
+      }
+
+      if (interaction.customId.startsWith("rr:select_requirement_target_role:")) { // New handler for selecting target role for requirements
+        const menuId = interaction.customId.split(":")[2];
+        const targetRoleId = interaction.values[0];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+        const options = allRoles
+            .filter(r => r.id !== targetRoleId) // A role cannot require itself
+            .map(r => ({ label: r.name, value: r.id }));
+
+        if (!options.length) {
+            return interaction.update({ content: "No other roles available to set as requirements.", components: [], ephemeral: true });
+        }
+
+        // Pre-select currently required roles if any
+        const currentRequiredRoles = menu.roleRequirements[targetRoleId] || [];
+
+        const selectRequiredRoles = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_required_roles:${menuId}:${targetRoleId}`)
+            .setPlaceholder(`Select roles required to get ${interaction.guild.roles.cache.get(targetRoleId)?.name}...`)
+            .setMinValues(0) // Allow setting no requirements (clearing)
+            .setMaxValues(options.length)
+            .addOptions(options)
+            .setDefaultValues(currentRequiredRoles); // Pre-select existing requirements
+
+        return interaction.update({
+            content: `Now select roles that are required to get <@&${targetRoleId}>:`,
+            components: [new ActionRowBuilder().addComponents(selectRequiredRoles)],
+            ephemeral: true
+        });
+      }
+
+      if (interaction.customId.startsWith("rr:select_required_roles:")) { // New handler for selecting required roles
+        const [_, __, menuId, targetRoleId] = interaction.customId.split(":");
+        const requiredRoleIds = interaction.values;
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const currentRoleRequirements = menu.roleRequirements;
+        currentRoleRequirements[targetRoleId] = requiredRoleIds;
+        db.saveRoleRequirements(menuId, currentRoleRequirements);
 
         return showMenuConfiguration(interaction, menuId);
       }
@@ -790,6 +1096,16 @@ client.on("interactionCreate", async (interaction) => {
         const violations = checkRegionalLimits(member, menu, chosen);
         if (violations.length > 0) {
           return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
+        }
+
+        // Check role requirements for each role being added
+        for (const selectedRoleId of chosen) {
+            if (!memberRolesCache.has(selectedRoleId)) { // Only check requirements if role is being added
+                const requirementCheck = checkRoleRequirements(member, menu, selectedRoleId);
+                if (requirementCheck !== true) {
+                    return interaction.reply({ content: `❌ ${requirementCheck}`, ephemeral: true });
+                }
+            }
         }
 
         const rolesToRemoveDueToExclusion = new Set();
@@ -854,6 +1170,12 @@ client.on("interactionCreate", async (interaction) => {
         if (violations.length > 0) {
           return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
         }
+
+        // Check role requirements
+        const requirementCheck = checkRoleRequirements(member, targetMenu, roleId);
+        if (requirementCheck !== true) {
+            return interaction.reply({ content: `❌ ${requirementCheck}`, ephemeral: true });
+        }
       }
 
       if (!hasRole && targetMenu.exclusionMap[roleId]) {
@@ -873,7 +1195,7 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith("rr:clear_roles:")) { // New handler for clear roles button
+    if (interaction.isButton() && interaction.customId.startsWith("rr:clear_roles:")) { 
         const menuId = interaction.customId.split(":")[2];
         const menu = db.getMenu(menuId);
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -881,10 +1203,8 @@ client.on("interactionCreate", async (interaction) => {
         const member = interaction.member;
         const rolesToRemove = new Set();
 
-        // Collect all roles associated with this menu (dropdown and button roles)
         const allMenuRoles = new Set([...menu.dropdownRoles, ...menu.buttonRoles]);
 
-        // Check which of these roles the user currently has
         for (const roleId of allMenuRoles) {
             if (member.roles.cache.has(roleId)) {
                 rolesToRemove.add(roleId);
@@ -895,7 +1215,6 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.reply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
         }
 
-        // Remove all collected roles
         for (const roleId of rolesToRemove) {
             await member.roles.remove(roleId);
         }
@@ -965,7 +1284,7 @@ async function showMenuConfiguration(interaction, menuId) {
           : "None set", 
         inline: false 
       },
-      { // Display Max Roles Limit
+      { 
         name: "Max Roles Per Menu",
         value: menu.maxRolesLimit !== null ? menu.maxRolesLimit.toString() : "No limit",
         inline: true
@@ -977,6 +1296,17 @@ async function showMenuConfiguration(interaction, menuId) {
               const triggerRole = interaction.guild.roles.cache.get(triggerId);
               const excludedRoleNames = excludedIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
               return `**${triggerRole?.name || `Unknown Role (${triggerId})`}** excludes: ${excludedRoleNames}`;
+            }).join('\n')
+          : "None set",
+        inline: false
+      },
+      { 
+        name: "Role Requirements", // New field for role requirements display
+        value: Object.keys(menu.roleRequirements).length
+          ? Object.entries(menu.roleRequirements).map(([targetId, requiredIds]) => {
+              const targetRole = interaction.guild.roles.cache.get(targetId);
+              const requiredRoleNames = requiredIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+              return `**${targetRole?.name || `Unknown Role (${targetId})`}** requires: ${requiredRoleNames}`;
             }).join('\n')
           : "None set",
         inline: false
@@ -1006,14 +1336,19 @@ async function showMenuConfiguration(interaction, menuId) {
         value: menu.embedFooterText ? `${menu.embedFooterText} ${menu.embedFooterIconURL ? "(with icon)" : ""}` : "Default",
         inline: true
       },
-      { // New field for Custom Messages display
+      { 
         name: "Custom Messages",
         value: (menu.successMessageAdd || menu.successMessageRemove || menu.limitExceededMessage) ? "Configured" : "Default",
         inline: true
       },
-      { // New field for Role Order display
+      { 
         name: "Role Order",
         value: (menu.dropdownRoleOrder.length || menu.buttonRoleOrder.length) ? "Custom" : "Default",
+        inline: true
+      },
+      { // New field for Role Descriptions display
+        name: "Dropdown Role Descriptions",
+        value: Object.keys(menu.dropdownRoleDescriptions).length ? "Configured" : "None",
         inline: true
       }
     );
@@ -1021,28 +1356,35 @@ async function showMenuConfiguration(interaction, menuId) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${menuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
     new ButtonBuilder().setCustomId(`rr:addemoji:button:${menuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
-    new ButtonBuilder().setCustomId(`rr:setlimits:${menuId}`).setLabel("📊 Limits & Max Roles").setStyle(ButtonStyle.Secondary), // Updated label
+    new ButtonBuilder().setCustomId(`rr:setlimits:${menuId}`).setLabel("📊 Limits & Max Roles").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`rr:setexclusions:${menuId}`).setLabel("🚫 Set Exclusions").setStyle(ButtonStyle.Danger)
   );
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`rr:customize_embed:${menuId}`).setLabel("🖼️ Customize Embed").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`rr:customize_footer:${menuId}`).setLabel("📝 Customize Footer").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`rr:customize_messages:${menuId}`).setLabel("💬 Custom Messages").setStyle(ButtonStyle.Primary), // New button
-    new ButtonBuilder().setCustomId(`rr:set_role_order:${menuId}`).setLabel("⬆️ Set Role Order").setStyle(ButtonStyle.Primary) // New button
+    new ButtonBuilder().setCustomId(`rr:customize_messages:${menuId}`).setLabel("💬 Custom Messages").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`rr:set_role_order:${menuId}`).setLabel("⬆️ Set Role Order").setStyle(ButtonStyle.Primary)
   );
 
   const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`rr:set_role_descriptions:${menuId}`).setLabel("📝 Set Dropdown Descriptions").setStyle(ButtonStyle.Primary).setDisabled(!menu.dropdownRoles.length), // New button
+    new ButtonBuilder().setCustomId(`rr:set_role_requirements:${menuId}`).setLabel("🔒 Set Role Requirements").setStyle(ButtonStyle.Primary), // New button
+    new ButtonBuilder().setCustomId(`rr:edit_published:${menuId}`).setLabel("✏️ Edit Published").setStyle(ButtonStyle.Secondary).setDisabled(!menu.messageId), // New button
+    new ButtonBuilder().setCustomId(`rr:delete_published:${menuId}`).setLabel("🗑️ Delete Published").setStyle(ButtonStyle.Danger).setDisabled(!menu.messageId) // New button
+  );
+
+  const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
   );
 
   const method = interaction.replied || interaction.deferred ? 'editReply' : 'reply';
-  await interaction[method]({ embeds: [embed], components: [row, row2, row3], ephemeral: true });
+  await interaction[method]({ embeds: [embed], components: [row, row2, row3, row4], ephemeral: true });
 }
 
 
-async function publishMenu(interaction, menuId) {
+async function publishMenu(interaction, menuId, messageToEdit = null) { // Added messageToEdit parameter
   const menu = db.getMenu(menuId);
   if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
@@ -1085,7 +1427,6 @@ async function publishMenu(interaction, menuId) {
 
   // Add dropdown if configured
   if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length) {
-    // Apply custom order if available, otherwise use default order of dropdownRoles
     const orderedDropdownRoles = menu.dropdownRoleOrder.length > 0
       ? menu.dropdownRoleOrder.filter(roleId => menu.dropdownRoles.includes(roleId))
       : menu.dropdownRoles;
@@ -1098,7 +1439,7 @@ async function publishMenu(interaction, menuId) {
         const option = {
           label: role.name,
           value: role.id,
-          description: `Click to toggle ${role.name}`,
+          description: menu.dropdownRoleDescriptions[roleId] || `Click to toggle ${role.name}`, // Use custom description
         };
         if (emojiStr) {
           const parsedEmoji = parseEmoji(emojiStr);
@@ -1121,7 +1462,6 @@ async function publishMenu(interaction, menuId) {
 
   // Add buttons if configured
   if (menu.selectionType.includes("button") && menu.buttonRoles.length) {
-    // Apply custom order if available, otherwise use default order of buttonRoles
     const orderedButtonRoles = menu.buttonRoleOrder.length > 0
       ? menu.buttonRoleOrder.filter(roleId => menu.buttonRoles.includes(roleId))
       : menu.buttonRoles;
@@ -1147,13 +1487,11 @@ async function publishMenu(interaction, menuId) {
       })
       .filter(Boolean);
 
-    // Split buttons into rows (max 5 per row)
     for (let i = 0; i < buttons.length; i += 5) {
       components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
     }
   }
 
-  // Add "Clear All Roles" button if there are any roles configured for this menu
   if (menu.dropdownRoles.length > 0 || menu.buttonRoles.length > 0) {
       const clearButtonRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1170,12 +1508,18 @@ async function publishMenu(interaction, menuId) {
   }
 
   try {
-    const message = await interaction.channel.send({ embeds: [embed], components });
+    let message;
+    if (messageToEdit) {
+        message = await messageToEdit.edit({ embeds: [embed], components });
+        await interaction.reply({ content: "✅ Published reaction role menu updated successfully!", ephemeral: true });
+    } else {
+        message = await interaction.channel.send({ embeds: [embed], components });
+        await interaction.reply({ content: "🚀 Reaction role menu published successfully!", ephemeral: true });
+    }
     db.saveMessageId(menuId, interaction.channel.id, message.id);
-    return interaction.reply({ content: "🚀 Reaction role menu published successfully!", ephemeral: true });
   } catch (error) {
-    console.error("Error publishing menu:", error);
-    return interaction.reply({ content: "❌ Failed to publish menu. Check that emojis are valid or image URLs are accessible.", ephemeral: true });
+    console.error("Error publishing/editing menu:", error);
+    return interaction.reply({ content: "❌ Failed to publish/edit menu. Check that emojis are valid or image URLs are accessible, and bot has permissions to send/edit messages.", ephemeral: true });
   }
 }
 
