@@ -31,9 +31,10 @@ const db = {
       dropdownRoles: [],
       buttonRoles: [],
       selectionType: [],
-      dropdownEmojis: {},   // key: roleId, value: emoji string
-      buttonEmojis: {},     // key: roleId, value: emoji string
-      regionalLimits: {},   // key: regionName, value: { limit: number, roleIds: [roleId1, roleId2] }
+      dropdownEmojis: {},    // key: roleId, value: emoji string
+      buttonEmojis: {},       // key: roleId, value: emoji string
+      regionalLimits: {},     // key: regionName, value: { limit: number, roleIds: [roleId1, roleId2] }
+      exclusionMap: {},       // New: key: roleId to add, value: [roleId1 to remove, roleId2 to remove]
       channelId: null,
       messageId: null,
     });
@@ -66,6 +67,11 @@ const db = {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.regionalLimits = regionalLimits;
+  },
+  saveExclusionMap(menuId, exclusionMap) { // New function to save exclusion map
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.exclusionMap = exclusionMap;
   },
   getMenu(menuId) {
     return this.menuData.get(menuId);
@@ -113,6 +119,10 @@ function checkRegionalLimits(member, menu, newRoleIds) {
     
     // For dropdown: newRoleIds represents the complete new selection
     // For buttons: we need to check if adding this role would exceed the limit
+    // We only check for violations if the new role is being added, not removed.
+    // If the newRoleIds array contains more roles from a region than allowed, it's a violation.
+    // This logic assumes newRoleIds is the *final desired state* for dropdowns,
+    // and for buttons, it's the state *after* potentially adding one role.
     if (newRegionRoles.length > limit) {
       violations.push(`You can only select ${limit} role(s) from the ${regionName} region.`);
     }
@@ -145,7 +155,7 @@ client.on("interactionCreate", async (interaction) => {
       const ctx = parts[0];
       const action = parts[1];
       const extra = parts[2];
-      const menuId = parts[3];
+      const menuId = parts[3]; // For buttons, menuId is usually parts[3] if action is like 'type' or 'addemoji'
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -176,7 +186,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "type") {
-          const targetMenuId = menuId;
+          const targetMenuId = menuId; // menuId is parts[3] here
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
           db.saveSelectionType(targetMenuId, selectedTypes);
@@ -198,7 +208,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "addemoji") {
           // Show modal to add emojis to roles for dropdown or button
-          const targetMenuId = menuId;
+          const targetMenuId = menuId; // menuId is parts[3] here
           if (!targetMenuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -233,20 +243,20 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setlimits") {
-          // Show modal to set regional limits
-          const targetMenuId = extra;
+          // Show modal to set regional limits and exclusion map
+          const targetMenuId = extra; // menuId is parts[2] here
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:setlimits:${targetMenuId}`)
-            .setTitle("Set Regional Role Limits")
+            .setTitle("Set Role Limits & Exclusions")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("au")
-                  .setLabel("Limit For AU")
+                  .setCustomId("au_limit") // Changed ID for clarity
+                  .setLabel("Limit For AU Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
                   .setRequired(false)
@@ -254,8 +264,8 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("eu")
-                  .setLabel("Limit For EU")
+                  .setCustomId("eu_limit") // Changed ID for clarity
+                  .setLabel("Limit For EU Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
                   .setRequired(false)
@@ -263,8 +273,8 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("na")
-                  .setLabel("Limit For NA")
+                  .setCustomId("na_limit") // Changed ID for clarity
+                  .setLabel("Limit For NA Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
                   .setRequired(false)
@@ -272,14 +282,23 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("role_assignments")
-                  .setLabel("Role Assignments (JSON)")
+                  .setCustomId("regional_role_assignments") // Changed ID for clarity
+                  .setLabel("Regional Role Assignments (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setPlaceholder('{"AU": ["roleId1"], "EU": ["roleId2"], "NA": ["roleId3"]}')
                   .setRequired(false)
                   .setValue(JSON.stringify(Object.fromEntries(
                     Object.entries(menu.regionalLimits).map(([region, data]) => [region, data.roleIds || []])
                   )) || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("exclusion_map") // New input for exclusion map
+                  .setLabel("Exclusion Map (JSON)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setPlaceholder('{"EU_Role_ID": ["NA_Role_ID", "ASIA_Role_ID"], "NA_Role_ID": ["EU_Role_ID", "ASIA_Role_ID"]}')
+                  .setRequired(false)
+                  .setValue(JSON.stringify(menu.exclusionMap) || "")
               )
             );
           return interaction.showModal(modal);
@@ -287,7 +306,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "config") {
           // Show configuration options for a menu
-          const targetMenuId = extra;
+          const targetMenuId = extra; // menuId is parts[2] here
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -305,13 +324,20 @@ client.on("interactionCreate", async (interaction) => {
                   ? Object.entries(menu.regionalLimits).map(([region, data]) => `${region}: ${data.limit || 0}`).join(", ")
                   : "None set", 
                 inline: false 
+              },
+              { // New field for exclusion map
+                name: "Exclusion Map",
+                value: Object.keys(menu.exclusionMap).length
+                  ? "Configured"
+                  : "None set",
+                inline: false
               }
             );
 
           const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${targetMenuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
             new ButtonBuilder().setCustomId(`rr:addemoji:button:${targetMenuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
-            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Regional Limits").setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Limits & Exclusions").setStyle(ButtonStyle.Secondary) // Updated label
           );
 
           const row2 = new ActionRowBuilder().addComponents(
@@ -367,14 +393,20 @@ client.on("interactionCreate", async (interaction) => {
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
         try {
-          const auLimit = interaction.fields.getTextInputValue("au");
-          const euLimit = interaction.fields.getTextInputValue("eu");
-          const naLimit = interaction.fields.getTextInputValue("na");
-          const roleAssignmentsRaw = interaction.fields.getTextInputValue("role_assignments");
+          const auLimit = interaction.fields.getTextInputValue("au_limit"); // Updated ID
+          const euLimit = interaction.fields.getTextInputValue("eu_limit"); // Updated ID
+          const naLimit = interaction.fields.getTextInputValue("na_limit"); // Updated ID
+          const regionalRoleAssignmentsRaw = interaction.fields.getTextInputValue("regional_role_assignments"); // Updated ID
+          const exclusionMapRaw = interaction.fields.getTextInputValue("exclusion_map"); // New ID
 
-          let roleAssignments = {};
-          if (roleAssignmentsRaw && roleAssignmentsRaw.trim()) {
-            roleAssignments = JSON.parse(roleAssignmentsRaw);
+          let regionalRoleAssignments = {};
+          if (regionalRoleAssignmentsRaw && regionalRoleAssignmentsRaw.trim()) {
+            regionalRoleAssignments = JSON.parse(regionalRoleAssignmentsRaw);
+          }
+
+          let exclusionMap = {};
+          if (exclusionMapRaw && exclusionMapRaw.trim()) {
+            exclusionMap = JSON.parse(exclusionMapRaw);
           }
 
           const regionalLimits = {};
@@ -382,29 +414,30 @@ client.on("interactionCreate", async (interaction) => {
           if (auLimit && !isNaN(auLimit)) {
             regionalLimits.AU = {
               limit: Number(auLimit),
-              roleIds: roleAssignments.AU || []
+              roleIds: regionalRoleAssignments.AU || []
             };
           }
           
           if (euLimit && !isNaN(euLimit)) {
             regionalLimits.EU = {
               limit: Number(euLimit),
-              roleIds: roleAssignments.EU || []
+              roleIds: regionalRoleAssignments.EU || []
             };
           }
           
           if (naLimit && !isNaN(naLimit)) {
             regionalLimits.NA = {
               limit: Number(naLimit),
-              roleIds: roleAssignments.NA || []
+              roleIds: regionalRoleAssignments.NA || []
             };
           }
 
           db.saveRegionalLimits(menuId, regionalLimits);
-          return interaction.reply({ content: "✅ Regional limits saved.", ephemeral: true });
+          db.saveExclusionMap(menuId, exclusionMap); // Save the new exclusion map
+          return interaction.reply({ content: "✅ Role limits and exclusions saved.", ephemeral: true });
         } catch (error) {
-          console.error("Error saving regional limits:", error);
-          return interaction.reply({ content: "❌ Invalid JSON format in role assignments.", ephemeral: true });
+          console.error("Error saving role limits or exclusion map:", error);
+          return interaction.reply({ content: "❌ Invalid JSON format in role assignments or exclusion map.", ephemeral: true });
         }
       }
     }
@@ -463,13 +496,32 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
         }
 
-        // Remove roles not chosen that user has from dropdownRoles
+        // Apply exclusion logic for dropdowns
+        const rolesToRemoveDueToExclusion = new Set();
+        for (const selectedRoleId of chosen) {
+          if (menu.exclusionMap[selectedRoleId]) {
+            for (const excludedRoleId of menu.exclusionMap[selectedRoleId]) {
+              if (member.roles.cache.has(excludedRoleId)) {
+                rolesToRemoveDueToExclusion.add(excludedRoleId);
+              }
+            }
+          }
+        }
+
+        // Remove roles not chosen that user has from dropdownRoles AND roles from exclusion map
         for (const roleId of menu.dropdownRoles) {
           if (chosen.includes(roleId)) {
             if (!member.roles.cache.has(roleId)) await member.roles.add(roleId);
           } else {
             if (member.roles.cache.has(roleId)) await member.roles.remove(roleId);
           }
+        }
+        
+        // Now remove roles based on exclusion map
+        for (const roleId of rolesToRemoveDueToExclusion) {
+            if (member.roles.cache.has(roleId)) {
+                await member.roles.remove(roleId);
+            }
         }
 
         return interaction.reply({ content: "✅ Your roles have been updated!", ephemeral: true });
@@ -482,7 +534,7 @@ client.on("interactionCreate", async (interaction) => {
       const member = interaction.member;
       const hasRole = member.roles.cache.has(roleId);
 
-      // Find the menu this role belongs to for regional limit checking
+      // Find the menu this role belongs to for regional limit checking and exclusion map
       let targetMenu = null;
       for (const [menuId, menu] of db.menuData) {
         if (menu.buttonRoles.includes(roleId)) {
@@ -491,8 +543,12 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (targetMenu && !hasRole) {
-        // Check if adding this role would violate regional limits
+      if (!targetMenu) {
+        return interaction.reply({ content: "Menu not found for this role.", ephemeral: true });
+      }
+
+      // If adding a role, check regional limits
+      if (!hasRole) { // Only check limits when adding a role
         const currentRoles = Array.from(member.roles.cache.keys());
         const newRoles = [...currentRoles, roleId];
         const violations = checkRegionalLimits(member, targetMenu, newRoles);
@@ -502,6 +558,16 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
+      // Apply exclusion logic for buttons (only when adding a role)
+      if (!hasRole && targetMenu.exclusionMap[roleId]) {
+        for (const excludedRoleId of targetMenu.exclusionMap[roleId]) {
+          if (member.roles.cache.has(excludedRoleId)) {
+            await member.roles.remove(excludedRoleId);
+          }
+        }
+      }
+
+      // Add or remove the clicked role
       if (hasRole) await member.roles.remove(roleId);
       else await member.roles.add(roleId);
 
