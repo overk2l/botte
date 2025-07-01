@@ -1,173 +1,255 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  Partials, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
-  StringSelectMenuBuilder,
-  SlashCommandBuilder,
-  Routes,
+// index.js
+require("dotenv").config();
+
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
   REST,
-} = require('discord.js');
-require('dotenv').config();
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  StringSelectMenuBuilder,
+} = require("discord.js");
+
+// Simple in-memory store for demo purposes.
+// Replace with your DB calls (e.g. Mongo, Postgres) in production.
+const db = {
+  menus: new Map(),          // guildId → [ menuId, … ]
+  menuData: new Map(),       // menuId → { guildId, name, desc, roles: [], channelId?, messageId? }
+  createMenu(guildId, name, desc) {
+    const id = Date.now().toString();
+    this.menus.has(guildId) || this.menus.set(guildId, []);
+    this.menus.get(guildId).push(id);
+    this.menuData.set(id, { guildId, name, desc, roles: [] });
+    return id;
+  },
+  getMenus(guildId) {
+    return (this.menus.get(guildId) || []).map(id => ({ id, ...this.menuData.get(id) }));
+  },
+  saveMenuRoles(menuId, roles) {
+    this.menuData.get(menuId).roles = roles;
+  },
+  getMenu(menuId) {
+    return this.menuData.get(menuId);
+  },
+  saveMessageId(menuId, channelId, messageId) {
+    const m = this.menuData.get(menuId);
+    m.channelId = channelId;
+    m.messageId = messageId;
+  }
+};
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+  intents: [GatewayIntentBits.Guilds],
+  partials: [Partials.Channel],
 });
 
-// Slash command data
-const commands = [
-  new SlashCommandBuilder()
-    .setName('reactionrole')
-    .setDescription('Create a customizable reaction role menu'),
-].map(command => command.toJSON());
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
 
-const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
-// Register commands on startup
-(async () => {
-  try {
-    console.log('Started refreshing application (/) commands.');
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-      { body: commands },
-    );
-    console.log('Successfully reloaded application (/) commands.');
-  } catch (error) {
-    console.error(error);
-  }
-})();
-
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  // Deploy /dashboard command on startup:
+  const rest = new REST().setToken(process.env.TOKEN);
+  const cmd = new SlashCommandBuilder()
+    .setName("dashboard")
+    .setDescription("Open the guild dashboard")
+    .toJSON();
+  await rest.put(
+    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+    { body: [cmd] }
+  );
+  console.log("📑 /dashboard command deployed");
 });
 
-client.on('interactionCreate', async interaction => {
-  // Handle slash command
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'reactionrole') {
-      // Fetch roles dynamically, exclude @everyone and managed roles
-      const roles = interaction.guild.roles.cache
-        .filter(role => !role.managed && role.id !== interaction.guild.id)
-        .sort((a, b) => b.position - a.position);
-
-      const options = roles.map(role => ({
-        label: role.name,
-        value: role.id,
-        description: `Assign yourself the ${role.name} role`,
-      })).slice(0, 25); // Max 25 options in select menu
-
-      if (options.length === 0) {
-        return interaction.reply({ content: 'No assignable roles found.', ephemeral: true });
-      }
-
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('select_roles')
-        .setPlaceholder('Select roles to include in reaction menu (max 5)')
-        .addOptions(options)
-        .setMinValues(1)
-        .setMaxValues(Math.min(5, options.length)); // Max 5 selections allowed
-
-      const row = new ActionRowBuilder().addComponents(selectMenu);
-
-      await interaction.reply({
-        content: 'Select which roles you want to include in the reaction role menu:',
-        components: [row],
-        ephemeral: true,
-      });
-    }
+client.on("interactionCreate", async interaction => {
+  // 1) Slash command handler
+  if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
+    return sendMainDashboard(interaction);
   }
 
-  // Handle role selection from dropdown for setting up reaction roles
-  if (interaction.isStringSelectMenu() && interaction.customId === 'select_roles') {
-    const selectedRoleIds = interaction.values; // roles you picked
-
-    const embed = {
-      title: 'Choose Your Roles!',
-      description: 'Use the buttons or dropdown below to assign or remove roles.',
-      color: 0x0099ff,
-    };
-
-    // Create buttons for each selected role (max 5)
-    const buttons = selectedRoleIds.map(roleId => {
-      const role = interaction.guild.roles.cache.get(roleId);
-      return new ButtonBuilder()
-        .setCustomId(roleId)
-        .setLabel(role.name)
-        .setStyle(ButtonStyle.Primary);
-    });
-
-    // Dropdown menu with same roles
-    const dropdownOptions = selectedRoleIds.map(roleId => {
-      const role = interaction.guild.roles.cache.get(roleId);
-      return {
-        label: role.name,
-        value: role.id,
-      };
-    });
-
-    const dropdownMenu = new StringSelectMenuBuilder()
-      .setCustomId('role_dropdown')
-      .setPlaceholder('Select roles to add or remove')
-      .addOptions(dropdownOptions)
-      .setMinValues(1)
-      .setMaxValues(dropdownOptions.length);
-
-    // Build action rows
-    const buttonRow = new ActionRowBuilder().addComponents(buttons);
-    const dropdownRow = new ActionRowBuilder().addComponents(dropdownMenu);
-
-    // Send reaction role message to the channel (not ephemeral)
-    await interaction.reply({ embeds: [embed], components: [buttonRow, dropdownRow], ephemeral: false });
-  }
-
-  // Handle button clicks for toggling roles
+  // 2) Button handler
   if (interaction.isButton()) {
-    const roleId = interaction.customId;
-    const member = interaction.member;
-
-    try {
-      if (member.roles.cache.has(roleId)) {
-        await member.roles.remove(roleId);
-        await interaction.reply({ content: `Removed <@&${roleId}> role!`, ephemeral: true });
-      } else {
-        await member.roles.add(roleId);
-        await interaction.reply({ content: `Added <@&${roleId}> role!`, ephemeral: true });
+    const [ctx, action, menuId] = interaction.customId.split(":");
+    if (ctx === "dash") {
+      if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
+      if (action === "back") return sendMainDashboard(interaction);
+    }
+    if (ctx === "rr") {
+      if (action === "create") {
+        const modal = new ModalBuilder()
+          .setCustomId("rr:modal:create")
+          .setTitle("New Reaction Role Menu")
+          .addComponents(
+            new TextInputBuilder()
+              .setCustomId("name")
+              .setLabel("Menu Name")
+              .setStyle(TextInputStyle.Short),
+            new TextInputBuilder()
+              .setCustomId("desc")
+              .setLabel("Embed Description")
+              .setStyle(TextInputStyle.Paragraph)
+          );
+        return interaction.showModal(modal);
       }
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({ content: 'I cannot manage that role.', ephemeral: true });
+      if (action === "publish") {
+        return publishMenu(interaction, menuId);
+      }
     }
   }
 
-  // Handle dropdown role toggle
-  if (interaction.isStringSelectMenu() && interaction.customId === 'role_dropdown') {
-    const selectedRoleIds = interaction.values;
+  // 3) Modal submit handler
+  if (interaction.isModalSubmit() && interaction.customId === "rr:modal:create") {
+    const name = interaction.fields.getTextInputValue("name");
+    const desc = interaction.fields.getTextInputValue("desc");
+    const menuId = db.createMenu(interaction.guild.id, name, desc);
+
+    // Build a SelectMenu of roles (first 25)
+    const roles = interaction.guild.roles.cache
+      .filter(r => !r.managed && r.id !== interaction.guild.id)
+      .map(r => ({ label: r.name, value: r.id }));
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`rr:select:${menuId}`)
+      .setMinValues(1)
+      .setMaxValues(roles.length)
+      .addOptions(roles.slice(0, 25));
+    const row = new ActionRowBuilder().addComponents(select);
+
+    return interaction.reply({
+      content: "Select roles to include:",
+      components: [row],
+      ephemeral: true
+    });
+  }
+
+  // 4) Select menu handler
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select:")) {
+    const menuId = interaction.customId.split(":")[2];
+    const roleIds = interaction.values;
+    db.saveMenuRoles(menuId, roleIds);
+    // Offer Publish button
+    const publishBtn = new ButtonBuilder()
+      .setCustomId(`rr:publish:${menuId}`)
+      .setLabel("🚀 Publish")
+      .setStyle(ButtonStyle.Primary);
+    const backBtn = new ButtonBuilder()
+      .setCustomId("dash:back")
+      .setLabel("🔙 Back")
+      .setStyle(ButtonStyle.Secondary);
+    const row = new ActionRowBuilder().addComponents(publishBtn, backBtn);
+
+    return interaction.update({
+      content: "✅ Menu created! Click Publish to post it in this channel.",
+      components: [row],
+    });
+  }
+});
+
+// ---- Helper Functions ----
+
+async function sendMainDashboard(interaction) {
+  const embed = new EmbedBuilder()
+    .setTitle("🛠️ Server Dashboard")
+    .setDescription("Click a button to configure:");
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dash:reaction-roles")
+      .setLabel("Reaction Roles")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("dash:back")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true)
+  );
+
+  await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+}
+
+async function showReactionRolesDashboard(interaction) {
+  const menus = db.getMenus(interaction.guild.id);
+
+  const embed = new EmbedBuilder()
+    .setTitle("🎨 Reaction Roles")
+    .setDescription(
+      menus.length
+        ? menus.map((m, i) => `**${i + 1}.** ${m.name}`).join("\n")
+        : "*No menus yet*"
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("rr:create")
+      .setLabel("➕ Create New")
+      .setStyle(ButtonStyle.Success),
+    ...menus.map((m, i) =>
+      new ButtonBuilder()
+        .setCustomId(`rr:edit:${m.id}`)
+        .setLabel(`✏️ Edit ${i + 1}`)
+        .setStyle(ButtonStyle.Primary)
+    ),
+    new ButtonBuilder()
+      .setCustomId("dash:back")
+      .setLabel("🔙 Back")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  await interaction.update({ embeds: [embed], components: [row] });
+}
+
+async function publishMenu(interaction, menuId) {
+  const menu = db.getMenu(menuId);
+  if (!menu) return interaction.reply({ content: "❌ Menu not found.", ephemeral: true });
+
+  // Build public SelectMenu
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`rr:use:${menuId}`)
+    .setMinValues(0)
+    .setMaxValues(menu.roles.length)
+    .addOptions(
+      menu.roles.map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        return { label: role.name, value: roleId };
+      })
+    );
+
+  const embed = new EmbedBuilder().setTitle(menu.name).setDescription(menu.desc);
+  const row = new ActionRowBuilder().addComponents(select);
+
+  // Send or edit the message in the same channel
+  const channel = interaction.channel;
+  const msg = await channel.send({ embeds: [embed], components: [row] });
+  db.saveMessageId(menuId, channel.id, msg.id);
+
+  await interaction.update({
+    content: "🚀 Published!",
+    components: []
+  });
+}
+
+// Finally, handle actual role toggling on public select menus:
+client.on("interactionCreate", async interaction => {
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:use:")) {
+    const menuId = interaction.customId.split(":")[2];
+    const menu = db.getMenu(menuId);
+    const chosen = interaction.values;            // roles user selected
     const member = interaction.member;
 
-    try {
-      // Calculate roles to add/remove based on current roles
-      const rolesToAdd = selectedRoleIds.filter(roleId => !member.roles.cache.has(roleId));
-      const rolesToRemove = member.roles.cache
-        .filter(role => selectedRoleIds.includes(role.id))
-        .map(role => role.id)
-        .filter(id => !rolesToAdd.includes(id));
-
-      await member.roles.add(rolesToAdd);
-      await member.roles.remove(rolesToRemove);
-
-      await interaction.reply({ content: 'Roles updated!', ephemeral: true });
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({ content: 'I cannot update roles.', ephemeral: true });
+    // Toggle each role
+    for (const roleId of menu.roles) {
+      if (chosen.includes(roleId)) {
+        if (!member.roles.cache.has(roleId)) await member.roles.add(roleId);
+      } else {
+        if (member.roles.cache.has(roleId)) await member.roles.remove(roleId);
+      }
     }
+    return interaction.reply({ content: "Your roles have been updated!", ephemeral: true });
   }
 });
 
