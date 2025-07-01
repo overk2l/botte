@@ -9,7 +9,6 @@ const {
   SlashCommandBuilder,
   Routes,
   REST,
-  EmbedBuilder,
 } = require('discord.js');
 require('dotenv').config();
 
@@ -27,12 +26,12 @@ const client = new Client({
 const commands = [
   new SlashCommandBuilder()
     .setName('reactionrole')
-    .setDescription('Send customizable reaction role menu'),
-].map(cmd => cmd.toJSON());
+    .setDescription('Create a customizable reaction role menu'),
+].map(command => command.toJSON());
 
-// Register slash commands
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
+// Register commands on startup
 (async () => {
   try {
     console.log('Started refreshing application (/) commands.');
@@ -50,122 +49,126 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Customize embed content here:
-const embedConfig = {
-  title: "Choose Your Colour & Ping Roles!・⇲",
-  description: 
-    "✨ Express yourself with a custom color! ✨\nChoose the color that best fits your vibe — you can change it anytime below.\n\n" +
-    "Notification Roles – Stay updated with what matters:\n" +
-    "📢 ・➤ Announcement Ping — Get pings for updates.\n" +
-    "⚔️ ・➤ War Ping — Get pinged for a war.\n" +
-    "🧑🏻‍🤝‍🧑🏻 ・➤ Teamer Ping — Get pinged for teamers.\n\n" +
-    "⬇️ Choose colour & ping roles below! ⬇️",
-  color: 0x0099ff, // Change this to any hex color (0xRRGGBB)
-  imageUrl: null, // Set to a valid image URL or null
-};
-
 client.on('interactionCreate', async interaction => {
-  if (interaction.isChatInputCommand() && interaction.commandName === 'reactionrole') {
-    // Fetch the guild roles fresh:
-    const guild = interaction.guild;
-    if (!guild) return interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+  // Handle slash command
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === 'reactionrole') {
+      // Fetch roles dynamically, exclude @everyone and managed roles
+      const roles = interaction.guild.roles.cache
+        .filter(role => !role.managed && role.id !== interaction.guild.id)
+        .sort((a, b) => b.position - a.position);
 
-    await guild.roles.fetch();
+      const options = roles.map(role => ({
+        label: role.name,
+        value: role.id,
+        description: `Assign yourself the ${role.name} role`,
+      })).slice(0, 25); // Max 25 options in select menu
 
-    // Filter roles by some criteria — for example, exclude @everyone and bots:
-    const allRoles = guild.roles.cache.filter(r => r.id !== guild.id && !r.managed);
+      if (options.length === 0) {
+        return interaction.reply({ content: 'No assignable roles found.', ephemeral: true });
+      }
 
-    // You can filter roles by name or color to decide which go in color roles or notification roles:
-    // For example:
-    const colorRoles = allRoles.filter(r => ['red', 'blue', 'green'].some(c => r.name.toLowerCase().includes(c)));
-    const notifRoles = allRoles.filter(r => ['announcement', 'war', 'teamer'].some(w => r.name.toLowerCase().includes(w)));
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('select_roles')
+        .setPlaceholder('Select roles to include in reaction menu (max 5)')
+        .addOptions(options)
+        .setMinValues(1)
+        .setMaxValues(Math.min(5, options.length)); // Max 5 selections allowed
 
-    // Build color roles options for dropdown
-    const colorOptions = colorRoles.map(r => ({
-      label: r.name,
-      value: r.id,
-      description: `Get the ${r.name} role`,
-      // You can assign emoji by color if you want, or leave empty:
-      emoji: getEmojiByRoleName(r.name),
-    }));
+      const row = new ActionRowBuilder().addComponents(selectMenu);
 
-    // Build notification roles buttons
-    const notifButtons = notifRoles.map(r => 
-      new ButtonBuilder()
-        .setCustomId(r.id)
-        .setLabel(r.name)
-        .setStyle(ButtonStyle.Primary) // You can pick styles dynamically if you want
-    );
-
-    // Create dropdown menu for color roles
-    const colorSelectMenu = new StringSelectMenuBuilder()
-      .setCustomId('color_roles')
-      .setPlaceholder('🎨 Select a colour...')
-      .addOptions(colorOptions)
-      .setMinValues(1)
-      .setMaxValues(colorOptions.length);
-
-    const colorRow = new ActionRowBuilder().addComponents(colorSelectMenu);
-    const buttonRow = new ActionRowBuilder().addComponents(notifButtons);
-
-    // Build embed
-    const embed = new EmbedBuilder()
-      .setTitle(embedConfig.title)
-      .setDescription(embedConfig.description)
-      .setColor(embedConfig.color);
-
-    if (embedConfig.imageUrl) {
-      embed.setImage(embedConfig.imageUrl);
+      await interaction.reply({
+        content: 'Select which roles you want to include in the reaction role menu:',
+        components: [row],
+        ephemeral: true,
+      });
     }
-
-    await interaction.reply({ embeds: [embed], components: [colorRow, buttonRow], ephemeral: false });
   }
 
-  // Role add/remove on interaction
-  if (interaction.isButton() || interaction.isStringSelectMenu()) {
+  // Handle role selection from dropdown for setting up reaction roles
+  if (interaction.isStringSelectMenu() && interaction.customId === 'select_roles') {
+    const selectedRoleIds = interaction.values; // roles you picked
+
+    const embed = {
+      title: 'Choose Your Roles!',
+      description: 'Use the buttons or dropdown below to assign or remove roles.',
+      color: 0x0099ff,
+    };
+
+    // Create buttons for each selected role (max 5)
+    const buttons = selectedRoleIds.map(roleId => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      return new ButtonBuilder()
+        .setCustomId(roleId)
+        .setLabel(role.name)
+        .setStyle(ButtonStyle.Primary);
+    });
+
+    // Dropdown menu with same roles
+    const dropdownOptions = selectedRoleIds.map(roleId => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      return {
+        label: role.name,
+        value: role.id,
+      };
+    });
+
+    const dropdownMenu = new StringSelectMenuBuilder()
+      .setCustomId('role_dropdown')
+      .setPlaceholder('Select roles to add or remove')
+      .addOptions(dropdownOptions)
+      .setMinValues(1)
+      .setMaxValues(dropdownOptions.length);
+
+    // Build action rows
+    const buttonRow = new ActionRowBuilder().addComponents(buttons);
+    const dropdownRow = new ActionRowBuilder().addComponents(dropdownMenu);
+
+    // Send reaction role message to the channel (not ephemeral)
+    await interaction.reply({ embeds: [embed], components: [buttonRow, dropdownRow], ephemeral: false });
+  }
+
+  // Handle button clicks for toggling roles
+  if (interaction.isButton()) {
+    const roleId = interaction.customId;
     const member = interaction.member;
 
-    if (interaction.isButton()) {
-      const roleId = interaction.customId;
-      try {
-        if (member.roles.cache.has(roleId)) {
-          await member.roles.remove(roleId);
-          await interaction.reply({ content: `Role removed!`, ephemeral: true });
-        } else {
-          await member.roles.add(roleId);
-          await interaction.reply({ content: `Role added!`, ephemeral: true });
-        }
-      } catch (error) {
-        console.error(error);
-        await interaction.reply({ content: 'I cannot manage that role.', ephemeral: true });
+    try {
+      if (member.roles.cache.has(roleId)) {
+        await member.roles.remove(roleId);
+        await interaction.reply({ content: `Removed <@&${roleId}> role!`, ephemeral: true });
+      } else {
+        await member.roles.add(roleId);
+        await interaction.reply({ content: `Added <@&${roleId}> role!`, ephemeral: true });
       }
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({ content: 'I cannot manage that role.', ephemeral: true });
     }
+  }
 
-    if (interaction.isStringSelectMenu()) {
-      const selectedRoleIds = interaction.values;
-      const allOptions = interaction.component.options.map(o => o.value);
-      const rolesToAdd = selectedRoleIds.filter(id => !member.roles.cache.has(id));
-      const rolesToRemove = allOptions.filter(id => !selectedRoleIds.includes(id) && member.roles.cache.has(id));
+  // Handle dropdown role toggle
+  if (interaction.isStringSelectMenu() && interaction.customId === 'role_dropdown') {
+    const selectedRoleIds = interaction.values;
+    const member = interaction.member;
 
-      try {
-        await member.roles.add(rolesToAdd);
-        await member.roles.remove(rolesToRemove);
-        await interaction.reply({ content: `Roles updated!`, ephemeral: true });
-      } catch (error) {
-        console.error(error);
-        await interaction.reply({ content: 'I cannot update roles.', ephemeral: true });
-      }
+    try {
+      // Calculate roles to add/remove based on current roles
+      const rolesToAdd = selectedRoleIds.filter(roleId => !member.roles.cache.has(roleId));
+      const rolesToRemove = member.roles.cache
+        .filter(role => selectedRoleIds.includes(role.id))
+        .map(role => role.id)
+        .filter(id => !rolesToAdd.includes(id));
+
+      await member.roles.add(rolesToAdd);
+      await member.roles.remove(rolesToRemove);
+
+      await interaction.reply({ content: 'Roles updated!', ephemeral: true });
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({ content: 'I cannot update roles.', ephemeral: true });
     }
   }
 });
-
-// Helper to assign emoji by role name (simple example)
-function getEmojiByRoleName(name) {
-  name = name.toLowerCase();
-  if (name.includes('red')) return '🔴';
-  if (name.includes('blue')) return '🔵';
-  if (name.includes('green')) return '🟢';
-  return null;
-}
 
 client.login(process.env.TOKEN);
