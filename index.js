@@ -46,6 +46,7 @@ const db = {
       roleRequirements: {},   // New: { targetRoleId: [requiredRoleId1, requiredRoleId2] }
       channelId: null,
       messageId: null,
+      enableClearRolesButton: true, // New: Option to enable/disable clear roles button
       // Embed Customization Fields
       embedColor: null,
       embedThumbnail: null,
@@ -120,6 +121,11 @@ const db = {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     Object.assign(menu, embedSettings); 
+  },
+  saveEnableClearRolesButton(menuId, enabled) { // New function to save clear roles button state
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.enableClearRolesButton = enabled;
   },
   getMenu(menuId) {
     return this.menuData.get(menuId);
@@ -724,6 +730,18 @@ client.on("interactionCreate", async (interaction) => {
             });
         }
 
+        if (action === "toggle_clear_roles_button") { // New button action to toggle clear roles button
+            const targetMenuId = extra;
+            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(targetMenuId);
+            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+            const newState = !menu.enableClearRolesButton;
+            db.saveEnableClearRolesButton(targetMenuId, newState);
+            await interaction.reply({ content: `✅ "Clear My Roles" button is now ${newState ? "enabled" : "disabled"} for this menu.`, ephemeral: true });
+            return showMenuConfiguration(interaction, targetMenuId);
+        }
+
         if (action === "config") {
           const targetMenuId = extra; 
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
@@ -1325,6 +1343,11 @@ async function showMenuConfiguration(interaction, menuId) {
         name: "Dropdown Role Descriptions",
         value: Object.keys(menu.dropdownRoleDescriptions).length ? "Configured" : "None",
         inline: true
+      },
+      { // New field for Clear Roles Button status
+        name: "Clear Roles Button",
+        value: menu.enableClearRolesButton ? "Enabled" : "Disabled",
+        inline: true
       }
     );
 
@@ -1345,11 +1368,12 @@ async function showMenuConfiguration(interaction, menuId) {
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`rr:set_role_descriptions:${menuId}`).setLabel("📝 Set Dropdown Descriptions").setStyle(ButtonStyle.Primary).setDisabled(!menu.dropdownRoles.length), // New button
     new ButtonBuilder().setCustomId(`rr:set_role_requirements:${menuId}`).setLabel("🔒 Set Role Requirements").setStyle(ButtonStyle.Primary), // New button
-    new ButtonBuilder().setCustomId(`rr:edit_published:${menuId}`).setLabel("✏️ Edit Published").setStyle(ButtonStyle.Secondary).setDisabled(!menu.messageId), // New button
-    new ButtonBuilder().setCustomId(`rr:delete_published:${menuId}`).setLabel("🗑️ Delete Published").setStyle(ButtonStyle.Danger).setDisabled(!menu.messageId) // New button
+    new ButtonBuilder().setCustomId(`rr:toggle_clear_roles_button:${menuId}`).setLabel(`${menu.enableClearRolesButton ? "Disable" : "Enable"} Clear Roles`).setStyle(ButtonStyle.Secondary), // New button
+    new ButtonBuilder().setCustomId(`rr:edit_published:${menuId}`).setLabel("✏️ Edit Published").setStyle(ButtonStyle.Secondary).setDisabled(!menu.messageId) // New button
   );
 
   const row4 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`rr:delete_published:${menuId}`).setLabel("🗑️ Delete Published").setStyle(ButtonStyle.Danger).setDisabled(!menu.messageId), // Moved to row 4
     new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
   );
@@ -1467,7 +1491,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
     }
   }
 
-  if (menu.dropdownRoles.length > 0 || menu.buttonRoles.length > 0) {
+  // Conditionally add "Clear My Roles" button
+  if (menu.enableClearRolesButton && (menu.dropdownRoles.length > 0 || menu.buttonRoles.length > 0)) {
       const clearButtonRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
               .setCustomId(`rr:clear_roles:${menuId}`)
