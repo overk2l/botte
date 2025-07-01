@@ -155,7 +155,7 @@ client.on("interactionCreate", async (interaction) => {
       const ctx = parts[0];
       const action = parts[1];
       const extra = parts[2];
-      const menuId = parts[3]; // For buttons, menuId is usually parts[3] if action is like 'type' or 'addemoji'
+      const menuId = parts[3]; 
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -186,7 +186,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "type") {
-          const targetMenuId = menuId; // menuId is parts[3] here
+          const targetMenuId = menuId; 
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
           db.saveSelectionType(targetMenuId, selectedTypes);
@@ -207,21 +207,17 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "addemoji") {
-          // Show modal to add emojis to roles for dropdown or button
-          const targetMenuId = menuId; // menuId is parts[3] here
+          const targetMenuId = menuId; 
           if (!targetMenuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
-          // Prepare modal with text inputs per role for emojis
-          const type = extra; // dropdown or button
+          const type = extra; 
           const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
           if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
 
           const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${targetMenuId}`).setTitle(`Add Emojis for ${type}`);
 
-          // Discord limits max 5 action rows per modal
-          // So max 5 roles at once — ideally extend with paginated modals but keep simple here
           const maxInputs = Math.min(roles.length, 5);
           for (let i = 0; i < maxInputs; i++) {
             const roleId = roles[i];
@@ -243,8 +239,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setlimits") {
-          // Show modal to set regional limits (exclusion map moved to separate flow)
-          const targetMenuId = extra; // menuId is parts[2] here
+          const targetMenuId = extra; 
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -295,7 +290,7 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        if (action === "setexclusions") { // New button action for interactive exclusions
+        if (action === "setexclusions") { 
           const targetMenuId = extra;
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
@@ -319,52 +314,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "config") {
-          // Show configuration options for a menu
-          const targetMenuId = extra; // menuId is parts[2] here
+          const targetMenuId = extra; 
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
-
-          const embed = new EmbedBuilder()
-            .setTitle(`⚙️ Configure: ${menu.name}`)
-            .setDescription(`**Description:** ${menu.desc}`)
-            .addFields(
-              { name: "Selection Type", value: menu.selectionType.join(", ") || "None", inline: true },
-              { name: "Dropdown Roles", value: menu.dropdownRoles.length.toString(), inline: true },
-              { name: "Button Roles", value: menu.buttonRoles.length.toString(), inline: true },
-              { 
-                name: "Regional Limits", 
-                value: Object.keys(menu.regionalLimits).length 
-                  ? Object.entries(menu.regionalLimits).map(([region, data]) => `${region}: ${data.limit || 0}`).join(", ")
-                  : "None set", 
-                inline: false 
-              },
-              { // New field for exclusion map
-                name: "Exclusion Map",
-                value: Object.keys(menu.exclusionMap).length
-                  ? Object.entries(menu.exclusionMap).map(([triggerId, excludedIds]) => {
-                      const triggerRole = interaction.guild.roles.cache.get(triggerId);
-                      const excludedRoleNames = excludedIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
-                      return `**${triggerRole?.name || `Unknown Role (${triggerId})`}** excludes: ${excludedRoleNames}`;
-                    }).join('\n')
-                  : "None set",
-                inline: false
-              }
-            );
-
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${targetMenuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
-            new ButtonBuilder().setCustomId(`rr:addemoji:button:${targetMenuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
-            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Regional Limits").setStyle(ButtonStyle.Secondary), // Label reverted
-            new ButtonBuilder().setCustomId(`rr:setexclusions:${targetMenuId}`).setLabel("🚫 Set Exclusions").setStyle(ButtonStyle.Danger) // New button
-          );
-
-          const row2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rr:publish:${targetMenuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
-          );
-
-          return interaction.update({ embeds: [embed], components: [row, row2] });
+          return showMenuConfiguration(interaction, targetMenuId); // Call the dedicated function
         }
       }
     }
@@ -373,7 +325,6 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
 
       if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "create") {
-        // Create menu from modal input
         const name = interaction.fields.getTextInputValue("name");
         const desc = interaction.fields.getTextInputValue("desc");
         if (!name || !desc) return interaction.reply({ content: "Name and description are required.", ephemeral: true });
@@ -389,8 +340,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "addemoji") {
-        // Save emojis from modal input
-        const type = parts[3]; // dropdown or button
+        const type = parts[3]; 
         const menuId = parts[4];
         const menu = db.getMenu(menuId);
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -456,7 +406,6 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId.startsWith("rr:selectroles:")) {
-        // Save selected roles per type (dropdown/button)
         const [_, __, type, menuId] = interaction.customId.split(":");
         if (!interaction.values.length) return interaction.reply({ content: "❌ No roles selected.", ephemeral: true });
 
@@ -484,16 +433,11 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
-        // All roles selected, show configuration options
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`rr:config:${menuId}`).setLabel("⚙️ Configure").setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish Now").setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
-        );
-        return interaction.update({ content: "✅ All roles saved! Configure emojis and settings, or publish now.", components: [row] });
+        // After all roles are selected, directly show the menu configuration
+        return showMenuConfiguration(interaction, menuId);
       }
 
-      if (interaction.customId.startsWith("rr:select_trigger_role:")) { // New handler for selecting trigger role
+      if (interaction.customId.startsWith("rr:select_trigger_role:")) { 
         const menuId = interaction.customId.split(":")[2];
         const triggerRoleId = interaction.values[0];
         const menu = db.getMenu(menuId);
@@ -501,7 +445,7 @@ client.on("interactionCreate", async (interaction) => {
 
         const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
         const options = allRoles
-            .filter(r => r.id !== triggerRoleId) // Exclude the trigger role itself
+            .filter(r => r.id !== triggerRoleId) 
             .map(r => ({ label: r.name, value: r.id }));
 
         if (!options.length) {
@@ -511,7 +455,7 @@ client.on("interactionCreate", async (interaction) => {
         const selectExcludedRoles = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_excluded_roles:${menuId}:${triggerRoleId}`)
             .setPlaceholder(`Select roles to be removed when ${interaction.guild.roles.cache.get(triggerRoleId)?.name} is picked...`)
-            .setMinValues(0) // Allow selecting no roles if desired
+            .setMinValues(0) 
             .setMaxValues(options.length)
             .addOptions(options);
 
@@ -522,29 +466,21 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      if (interaction.customId.startsWith("rr:select_excluded_roles:")) { // New handler for selecting excluded roles
+      if (interaction.customId.startsWith("rr:select_excluded_roles:")) { 
         const [_, __, menuId, triggerRoleId] = interaction.customId.split(":");
         const excludedRoleIds = interaction.values;
         const menu = db.getMenu(menuId);
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
-        // Update the exclusion map
         const currentExclusionMap = menu.exclusionMap;
         currentExclusionMap[triggerRoleId] = excludedRoleIds;
         db.saveExclusionMap(menuId, currentExclusionMap);
 
-        const triggerRoleName = interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role";
-        const excludedRoleNames = excludedRoleIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
-
-        return interaction.update({
-            content: `✅ Exclusion rule saved: Picking **${triggerRoleName}** will now remove: ${excludedRoleNames || "no roles"}.`,
-            components: [],
-            ephemeral: true
-        });
+        // After saving, immediately show the updated menu configuration
+        return showMenuConfiguration(interaction, menuId);
       }
 
       if (interaction.customId.startsWith("rr:use:")) {
-        // Handle dropdown role selection by users
         const menuId = interaction.customId.split(":")[2];
         const menu = db.getMenu(menuId);
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -552,13 +488,11 @@ client.on("interactionCreate", async (interaction) => {
         const chosen = interaction.values;
         const member = interaction.member;
 
-        // Check regional limits
         const violations = checkRegionalLimits(member, menu, chosen);
         if (violations.length > 0) {
           return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
         }
 
-        // Apply exclusion logic for dropdowns
         const rolesToRemoveDueToExclusion = new Set();
         for (const selectedRoleId of chosen) {
           if (menu.exclusionMap[selectedRoleId]) {
@@ -570,7 +504,6 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
-        // Remove roles not chosen that user has from dropdownRoles AND roles from exclusion map
         for (const roleId of menu.dropdownRoles) {
           if (chosen.includes(roleId)) {
             if (!member.roles.cache.has(roleId)) await member.roles.add(roleId);
@@ -579,7 +512,6 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
         
-        // Now remove roles based on exclusion map
         for (const roleId of rolesToRemoveDueToExclusion) {
             if (member.roles.cache.has(roleId)) {
                 await member.roles.remove(roleId);
@@ -591,12 +523,10 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("rr:assign:")) {
-      // Handle button role assign/remove
       const roleId = interaction.customId.split(":")[2];
       const member = interaction.member;
       const hasRole = member.roles.cache.has(roleId);
 
-      // Find the menu this role belongs to for regional limit checking and exclusion map
       let targetMenu = null;
       for (const [menuId, menu] of db.menuData) {
         if (menu.buttonRoles.includes(roleId)) {
@@ -609,8 +539,7 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: "Menu not found for this role.", ephemeral: true });
       }
 
-      // If adding a role, check regional limits
-      if (!hasRole) { // Only check limits when adding a role
+      if (!hasRole) { 
         const currentRoles = Array.from(member.roles.cache.keys());
         const newRoles = [...currentRoles, roleId];
         const violations = checkRegionalLimits(member, targetMenu, newRoles);
@@ -620,7 +549,6 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // Apply exclusion logic for buttons (only when adding a role)
       if (!hasRole && targetMenu.exclusionMap[roleId]) {
         for (const excludedRoleId of targetMenu.exclusionMap[roleId]) {
           if (member.roles.cache.has(excludedRoleId)) {
@@ -629,7 +557,6 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // Add or remove the clicked role
       if (hasRole) await member.roles.remove(roleId);
       else await member.roles.add(roleId);
 
@@ -669,7 +596,6 @@ async function showReactionRolesDashboard(interaction) {
     new ButtonBuilder().setCustomId("rr:create").setLabel("➕ Create New Menu").setStyle(ButtonStyle.Success)
   ];
   
-  // Add edit buttons for existing menus (max 4 to fit with back button)
   menus.slice(0, 3).forEach((m, i) => {
     buttons.push(new ButtonBuilder().setCustomId(`rr:config:${m.id}`).setLabel(`⚙️ Menu ${i + 1}`).setStyle(ButtonStyle.Primary));
   });
@@ -679,6 +605,56 @@ async function showReactionRolesDashboard(interaction) {
   const row = new ActionRowBuilder().addComponents(buttons);
   await interaction.update({ embeds: [embed], components: [row] });
 }
+
+// Renamed from rr:config to showMenuConfiguration for clarity and reusability
+async function showMenuConfiguration(interaction, menuId) {
+  const menu = db.getMenu(menuId);
+  if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+  const embed = new EmbedBuilder()
+    .setTitle(`⚙️ Configure: ${menu.name}`)
+    .setDescription(`**Description:** ${menu.desc}`)
+    .addFields(
+      { name: "Selection Type", value: menu.selectionType.join(", ") || "None", inline: true },
+      { name: "Dropdown Roles", value: menu.dropdownRoles.length.toString(), inline: true },
+      { name: "Button Roles", value: menu.buttonRoles.length.toString(), inline: true },
+      { 
+        name: "Regional Limits", 
+        value: Object.keys(menu.regionalLimits).length 
+          ? Object.entries(menu.regionalLimits).map(([region, data]) => `${region}: ${data.limit || 0}`).join(", ")
+          : "None set", 
+        inline: false 
+      },
+      { 
+        name: "Exclusion Map",
+        value: Object.keys(menu.exclusionMap).length
+          ? Object.entries(menu.exclusionMap).map(([triggerId, excludedIds]) => {
+              const triggerRole = interaction.guild.roles.cache.get(triggerId);
+              const excludedRoleNames = excludedIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+              return `**${triggerRole?.name || `Unknown Role (${triggerId})`}** excludes: ${excludedRoleNames}`;
+            }).join('\n')
+          : "None set",
+        inline: false
+      }
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${menuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
+    new ButtonBuilder().setCustomId(`rr:addemoji:button:${menuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
+    new ButtonBuilder().setCustomId(`rr:setlimits:${menuId}`).setLabel("📊 Regional Limits").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`rr:setexclusions:${menuId}`).setLabel("🚫 Set Exclusions").setStyle(ButtonStyle.Danger)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
+  );
+
+  // Determine if we need to reply or update
+  const method = interaction.replied || interaction.deferred ? 'editReply' : 'reply';
+  await interaction[method]({ embeds: [embed], components: [row, row2], ephemeral: true });
+}
+
 
 async function publishMenu(interaction, menuId) {
   const menu = db.getMenu(menuId);
