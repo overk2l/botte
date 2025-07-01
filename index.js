@@ -619,7 +619,7 @@ client.on("interactionCreate", async (interaction) => {
                 ? menu.buttonRoleOrder.map(id => {
                     const role = interaction.guild.roles.cache.get(id);
                     return role ? `${role.name} (${role.id})` : null;
-                }).filter(Boolean).join(', '); // Removed the extra colon here
+                }).filter(Boolean).join(', ')
                 : buttonRolesInMenu.map(role => `${role.name} (${role.id})`).join(', ');
 
             const modal = new ModalBuilder()
@@ -931,31 +931,6 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.reply({ content: "✅ Dropdown role descriptions saved!", ephemeral: true });
           return showMenuConfiguration(interaction, menuId);
       }
-
-      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_requirements") { // New modal submit handler for role requirements
-        const [_, __, menuId, targetRoleId] = interaction.customId.split(":");
-        const requiredRoleIds = interaction.values; // This will be from a select menu, not modal text inputs
-        const menu = db.getMenu(menuId);
-        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
-
-        const currentRoleRequirements = menu.roleRequirements;
-        currentRoleRequirements[targetRoleId] = requiredRoleIds;
-        db.saveRoleRequirements(menuId, currentRoleRequirements);
-
-        const targetRoleName = interaction.guild.roles.cache.get(targetRoleId)?.name || "Unknown Role";
-        const requiredRoleNames = requiredRoleIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rr:set_role_requirements:${menuId}`).setLabel("➕ Add Another Requirement").setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId(`rr:config:${menuId}`).setLabel("🔙 Back to Menu Config").setStyle(ButtonStyle.Secondary)
-        );
-
-        return interaction.update({
-            content: `✅ Requirement saved: Picking **${targetRoleName}** now requires: ${requiredRoleNames || "no roles"}. What would you like to do next?`,
-            components: [row],
-            ephemeral: true
-        });
-      }
     }
 
     if (interaction.isStringSelectMenu()) {
@@ -999,7 +974,7 @@ client.on("interactionCreate", async (interaction) => {
         const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
         const options = allRoles
             .filter(r => r.id !== triggerRoleId) 
-            .map(r => ({ label: r.name, value: r.id })));
+            .map(r => ({ label: r.name, value: r.id }));
 
         if (!options.length) {
             return interaction.update({ content: "No other roles available to exclude.", components: [], ephemeral: true });
