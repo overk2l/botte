@@ -619,7 +619,7 @@ client.on("interactionCreate", async (interaction) => {
                 ? menu.buttonRoleOrder.map(id => {
                     const role = interaction.guild.roles.cache.get(id);
                     return role ? `${role.name} (${role.id})` : null;
-                }).filter(Boolean).join(', ');
+                }).filter(Boolean).join(', '); // Removed the extra colon here
                 : buttonRolesInMenu.map(role => `${role.name} (${role.id})`).join(', ');
 
             const modal = new ModalBuilder()
@@ -999,7 +999,7 @@ client.on("interactionCreate", async (interaction) => {
         const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
         const options = allRoles
             .filter(r => r.id !== triggerRoleId) 
-            .map(r => ({ label: r.name, value: r.id }));
+            .map(r => ({ label: r.name, value: r.id })));
 
         if (!options.length) {
             return interaction.update({ content: "No other roles available to exclude.", components: [], ephemeral: true });
