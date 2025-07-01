@@ -15,165 +15,177 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
-  PermissionsBitField, // Import PermissionsBitField
-  WebhookClient, // Import WebhookClient
+  PermissionsBitField,
+  WebhookClient, // Keep WebhookClient import as it's used by SmartMessageSender
 } = require("discord.js");
 
-// Define SmartMessageSender class
+/**
+ * SmartMessageSender class to intelligently send messages via bot or webhook.
+ * It prioritizes interactive components to ensure functionality.
+ */
 class SmartMessageSender {
-    constructor(client) {
-        this.client = client;
-        this.webhooks = new Map(); // Store webhook clients per channel
-    }
+  constructor(client) {
+    this.client = client;
+    // Map to store WebhookClient instances per channel to avoid re-creating them.
+    this.webhooks = new Map(); 
+  }
 
-    /**
-     * Sets up or retrieves a webhook for a given channel.
-     * @param {Discord.TextChannel} channel - The channel to set up the webhook for.
-     * @param {object} options - Options for the webhook (name, avatar).
-     * @returns {Promise<Discord.Webhook | null>} The created or retrieved webhook, or null if failed.
-     */
-    async setupWebhook(channel, options = {}) {
-        try {
-            // Fetch existing webhooks for the channel
-            const webhooks = await channel.fetchWebhooks();
-            // Try to find a webhook named 'SmartSender' or the specified name
-            let webhook = webhooks.find(wh => wh.name === (options.name || 'SmartSender'));
-            
-            // If no suitable webhook exists, create one
-            if (!webhook) {
-                webhook = await channel.createWebhook({
-                    name: options.name || 'SmartSender',
-                    avatar: options.avatar || null,
-                    reason: 'For sending custom-branded messages'
-                });
-            }
-            
-            // Store the WebhookClient instance for future use
-            this.webhooks.set(channel.id, new WebhookClient({ id: webhook.id, token: webhook.token }));
-            return webhook;
-        } catch (error) {
-            console.error('Failed to setup webhook:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Sends a message, intelligently choosing between webhook and bot based on options.
-     * @param {Discord.TextChannel} channel - The channel to send the message to.
-     * @param {object} options - Message options.
-     * @param {string} [options.content] - The message content.
-     * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-     * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
-     * @param {boolean} [options.useWebhook=false] - Whether to attempt to use a webhook.
-     * @param {object} [options.webhookOptions={}] - Options for webhook (username, avatarURL).
-     * @returns {Promise<{message: Discord.Message, method: string}>} The sent message and the method used ('webhook' or 'bot').
-     * @throws {Error} If message sending fails.
-     */
-    async sendMessage(channel, options = {}) {
-        const {
-            content,
-            embeds,
-            components,
-            useWebhook = false,
-            webhookOptions = {}
-        } = options;
-
-        // Key Decision Logic:
-        // Use webhook if 'useWebhook' is true AND there are no interactive components.
-        // If components exist, we MUST use the bot to ensure interactivity.
-        const shouldUseWebhook = useWebhook && (!components || components.length === 0);
-
-        if (shouldUseWebhook) {
-            const sentMessage = await this.sendViaWebhook(channel, {
-                content,
-                embeds,
-                webhookOptions
-            });
-            return { message: sentMessage, method: 'webhook' };
-        } else {
-            const sentMessage = await this.sendViaBot(channel, {
-                content,
-                embeds,
-                components,
-                // Pass webhookOptions as 'webhookStyle' if useWebhook was intended,
-                // so sendViaBot can apply it to the embed's author field.
-                webhookStyle: useWebhook ? webhookOptions : null 
-            });
-            return { message: sentMessage, method: 'bot' };
-        }
-    }
-
-    /**
-     * Sends a message using a webhook.
-     * @param {Discord.TextChannel} channel - The channel to send the message to.
-     * @param {object} options - Message options.
-     * @param {string} [options.content] - The message content.
-     * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-     * @param {object} [options.webhookOptions] - Options for webhook (username, avatarURL).
-     * @returns {Promise<Discord.Message>} The sent message.
-     * @throws {Error} If webhook sending fails.
-     */
-    async sendViaWebhook(channel, options) {
-        const { content, embeds, webhookOptions } = options;
-        
-        // Get or set up the webhook client for this channel
-        let webhookClient = this.webhooks.get(channel.id);
-        if (!webhookClient) {
-            // Set up webhook with the custom name and avatar if provided
-            await this.setupWebhook(channel, { name: webhookOptions.username, avatar: webhookOptions.avatarURL });
-            webhookClient = this.webhooks.get(channel.id);
-        }
-
-        if (!webhookClient) {
-            throw new Error('Failed to setup webhook for sending.');
-        }
-
-        // Send the message using the webhook, applying custom username and avatar
-        return await webhookClient.send({
-            content,
-            embeds,
-            username: webhookOptions.username, // Use custom username
-            avatarURL: webhookOptions.avatarURL, // Use custom avatar
+  /**
+   * Sets up or retrieves a webhook for a given channel.
+   * If a webhook named 'SmartSender' (or custom name) doesn't exist, it creates one.
+   * Requires 'Manage Webhooks' permission.
+   * @param {Discord.TextChannel} channel - The channel to set up the webhook for.
+   * @param {object} [options] - Options for the webhook.
+   * @param {string} [options.name='SmartSender'] - The desired name for the webhook.
+   * @param {string} [options.avatar=null] - The URL for the webhook's avatar.
+   * @returns {Promise<Discord.Webhook | null>} The created or retrieved webhook, or null if failed.
+   */
+  async setupWebhook(channel, options = {}) {
+    try {
+      // Fetch existing webhooks in the channel
+      const webhooks = await channel.fetchWebhooks();
+      // Try to find an existing webhook by name
+      let webhook = webhooks.find(wh => wh.name === (options.name || 'SmartSender'));
+      
+      // If no suitable webhook is found, create a new one
+      if (!webhook) {
+        webhook = await channel.createWebhook({
+          name: options.name || 'SmartSender',
+          avatar: options.avatar || null,
+          reason: 'Created for SmartMessageSender functionality to send custom-branded messages.',
         });
+      }
+      
+      // Store the WebhookClient instance for this channel for efficient re-use
+      this.webhooks.set(channel.id, new WebhookClient({ id: webhook.id, token: webhook.token }));
+      return webhook;
+    } catch (error) {
+      console.error(`[SmartMessageSender] Failed to setup webhook in channel ${channel.id}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Sends a message, intelligently choosing between webhook and bot based on options.
+   * Prioritizes bot sending if interactive components are present.
+   * @param {Discord.TextChannel} channel - The channel to send the message to.
+   * @param {object} options - Message options.
+   * @param {string} [options.content] - The message content.
+   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
+   * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
+   * @param {boolean} [options.useWebhook=false] - Whether to attempt to use a webhook for non-interactive messages.
+   * @param {object} [options.webhookOptions={}] - Options for webhook (username, avatarURL) or embed author.
+   * @returns {Promise<{message: Discord.Message, method: string}>} The sent message and the method used ('webhook' or 'bot').
+   * @throws {Error} If message sending fails.
+   */
+  async sendMessage(channel, options = {}) {
+    const {
+      content,
+      embeds,
+      components,
+      useWebhook = false,
+      webhookOptions = {}
+    } = options;
+
+    // Determine if the message should be sent via webhook.
+    // Webhooks are only used if 'useWebhook' is true AND there are NO interactive components.
+    // If components exist, we MUST send via bot for interactivity.
+    const hasComponents = components && components.length > 0;
+    const shouldUseWebhook = useWebhook && !hasComponents;
+
+    if (shouldUseWebhook) {
+      // Send via webhook for custom branding on non-interactive messages
+      const sentMessage = await this.sendViaWebhook(channel, {
+        content,
+        embeds,
+        webhookOptions
+      });
+      return { message: sentMessage, method: 'webhook' };
+    } else {
+      // Send via bot for interactive messages, or if webhook wasn't requested/possible.
+      // If webhook style was requested but components forced bot send, apply styling to embed author.
+      const sentMessage = await this.sendViaBot(channel, {
+        content,
+        embeds,
+        components,
+        webhookStyle: useWebhook ? webhookOptions : null // Pass webhookOptions if useWebhook was true
+      });
+      return { message: sentMessage, method: 'bot' };
+    }
+  }
+
+  /**
+   * Sends a message using a webhook. This method is for non-interactive messages.
+   * @param {Discord.TextChannel} channel - The channel to send the message to.
+   * @param {object} options - Message options.
+   * @param {string} [options.content] - The message content.
+   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
+   * @param {object} [options.webhookOptions] - Options for webhook (username, avatarURL).
+   * @returns {Promise<Discord.Message>} The sent message.
+   * @throws {Error} If webhook sending fails.
+   */
+  async sendViaWebhook(channel, options) {
+    const { content, embeds, webhookOptions } = options;
+    
+    // Get or set up the webhook client for this channel
+    let webhookClient = this.webhooks.get(channel.id);
+    if (!webhookClient) {
+      // Use the provided webhookOptions for the webhook's name and avatar when setting it up
+      await this.setupWebhook(channel, { name: webhookOptions.username, avatar: webhookOptions.avatarURL });
+      webhookClient = this.webhooks.get(channel.id);
     }
 
-    /**
-     * Sends a message directly as the bot.
-     * @param {Discord.TextChannel} channel - The channel to send the message to.
-     * @param {object} options - Message options.
-     * @param {string} [options.content] - The message content.
-     * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-     * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
-     * @param {object} [options.webhookStyle] - Options to mimic webhook style (username, avatarURL) in embed author.
-     * @returns {Promise<Discord.Message>} The sent message.
-     * @throws {Error} If bot message sending fails.
-     */
-    async sendViaBot(channel, options) {
-        const { content, embeds, components, webhookStyle } = options;
-        
-        const messagePayload = {
-            content,
-            embeds: embeds ? [...embeds] : [], // Create a copy to avoid modifying original embed array
-            components
-        };
-
-        // If 'webhookStyle' was requested (meaning useWebhook was true but components forced bot send),
-        // modify the first embed to include custom author fields to mimic webhook appearance.
-        if (webhookStyle && messagePayload.embeds && messagePayload.embeds.length > 0) {
-            // Create a new EmbedBuilder from the existing one to ensure mutability
-            const newEmbed = EmbedBuilder.from(messagePayload.embeds[0]);
-            newEmbed.setAuthor({
-                name: webhookStyle.username || 'Custom User', // Use provided username or default
-                iconURL: webhookStyle.avatarURL || null // Use provided avatarURL or null
-            });
-            messagePayload.embeds[0] = newEmbed; // Replace the original embed with the modified one
-        }
-
-        return await channel.send(messagePayload);
+    if (!webhookClient) {
+      throw new Error('Failed to obtain a webhook client for sending.');
     }
+
+    // Send the message using the webhook, applying custom username and avatar
+    return await webhookClient.send({
+      content,
+      embeds,
+      username: webhookOptions.username, // Custom username for the webhook message
+      avatarURL: webhookOptions.avatarURL, // Custom avatar for the webhook message
+    });
+  }
+
+  /**
+   * Sends a message directly as the bot. This method is for interactive messages.
+   * If 'webhookStyle' is provided, it applies custom branding to the embed's author field.
+   * @param {Discord.TextChannel} channel - The channel to send the message to.
+   * @param {object} options - Message options.
+   * @param {string} [options.content] - The message content.
+   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
+   * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
+   * @param {object} [options.webhookStyle] - Options to mimic webhook style (username, avatarURL) in embed author.
+   * @returns {Promise<Discord.Message>} The sent message.
+   * @throws {Error} If bot message sending fails.
+   */
+  async sendViaBot(channel, options) {
+    const { content, embeds, components, webhookStyle } = options;
+    
+    const messagePayload = {
+      content,
+      embeds: embeds ? [...embeds] : [], // Create a copy of embeds array to avoid mutation issues
+      components
+    };
+
+    // If webhook style was requested (meaning useWebhook was true but components forced bot send),
+    // modify the first embed to include custom author fields to mimic webhook appearance.
+    if (webhookStyle && messagePayload.embeds && messagePayload.embeds.length > 0) {
+      // Ensure the embed is mutable if it came from EmbedBuilder.from() or similar
+      const embedToModify = EmbedBuilder.from(messagePayload.embeds[0]);
+      embedToModify.setAuthor({
+        name: webhookStyle.username || 'Custom User', // Use provided username or default
+        iconURL: webhookStyle.avatarURL || null // Use provided avatarURL or null
+      });
+      messagePayload.embeds[0] = embedToModify; // Replace the original embed with the modified one
+    }
+
+    return await channel.send(messagePayload);
+  }
 }
 
-// Global instance of SmartMessageSender, initialized when client is ready
+// Global instance of SmartMessageSender
 let messageSender;
 
 const db = {
@@ -201,18 +213,17 @@ const db = {
       dropdownRoleOrder: [], // New: Custom order for dropdown roles
       buttonRoleOrder: [],   // New: Custom order for button roles
       dropdownRoleDescriptions: {}, // New: Descriptions for dropdown roles
-      // roleRequirements: {},   // Removed: { targetRoleId: [requiredRoleId1, requiredRoleId2] }
       channelId: null,
       messageId: null,
-      enableDropdownClearRolesButton: true, // New: Option to enable/disable clear roles button for dropdowns
-      enableButtonClearRolesButton: true,   // New: Option to enable/disable clear roles button for buttons
-      sendViaWebhook: false, // New: Option to send message via webhook
+      enableDropdownClearRolesButton: true,
+      enableButtonClearRolesButton: true,
+      // Removed: sendViaWebhook property as SmartMessageSender handles this logic internally
       // Embed Customization Fields
       embedColor: null,
       embedThumbnail: null,
       embedImage: null,
-      embedAuthorName: null,
-      embedAuthorIconURL: null,
+      embedAuthorName: null, // Used by SmartMessageSender for embed author
+      embedAuthorIconURL: null, // Used by SmartMessageSender for embed author
       embedFooterText: null,
       embedFooterIconURL: null,
     });
@@ -267,35 +278,25 @@ const db = {
     if (type === "dropdown") menu.dropdownRoleOrder = order;
     if (type === "button") menu.buttonRoleOrder = order;
   },
-  saveRoleDescriptions(menuId, descriptions) { // New function to save role descriptions
+  saveRoleDescriptions(menuId, descriptions) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
-    Object.assign(menu.dropdownRoleDescriptions, descriptions); // For now, only for dropdowns
+    Object.assign(menu.dropdownRoleDescriptions, descriptions);
   },
-  // saveRoleRequirements(menuId, roleRequirements) { // Removed function to save role requirements
-  //   const menu = this.menuData.get(menuId);
-  //   if (!menu) return;
-  //   menu.roleRequirements = roleRequirements;
-  // },
   saveEmbedCustomization(menuId, embedSettings) { 
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     Object.assign(menu, embedSettings); 
   },
-  saveEnableDropdownClearRolesButton(menuId, enabled) { // New function to save dropdown clear roles button state
+  saveEnableDropdownClearRolesButton(menuId, enabled) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.enableDropdownClearRolesButton = enabled;
   },
-  saveEnableButtonClearRolesButton(menuId, enabled) { // New function to save button clear roles button state
+  saveEnableButtonClearRolesButton(menuId, enabled) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.enableButtonClearRolesButton = enabled;
-  },
-  saveSendViaWebhook(menuId, enabled) { // New function to save webhook send state
-    const menu = this.menuData.get(menuId);
-    if (!menu) return;
-    menu.sendViaWebhook = enabled;
   },
   getMenu(menuId) {
     return this.menuData.get(menuId);
@@ -306,7 +307,7 @@ const db = {
     menu.channelId = channelId;
     menu.messageId = messageId;
   },
-  clearMessageId(menuId) { // New function to clear message ID
+  clearMessageId(menuId) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.channelId = null;
@@ -353,7 +354,11 @@ function checkRegionalLimits(member, menu, newRoleIds) {
 
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildWebhooks], // Added GuildWebhooks intent
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildWebhooks, // Added GuildWebhooks intent for SmartMessageSender
+  ],
   partials: [Partials.Channel],
 });
 
@@ -810,7 +815,7 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        if (action === "set_role_descriptions") { // New button action for role descriptions
+        if (action === "set_role_descriptions") {
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(targetMenuId);
@@ -824,9 +829,7 @@ client.on("interactionCreate", async (interaction) => {
                 return interaction.reply({ content: "No dropdown roles configured to add descriptions for.", ephemeral: true });
             }
 
-            // Add text inputs for each dropdown role
-            // Discord modals limit to 5 action rows (5 text inputs)
-            const rolesForDescription = menu.dropdownRoles.slice(0, 5); // Limit to first 5 for simplicity
+            const rolesForDescription = menu.dropdownRoles.slice(0, 5);
             rolesForDescription.forEach(roleId => {
                 const role = interaction.guild.roles.cache.get(roleId);
                 if (role) {
@@ -834,24 +837,23 @@ client.on("interactionCreate", async (interaction) => {
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
                                 .setCustomId(roleId)
-                                .setLabel(`Desc for ${role.name}`) // Shortened label
+                                .setLabel(`Desc for ${role.name}`)
                                 .setStyle(TextInputStyle.Paragraph)
                                 .setRequired(false)
                                 .setPlaceholder(`Short description for ${role.name} (max 100 chars)`)
                                 .setValue(menu.dropdownRoleDescriptions[roleId] || "")
-                                .setMaxLength(100) // Discord dropdown description limit
+                                .setMaxLength(100)
                         )
                     );
                 }
             });
 
             if (menu.dropdownRoles.length > 5) {
-                // Inform user about limitation or suggest pagination if this were a full app
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("info_message")
-                            .setLabel("Note: Only first 5 roles shown.") // Shortened label
+                            .setLabel("Note: Only first 5 roles shown.")
                             .setStyle(TextInputStyle.Short)
                             .setRequired(false)
                             .setDisabled(true)
@@ -863,10 +865,10 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        if (action === "toggle_dropdown_clear_button") { // New button action to toggle dropdown clear roles button
+        if (action === "toggle_dropdown_clear_button") {
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-            const menu = db.getMenu(targetMenuId); // Corrected from db.get(targetMenuId)
+            const menu = db.getMenu(targetMenuId);
             if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
             const newState = !menu.enableDropdownClearRolesButton;
@@ -874,7 +876,7 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.reply({ content: `✅ "Clear My Dropdown Roles" button is now ${newState ? "enabled" : "disabled"} for this menu.`, ephemeral: true });
         }
 
-        if (action === "toggle_button_clear_button") { // New button action to toggle button clear roles button
+        if (action === "toggle_button_clear_button") {
             const targetMenuId = extra;
             if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(targetMenuId);
@@ -883,17 +885,6 @@ client.on("interactionCreate", async (interaction) => {
             const newState = !menu.enableButtonClearRolesButton;
             db.saveEnableButtonClearRolesButton(targetMenuId, newState);
             return interaction.reply({ content: `✅ "Clear My Button Roles" button is now ${newState ? "enabled" : "disabled"} for this menu.`, ephemeral: true });
-        }
-
-        if (action === "toggle_webhook_send") { // New button action to toggle webhook send
-            const targetMenuId = extra;
-            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-            const menu = db.getMenu(targetMenuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
-
-            const newState = !menu.sendViaWebhook;
-            db.saveSendViaWebhook(targetMenuId, newState);
-            return interaction.reply({ content: `✅ Webhook sending is now ${newState ? "enabled" : "disabled"} for this menu.`, ephemeral: true });
         }
 
         if (action === "config") {
@@ -907,7 +898,6 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isModalSubmit()) {
       const parts = interaction.customId.split(":");
 
-      // All modal submits related to dashboard config should also have a permission check
       if (parts[0] === "rr" && parts[1] === "modal" && parts[2] !== "create") { 
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
               return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
@@ -1084,19 +1074,19 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId);
       }
 
-      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_descriptions") { // New modal submit handler for role descriptions
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "set_role_descriptions") {
           const menuId = parts[3];
           const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const descriptions = {};
           for (const [roleId, input] of interaction.fields.fields) {
-              if (roleId === "info_message") continue; // Skip the info message field
+              if (roleId === "info_message") continue;
               const desc = input.value.trim();
               if (desc) {
                   descriptions[roleId] = desc;
               } else {
-                  delete descriptions[roleId]; // Remove if empty
+                  delete descriptions[roleId];
               }
           }
           db.saveRoleDescriptions(menuId, descriptions);
@@ -1188,7 +1178,6 @@ client.on("interactionCreate", async (interaction) => {
         const member = interaction.member;
         const memberRolesCache = member.roles.cache;
 
-        // Check max roles limit for the menu (applies to total roles from this menu, not just dropdown)
         const currentTotalMenuRoles = new Set(menu.dropdownRoles.concat(menu.buttonRoles).filter(roleId => memberRolesCache.has(roleId)));
         const rolesBeingAdded = chosen.filter(roleId => !memberRolesCache.has(roleId));
         if (menu.maxRolesLimit !== null && (currentTotalMenuRoles.size + rolesBeingAdded.length) > menu.maxRolesLimit) {
@@ -1212,7 +1201,6 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
-        // Only process dropdown roles for dropdown interaction
         for (const roleId of menu.dropdownRoles) {
           if (chosen.includes(roleId)) {
             if (!memberRolesCache.has(roleId)) await member.roles.add(roleId);
@@ -1227,7 +1215,7 @@ client.on("interactionCreate", async (interaction) => {
             }
         }
 
-        return interaction.reply({ content: menu.successMessageAdd.replace('{roleName}', 'your selected roles'), ephemeral: true }); // Simplified for multiple roles
+        return interaction.reply({ content: menu.successMessageAdd.replace('{roleName}', 'your selected roles'), ephemeral: true });
       }
     }
 
@@ -1251,8 +1239,7 @@ client.on("interactionCreate", async (interaction) => {
       const memberRolesCache = member.roles.cache;
       const currentMenuRoles = new Set(targetMenu.dropdownRoles.concat(targetMenu.buttonRoles).filter(id => memberRolesCache.has(id)));
 
-      if (!hasRole) { // If adding a role
-        // Check max roles limit for the menu
+      if (!hasRole) {
         if (targetMenu.maxRolesLimit !== null && currentMenuRoles.size >= targetMenu.maxRolesLimit) {
             return interaction.reply({ content: targetMenu.limitExceededMessage.replace('{limit}', targetMenu.maxRolesLimit), ephemeral: true });
         }
@@ -1284,7 +1271,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("rr:clear_roles:")) { 
-        const [_, __, type, menuId] = interaction.customId.split(":"); // Now includes type
+        const [_, __, type, menuId] = interaction.customId.split(":");
         const menu = db.getMenu(menuId);
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
@@ -1297,7 +1284,6 @@ client.on("interactionCreate", async (interaction) => {
         } else if (type === "button") {
             rolesToConsider = menu.buttonRoles;
         } else {
-            // Fallback or error if type is not specified (shouldn't happen with new customIds)
             return interaction.reply({ content: "❌ Invalid clear roles button type.", ephemeral: true });
         }
 
@@ -1308,7 +1294,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (rolesToRemove.size === 0) {
-            return interaction.reply({ content: `You don't have any ${type} roles from this menu to clear.`, ephemeral: true });
+            return interaction.reply({ content: `You don't have any ${type} roles from this menu to clear.`, ephemeral: ephemeral });
         }
 
         for (const roleId of rolesToRemove) {
@@ -1396,18 +1382,6 @@ async function showMenuConfiguration(interaction, menuId) {
           : "None set",
         inline: false
       },
-      // Removed: Role Requirements field
-      // { 
-      //   name: "Role Requirements", 
-      //   value: Object.keys(menu.roleRequirements).length
-      //     ? Object.entries(menu.roleRequirements).map(([targetId, requiredIds]) => {
-      //         const targetRole = interaction.guild.roles.cache.get(targetId);
-      //         const requiredRoleNames = requiredIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
-      //         return `**${targetRole?.name || `Unknown Role (${targetId})`}** requires: ${requiredRoleNames}`;
-      //       }).join('\n')
-      //     : "None set",
-      //   inline: false
-      // },
       { 
         name: "Embed Color",
         value: menu.embedColor || "Default (Blue)",
@@ -1443,24 +1417,19 @@ async function showMenuConfiguration(interaction, menuId) {
         value: (menu.dropdownRoleOrder.length || menu.buttonRoleOrder.length) ? "Custom" : "Default",
         inline: true
       },
-      { // New field for Role Descriptions display
+      {
         name: "Dropdown Role Descriptions",
         value: Object.keys(menu.dropdownRoleDescriptions).length ? "Configured" : "None",
         inline: true
       },
-      { // New field for Clear Roles Button status
+      {
         name: "Dropdown Clear Button",
         value: menu.enableDropdownClearRolesButton ? "Enabled" : "Disabled",
         inline: true
       },
-      { // New field for Clear Roles Button status
+      {
         name: "Button Clear Button",
         value: menu.enableButtonClearRolesButton ? "Enabled" : "Disabled",
-        inline: true
-      },
-      { // New field for Webhook Send status
-        name: "Send via Webhook",
-        value: menu.sendViaWebhook ? "Enabled" : "Disabled",
         inline: true
       }
     );
@@ -1480,15 +1449,12 @@ async function showMenuConfiguration(interaction, menuId) {
   );
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`rr:set_role_descriptions:${menuId}`).setLabel("📝 Set Dropdown Descriptions").setStyle(ButtonStyle.Primary).setDisabled(!menu.dropdownRoles.length), // New button
-    // Removed: Set Role Requirements button
-    // new ButtonBuilder().setCustomId(`rr:set_role_requirements:${menuId}`).setLabel("🔒 Set Role Requirements").setStyle(ButtonStyle.Primary), 
-    new ButtonBuilder().setCustomId(`rr:toggle_dropdown_clear_button:${menuId}`).setLabel(`${menu.enableDropdownClearRolesButton ? "Disable" : "Enable"} Dropdown Clear`).setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length), // New button
-    new ButtonBuilder().setCustomId(`rr:toggle_button_clear_button:${menuId}`).setLabel(`${menu.enableButtonClearRolesButton ? "Disable" : "Enable"} Button Clear`).setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length) // New button
+    new ButtonBuilder().setCustomId(`rr:set_role_descriptions:${menuId}`).setLabel("📝 Set Dropdown Descriptions").setStyle(ButtonStyle.Primary).setDisabled(!menu.dropdownRoles.length),
+    new ButtonBuilder().setCustomId(`rr:toggle_dropdown_clear_button:${menuId}`).setLabel(`${menu.enableDropdownClearRolesButton ? "Disable" : "Enable"} Dropdown Clear`).setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
+    new ButtonBuilder().setCustomId(`rr:toggle_button_clear_button:${menuId}`).setLabel(`${menu.enableButtonClearRolesButton ? "Disable" : "Enable"} Button Clear`).setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length)
   );
 
   const row4 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`rr:toggle_webhook_send:${menuId}`).setLabel(`${menu.sendViaWebhook ? "Disable" : "Enable"} Webhook Send`).setStyle(ButtonStyle.Secondary), // New button for webhook toggle
     new ButtonBuilder().setCustomId(`rr:delete_published:${menuId}`).setLabel("🗑️ Delete Published").setStyle(ButtonStyle.Danger).setDisabled(!menu.messageId), 
     new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
@@ -1499,7 +1465,7 @@ async function showMenuConfiguration(interaction, menuId) {
 }
 
 
-async function publishMenu(interaction, menuId, messageToEdit = null) { // Added messageToEdit parameter
+async function publishMenu(interaction, menuId, messageToEdit = null) {
   const menu = db.getMenu(menuId);
   if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
@@ -1526,10 +1492,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
     embed.setImage(menu.embedImage);
   }
 
-  // NOTE: embedAuthorName and embedAuthorIconURL are now handled by SmartMessageSender's sendViaBot
-  // if webhookStyle is applied. So, we don't set them here directly on the embed.
-  // The original embed (without author) is passed to SmartMessageSender.
-
   embed.setFooter({ 
       text: menu.embedFooterText || "Select your roles below!", 
       iconURL: menu.embedFooterIconURL || null 
@@ -1537,7 +1499,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
 
   const components = [];
 
-  // Add dropdown if configured
   if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length) {
     const orderedDropdownRoles = menu.dropdownRoleOrder.length > 0
       ? menu.dropdownRoleOrder.filter(roleId => menu.dropdownRoles.includes(roleId))
@@ -1551,10 +1512,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
         const option = {
           label: role.name,
           value: role.id,
-          description: menu.dropdownRoleDescriptions[roleId] || `Click to toggle ${role.name}`, // Use custom description
+          description: menu.dropdownRoleDescriptions[roleId] || `Click to toggle ${role.name}`,
         };
         if (emojiStr) {
-          const parsedEmoji = parseEmoji(emojiStr); // FIXED: use emojiStr here
+          const parsedEmoji = parseEmoji(emojiStr);
           if (parsedEmoji) option.emoji = parsedEmoji;
         }
         return option;
@@ -1572,7 +1533,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
     }
   }
 
-  // Add buttons if configured
   if (menu.selectionType.includes("button") && menu.buttonRoles.length) {
     const orderedButtonRoles = menu.buttonRoleOrder.length > 0
       ? menu.buttonRoleOrder.filter(roleId => menu.buttonRoles.includes(roleId))
@@ -1604,7 +1564,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
     }
   }
 
-  // Conditionally add "Clear My Dropdown Roles" button
   if (menu.enableDropdownClearRolesButton && menu.dropdownRoles.length > 0) {
       const clearDropdownButton = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1615,7 +1574,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
       components.push(clearDropdownButton);
   }
 
-  // Conditionally add "Clear My Button Roles" button
   if (menu.enableButtonClearRolesButton && menu.buttonRoles.length > 0) {
       const clearButtonButton = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -1626,6 +1584,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
       components.push(clearButtonButton);
   }
 
+
   if (components.length === 0) {
     return interaction.reply({ content: "❌ No roles configured for this menu.", ephemeral: true });
   }
@@ -1633,53 +1592,65 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
   try {
     const channelToSend = interaction.channel;
 
-    // NEW: Handle editing or deleting old message before sending new
-    if (messageToEdit && !menu.sendViaWebhook) {
-      await messageToEdit.edit({ embeds: [embed], components });
-      db.saveMessageId(menuId, channelToSend.id, messageToEdit.id);
-      return interaction.reply({ content: "✅ Menu updated (bot message edited).", ephemeral: true });
-    } else if (messageToEdit) {
-      // If switching to webhook, delete old bot message
-      await messageToEdit.delete().catch(() => {});
-    }
-
-    // Prepare webhook options for SmartMessageSender, using menu's embed author settings
-    // These will be used for the webhook's identity OR the embed's author field.
+    // Prepare webhook options for SmartMessageSender using menu's embed author settings
     const webhookOptionsForSender = {
-        username: menu.embedAuthorName || client.user.username, // Use menu's custom author name or bot's default
-        avatarURL: menu.embedAuthorIconURL || client.user.displayAvatarURL(), // Use menu's custom author icon or bot's default
+        username: menu.embedAuthorName || client.user.username,
+        avatarURL: menu.embedAuthorIconURL || client.user.displayAvatarURL(),
     };
 
-    // Use the SmartMessageSender to send the message
-    const sentMessageResult = await messageSender.sendMessage(channelToSend, {
-        embeds: [embed],
-        components,
-        useWebhook: menu.sendViaWebhook, // Let SmartMessageSender decide if webhook is actually used
-        webhookOptions: webhookOptionsForSender, // Pass custom identity for webhook or embed author
-    });
+    let sentMessageResult;
+    if (messageToEdit) {
+        // If editing an existing message, we need to fetch it first.
+        // SmartMessageSender's sendMessage doesn't directly support editing a specific message object.
+        // So, we'll edit it outside SmartMessageSender, but apply the embed author style if needed.
+        const messageToUpdate = await channelToSend.messages.fetch(messageToEdit.id);
+        
+        // Apply webhook-style author to embed if configured
+        if (menu.embedAuthorName || menu.embedAuthorIconURL) {
+            const embedToModify = EmbedBuilder.from(embed);
+            embedToModify.setAuthor({
+                name: menu.embedAuthorName || client.user.username,
+                iconURL: menu.embedAuthorIconURL || null
+            });
+            await messageToUpdate.edit({ embeds: [embedToModify], components });
+        } else {
+            await messageToUpdate.edit({ embeds: [embed], components });
+        }
+        sentMessageResult = { message: messageToUpdate, method: 'bot_edit' }; // Simulate result structure
+    } else {
+        // Use the SmartMessageSender to send a new message
+        sentMessageResult = await messageSender.sendMessage(channelToSend, {
+            embeds: [embed],
+            components,
+            // Since the webhook toggle is removed, we'll always treat this as needing bot send
+            // unless it's a non-component message explicitly handled by SmartMessageSender's internal logic.
+            // For reaction roles, components will always be present, so it will use sendViaBot.
+            useWebhook: false, // Explicitly set to false here as the dashboard toggle is removed
+            webhookOptions: webhookOptionsForSender, // Pass custom identity for embed author
+        });
+    }
 
     const message = sentMessageResult.message;
     const actualMethodUsed = sentMessageResult.method;
 
-    // Update the published message ID in DB
     db.saveMessageId(menuId, channelToSend.id, message.id);
 
-    // Provide feedback to the user based on the actual method used
+    // Provide feedback to the user
     if (actualMethodUsed === 'webhook') {
         await interaction.reply({
-            content: "🚀 Reaction role menu published via webhook! **Note: Interactive components (buttons, dropdowns) in webhook messages are NOT functional.**",
+            content: "🚀 Reaction role menu published via webhook! (No interactive components).",
             ephemeral: true
         });
-    } else { // 'bot' method used
+    } else { // 'bot' or 'bot_edit' method used
         await interaction.reply({
-            content: "🚀 Reaction role menu published successfully!",
+            content: "🚀 Reaction role menu published successfully! (Interactive components are functional).",
             ephemeral: true
         });
     }
 
   } catch (error) {
     console.error("Error publishing/editing menu:", error);
-    return interaction.reply({ content: "❌ Failed to publish/edit menu. Check that emojis are valid or image URLs are accessible, and bot has permissions to send/edit messages. If using webhook, ensure URL is correct and bot has 'Manage Webhooks' permission.", ephemeral: true });
+    return interaction.reply({ content: "❌ Failed to publish/edit menu. Check that emojis are valid or image URLs are accessible, and bot has permissions to send/edit messages/webhooks.", ephemeral: true });
   }
 }
 
