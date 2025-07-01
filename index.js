@@ -629,7 +629,7 @@ client.on("interactionCreate", async (interaction) => {
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("dropdown_order")
-                            .setLabel("Dropdown Roles Order (Comma-separated: Name (ID))")
+                            .setLabel("Dropdown Order (Name (ID))") // Shortened label
                             .setStyle(TextInputStyle.Paragraph)
                             .setRequired(false)
                             .setPlaceholder("Role Name 1 (ID1), Role Name 2 (ID2)")
@@ -638,7 +638,7 @@ client.on("interactionCreate", async (interaction) => {
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("button_order")
-                            .setLabel("Button Roles Order (Comma-separated: Name (ID))")
+                            .setLabel("Button Order (Name (ID))") // Shortened label
                             .setStyle(TextInputStyle.Paragraph)
                             .setRequired(false)
                             .setPlaceholder("Role Name A (IDA), Role Name B (IDB)")
@@ -672,7 +672,7 @@ client.on("interactionCreate", async (interaction) => {
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
                                 .setCustomId(roleId)
-                                .setLabel(`Description for ${role.name}`)
+                                .setLabel(`Desc for ${role.name}`) // Shortened label
                                 .setStyle(TextInputStyle.Paragraph)
                                 .setRequired(false)
                                 .setPlaceholder(`Short description for ${role.name} (max 100 chars)`)
@@ -689,7 +689,7 @@ client.on("interactionCreate", async (interaction) => {
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId("info_message")
-                            .setLabel("Note: Only first 5 roles shown due to Discord limits.")
+                            .setLabel("Note: Only first 5 roles shown.") // Shortened label
                             .setStyle(TextInputStyle.Short)
                             .setRequired(false)
                             .setDisabled(true)
