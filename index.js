@@ -37,6 +37,14 @@ const db = {
       exclusionMap: {},       // New: key: roleId to add, value: [roleId1 to remove, roleId2 to remove]
       channelId: null,
       messageId: null,
+      // New Embed Customization Fields
+      embedColor: null,
+      embedThumbnail: null,
+      embedImage: null,
+      embedAuthorName: null,
+      embedAuthorIconURL: null,
+      embedFooterText: null,
+      embedFooterIconURL: null,
     });
     return id;
   },
@@ -68,10 +76,15 @@ const db = {
     if (!menu) return;
     menu.regionalLimits = regionalLimits;
   },
-  saveExclusionMap(menuId, exclusionMap) { // New function to save exclusion map
+  saveExclusionMap(menuId, exclusionMap) { 
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     menu.exclusionMap = exclusionMap;
+  },
+  saveEmbedCustomization(menuId, embedSettings) { // New function to save embed settings
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    Object.assign(menu, embedSettings); // Merge new settings into existing menu data
   },
   getMenu(menuId) {
     return this.menuData.get(menuId);
@@ -113,16 +126,9 @@ function checkRegionalLimits(member, menu, newRoleIds) {
     const { limit, roleIds } = regionData;
     if (!limit || !roleIds || !roleIds.length) continue;
 
-    // Count how many roles from this region the user would have after the change
     const currentRegionRoles = roleIds.filter(roleId => memberRoles.has(roleId));
     const newRegionRoles = roleIds.filter(roleId => newRoleIds.includes(roleId));
     
-    // For dropdown: newRoleIds represents the complete new selection
-    // For buttons: we need to check if adding this role would exceed the limit
-    // We only check for violations if the new role is being added, not removed.
-    // If the newRoleIds array contains more roles from a region than allowed, it's a violation.
-    // This logic assumes newRoleIds is the *final desired state* for dropdowns,
-    // and for buttons, it's the state *after* potentially adding one role.
     if (newRegionRoles.length > limit) {
       violations.push(`You can only select ${limit} role(s) from the ${regionName} region.`);
     }
@@ -164,7 +170,6 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (action === "create") {
-          // New reaction role menu modal
           const modal = new ModalBuilder()
             .setCustomId("rr:modal:create")
             .setTitle("New Reaction Role Menu")
@@ -191,7 +196,6 @@ client.on("interactionCreate", async (interaction) => {
           let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
           db.saveSelectionType(targetMenuId, selectedTypes);
 
-          // Start with dropdown roles selection if included
           const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           const select = new StringSelectMenuBuilder()
@@ -313,10 +317,71 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        if (action === "customize_embed") { // New button action for embed customization
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:customize_embed:${targetMenuId}`)
+            .setTitle("Customize Embed Appearance")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("embed_color")
+                  .setLabel("Embed Color (Hex Code, e.g., #FF0000)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("#5865F2")
+                  .setValue(menu.embedColor || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("thumbnail_url")
+                  .setLabel("Thumbnail Image URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/thumbnail.png")
+                  .setValue(menu.embedThumbnail || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("image_url")
+                  .setLabel("Main Image URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/image.png")
+                  .setValue(menu.embedImage || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("author_name")
+                  .setLabel("Author Name (Optional)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("My Awesome Bot")
+                  .setValue(menu.embedAuthorName || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("author_icon_url")
+                  .setLabel("Author Icon URL (Optional)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/author_icon.png")
+                  .setValue(menu.embedAuthorIconURL || "")
+              )
+            );
+            // Due to modal input limits, we'll put footer in a separate modal if needed, or simplify.
+            // For now, let's keep it to 5 inputs as per Discord limits.
+          return interaction.showModal(modal);
+        }
+
         if (action === "config") {
           const targetMenuId = extra; 
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          return showMenuConfiguration(interaction, targetMenuId); // Call the dedicated function
+          return showMenuConfiguration(interaction, targetMenuId); 
         }
       }
     }
@@ -402,6 +467,27 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.reply({ content: "❌ Invalid JSON format in regional role assignments.", ephemeral: true });
         }
       }
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "customize_embed") { // New modal submit handler
+        const menuId = parts[3];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const embedSettings = {
+          embedColor: interaction.fields.getTextInputValue("embed_color") || null,
+          embedThumbnail: interaction.fields.getTextInputValue("thumbnail_url") || null,
+          embedImage: interaction.fields.getTextInputValue("image_url") || null,
+          embedAuthorName: interaction.fields.getTextInputValue("author_name") || null,
+          embedAuthorIconURL: interaction.fields.getTextInputValue("author_icon_url") || null,
+          // Footer text and icon will be added if we expand the modal or use a second modal
+          embedFooterText: menu.embedFooterText, // Keep existing if not changed
+          embedFooterIconURL: menu.embedFooterIconURL, // Keep existing if not changed
+        };
+
+        db.saveEmbedCustomization(menuId, embedSettings);
+        await interaction.reply({ content: "✅ Embed customization saved!", ephemeral: true });
+        return showMenuConfiguration(interaction, menuId); // Refresh config view
+      }
     }
 
     if (interaction.isStringSelectMenu()) {
@@ -433,7 +519,6 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
-        // After all roles are selected, directly show the menu configuration
         return showMenuConfiguration(interaction, menuId);
       }
 
@@ -476,7 +561,6 @@ client.on("interactionCreate", async (interaction) => {
         currentExclusionMap[triggerRoleId] = excludedRoleIds;
         db.saveExclusionMap(menuId, currentExclusionMap);
 
-        // After saving, immediately show the updated menu configuration
         return showMenuConfiguration(interaction, menuId);
       }
 
@@ -606,7 +690,6 @@ async function showReactionRolesDashboard(interaction) {
   await interaction.update({ embeds: [embed], components: [row] });
 }
 
-// Renamed from rr:config to showMenuConfiguration for clarity and reusability
 async function showMenuConfiguration(interaction, menuId) {
   const menu = db.getMenu(menuId);
   if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -635,7 +718,28 @@ async function showMenuConfiguration(interaction, menuId) {
             }).join('\n')
           : "None set",
         inline: false
+      },
+      { // New field for Embed Color display
+        name: "Embed Color",
+        value: menu.embedColor || "Default (Blue)",
+        inline: true
+      },
+      { // New field for Thumbnail display
+        name: "Thumbnail",
+        value: menu.embedThumbnail ? "Set" : "None",
+        inline: true
+      },
+      { // New field for Image display
+        name: "Image",
+        value: menu.embedImage ? "Set" : "None",
+        inline: true
+      },
+      { // New field for Author display
+        name: "Author",
+        value: menu.embedAuthorName ? `${menu.embedAuthorName} ${menu.embedAuthorIconURL ? "(with icon)" : ""}` : "None",
+        inline: true
       }
+      // Footer display can be added here if we add those inputs
     );
 
   const row = new ActionRowBuilder().addComponents(
@@ -646,11 +750,11 @@ async function showMenuConfiguration(interaction, menuId) {
   );
 
   const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`rr:customize_embed:${menuId}`).setLabel("🖼️ Customize Embed").setStyle(ButtonStyle.Primary), // New button
     new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
   );
 
-  // Determine if we need to reply or update
   const method = interaction.replied || interaction.deferred ? 'editReply' : 'reply';
   await interaction[method]({ embeds: [embed], components: [row, row2], ephemeral: true });
 }
@@ -660,12 +764,41 @@ async function publishMenu(interaction, menuId) {
   const menu = db.getMenu(menuId);
   if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
-  // Create embed
+  // Create embed with custom properties
   const embed = new EmbedBuilder()
     .setTitle(menu.name)
     .setDescription(menu.desc)
-    .setColor(0x5865F2)
-    .setFooter({ text: "Select your roles below!" });
+    .setFooter({ text: menu.embedFooterText || "Select your roles below!", iconURL: menu.embedFooterIconURL || null }); // Use custom footer or default
+
+  // Apply custom color if set, otherwise Discord's default blue
+  if (menu.embedColor) {
+    try {
+      embed.setColor(menu.embedColor);
+    } catch (e) {
+      console.error("Invalid embed color:", menu.embedColor, e);
+      embed.setColor(0x5865F2); // Fallback to Discord blue
+    }
+  } else {
+    embed.setColor(0x5865F2); // Default Discord blue
+  }
+
+  // Apply thumbnail if set
+  if (menu.embedThumbnail) {
+    embed.setThumbnail(menu.embedThumbnail);
+  }
+
+  // Apply image if set
+  if (menu.embedImage) {
+    embed.setImage(menu.embedImage);
+  }
+
+  // Apply author if set
+  if (menu.embedAuthorName) {
+    embed.setAuthor({ 
+      name: menu.embedAuthorName, 
+      iconURL: menu.embedAuthorIconURL || null 
+    });
+  }
 
   const components = [];
 
@@ -739,7 +872,7 @@ async function publishMenu(interaction, menuId) {
     return interaction.reply({ content: "🚀 Reaction role menu published successfully!", ephemeral: true });
   } catch (error) {
     console.error("Error publishing menu:", error);
-    return interaction.reply({ content: "❌ Failed to publish menu. Check that emojis are valid.", ephemeral: true });
+    return interaction.reply({ content: "❌ Failed to publish menu. Check that emojis are valid or image URLs are accessible.", ephemeral: true });
   }
 }
 
