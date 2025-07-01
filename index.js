@@ -1554,7 +1554,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
           description: menu.dropdownRoleDescriptions[roleId] || `Click to toggle ${role.name}`, // Use custom description
         };
         if (emojiStr) {
-          const parsedEmoji = parseEmoji(emoji); // Corrected: should be emojiStr
+          const parsedEmoji = parseEmoji(emojiStr); // FIXED: use emojiStr here
           if (parsedEmoji) option.emoji = parsedEmoji;
         }
         return option;
@@ -1626,13 +1626,22 @@ async function publishMenu(interaction, menuId, messageToEdit = null) { // Added
       components.push(clearButtonButton);
   }
 
-
   if (components.length === 0) {
     return interaction.reply({ content: "❌ No roles configured for this menu.", ephemeral: true });
   }
 
   try {
     const channelToSend = interaction.channel;
+
+    // NEW: Handle editing or deleting old message before sending new
+    if (messageToEdit && !menu.sendViaWebhook) {
+      await messageToEdit.edit({ embeds: [embed], components });
+      db.saveMessageId(menuId, channelToSend.id, messageToEdit.id);
+      return interaction.reply({ content: "✅ Menu updated (bot message edited).", ephemeral: true });
+    } else if (messageToEdit) {
+      // If switching to webhook, delete old bot message
+      await messageToEdit.delete().catch(() => {});
+    }
 
     // Prepare webhook options for SmartMessageSender, using menu's embed author settings
     // These will be used for the webhook's identity OR the embed's author field.
