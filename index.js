@@ -243,7 +243,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setlimits") {
-          // Show modal to set regional limits and exclusion map
+          // Show modal to set regional limits (exclusion map moved to separate flow)
           const targetMenuId = extra; // menuId is parts[2] here
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
@@ -251,11 +251,11 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:setlimits:${targetMenuId}`)
-            .setTitle("Set Role Limits & Exclusions")
+            .setTitle("Set Regional Role Limits")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("au_limit") // Changed ID for clarity
+                  .setCustomId("au_limit") 
                   .setLabel("Limit For AU Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
@@ -264,7 +264,7 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("eu_limit") // Changed ID for clarity
+                  .setCustomId("eu_limit") 
                   .setLabel("Limit For EU Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
@@ -273,7 +273,7 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("na_limit") // Changed ID for clarity
+                  .setCustomId("na_limit") 
                   .setLabel("Limit For NA Roles")
                   .setStyle(TextInputStyle.Short)
                   .setPlaceholder("1")
@@ -282,7 +282,7 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("regional_role_assignments") // Changed ID for clarity
+                  .setCustomId("regional_role_assignments") 
                   .setLabel("Regional Role Assignments (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setPlaceholder('{"AU": ["roleId1"], "EU": ["roleId2"], "NA": ["roleId3"]}')
@@ -290,18 +290,32 @@ client.on("interactionCreate", async (interaction) => {
                   .setValue(JSON.stringify(Object.fromEntries(
                     Object.entries(menu.regionalLimits).map(([region, data]) => [region, data.roleIds || []])
                   )) || "")
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("exclusion_map") // New input for exclusion map
-                  .setLabel("Exclusion Map (JSON)")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setPlaceholder('{"EU_Role_ID": ["NA_Role_ID", "ASIA_Role_ID"], "NA_Role_ID": ["EU_Role_ID", "ASIA_Role_ID"]}')
-                  .setRequired(false)
-                  .setValue(JSON.stringify(menu.exclusionMap) || "")
               )
             );
           return interaction.showModal(modal);
+        }
+
+        if (action === "setexclusions") { // New button action for interactive exclusions
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+          const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+          if (!allRoles.size) return interaction.reply({ content: "No roles available to set exclusions.", ephemeral: true });
+
+          const selectTriggerRole = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_trigger_role:${targetMenuId}`)
+            .setPlaceholder("Select a role to set its exclusions...")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+          
+          return interaction.update({
+            content: "Please select the role that, when picked, should remove other roles:",
+            components: [new ActionRowBuilder().addComponents(selectTriggerRole)],
+            ephemeral: true
+          });
         }
 
         if (action === "config") {
@@ -328,7 +342,11 @@ client.on("interactionCreate", async (interaction) => {
               { // New field for exclusion map
                 name: "Exclusion Map",
                 value: Object.keys(menu.exclusionMap).length
-                  ? "Configured"
+                  ? Object.entries(menu.exclusionMap).map(([triggerId, excludedIds]) => {
+                      const triggerRole = interaction.guild.roles.cache.get(triggerId);
+                      const excludedRoleNames = excludedIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+                      return `**${triggerRole?.name || `Unknown Role (${triggerId})`}** excludes: ${excludedRoleNames}`;
+                    }).join('\n')
                   : "None set",
                 inline: false
               }
@@ -337,7 +355,8 @@ client.on("interactionCreate", async (interaction) => {
           const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${targetMenuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
             new ButtonBuilder().setCustomId(`rr:addemoji:button:${targetMenuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
-            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Limits & Exclusions").setStyle(ButtonStyle.Secondary) // Updated label
+            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Regional Limits").setStyle(ButtonStyle.Secondary), // Label reverted
+            new ButtonBuilder().setCustomId(`rr:setexclusions:${targetMenuId}`).setLabel("🚫 Set Exclusions").setStyle(ButtonStyle.Danger) // New button
           );
 
           const row2 = new ActionRowBuilder().addComponents(
@@ -393,22 +412,16 @@ client.on("interactionCreate", async (interaction) => {
         if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
         try {
-          const auLimit = interaction.fields.getTextInputValue("au_limit"); // Updated ID
-          const euLimit = interaction.fields.getTextInputValue("eu_limit"); // Updated ID
-          const naLimit = interaction.fields.getTextInputValue("na_limit"); // Updated ID
-          const regionalRoleAssignmentsRaw = interaction.fields.getTextInputValue("regional_role_assignments"); // Updated ID
-          const exclusionMapRaw = interaction.fields.getTextInputValue("exclusion_map"); // New ID
+          const auLimit = interaction.fields.getTextInputValue("au_limit"); 
+          const euLimit = interaction.fields.getTextInputValue("eu_limit"); 
+          const naLimit = interaction.fields.getTextInputValue("na_limit"); 
+          const regionalRoleAssignmentsRaw = interaction.fields.getTextInputValue("regional_role_assignments"); 
 
           let regionalRoleAssignments = {};
           if (regionalRoleAssignmentsRaw && regionalRoleAssignmentsRaw.trim()) {
             regionalRoleAssignments = JSON.parse(regionalRoleAssignmentsRaw);
           }
-
-          let exclusionMap = {};
-          if (exclusionMapRaw && exclusionMapRaw.trim()) {
-            exclusionMap = JSON.parse(exclusionMapRaw);
-          }
-
+          
           const regionalLimits = {};
           
           if (auLimit && !isNaN(auLimit)) {
@@ -433,11 +446,10 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           db.saveRegionalLimits(menuId, regionalLimits);
-          db.saveExclusionMap(menuId, exclusionMap); // Save the new exclusion map
-          return interaction.reply({ content: "✅ Role limits and exclusions saved.", ephemeral: true });
+          return interaction.reply({ content: "✅ Regional limits saved.", ephemeral: true });
         } catch (error) {
-          console.error("Error saving role limits or exclusion map:", error);
-          return interaction.reply({ content: "❌ Invalid JSON format in role assignments or exclusion map.", ephemeral: true });
+          console.error("Error saving regional limits:", error);
+          return interaction.reply({ content: "❌ Invalid JSON format in regional role assignments.", ephemeral: true });
         }
       }
     }
@@ -479,6 +491,56 @@ client.on("interactionCreate", async (interaction) => {
           new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
         );
         return interaction.update({ content: "✅ All roles saved! Configure emojis and settings, or publish now.", components: [row] });
+      }
+
+      if (interaction.customId.startsWith("rr:select_trigger_role:")) { // New handler for selecting trigger role
+        const menuId = interaction.customId.split(":")[2];
+        const triggerRoleId = interaction.values[0];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+        const options = allRoles
+            .filter(r => r.id !== triggerRoleId) // Exclude the trigger role itself
+            .map(r => ({ label: r.name, value: r.id }));
+
+        if (!options.length) {
+            return interaction.update({ content: "No other roles available to exclude.", components: [], ephemeral: true });
+        }
+
+        const selectExcludedRoles = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_excluded_roles:${menuId}:${triggerRoleId}`)
+            .setPlaceholder(`Select roles to be removed when ${interaction.guild.roles.cache.get(triggerRoleId)?.name} is picked...`)
+            .setMinValues(0) // Allow selecting no roles if desired
+            .setMaxValues(options.length)
+            .addOptions(options);
+
+        return interaction.update({
+            content: `Now select roles that should be removed when <@&${triggerRoleId}> is picked:`,
+            components: [new ActionRowBuilder().addComponents(selectExcludedRoles)],
+            ephemeral: true
+        });
+      }
+
+      if (interaction.customId.startsWith("rr:select_excluded_roles:")) { // New handler for selecting excluded roles
+        const [_, __, menuId, triggerRoleId] = interaction.customId.split(":");
+        const excludedRoleIds = interaction.values;
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        // Update the exclusion map
+        const currentExclusionMap = menu.exclusionMap;
+        currentExclusionMap[triggerRoleId] = excludedRoleIds;
+        db.saveExclusionMap(menuId, currentExclusionMap);
+
+        const triggerRoleName = interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role";
+        const excludedRoleNames = excludedRoleIds.map(id => interaction.guild.roles.cache.get(id)?.name || `Unknown Role (${id})`).join(', ');
+
+        return interaction.update({
+            content: `✅ Exclusion rule saved: Picking **${triggerRoleName}** will now remove: ${excludedRoleNames || "no roles"}.`,
+            components: [],
+            ephemeral: true
+        });
       }
 
       if (interaction.customId.startsWith("rr:use:")) {
