@@ -99,8 +99,9 @@ client.on("interactionCreate", async interaction => {
           .setStyle(TextInputStyle.Paragraph)
       )
     );
+
   return interaction.showModal(modal);
-      }
+}
 
     }
   }
