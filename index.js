@@ -81,25 +81,27 @@ client.on("interactionCreate", async interaction => {
       if (action === "back") return sendMainDashboard(interaction);
     }
     if (ctx === "rr") {
-      if (action === "create") {
-        const modal = new ModalBuilder()
-          .setCustomId("rr:modal:create")
-          .setTitle("New Reaction Role Menu")
-          .addComponents(
-            new TextInputBuilder()
-              .setCustomId("name")
-              .setLabel("Menu Name")
-              .setStyle(TextInputStyle.Short),
-            new TextInputBuilder()
-              .setCustomId("desc")
-              .setLabel("Embed Description")
-              .setStyle(TextInputStyle.Paragraph)
-          );
-        return interaction.showModal(modal);
+     if (action === "create") {
+  const modal = new ModalBuilder()
+    .setCustomId("rr:modal:create")
+    .setTitle("New Reaction Role Menu")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("name")
+          .setLabel("Menu Name")
+          .setStyle(TextInputStyle.Short)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("desc")
+          .setLabel("Embed Description")
+          .setStyle(TextInputStyle.Paragraph)
+      )
+    );
+  return interaction.showModal(modal);
       }
-      if (action === "publish") {
-        return publishMenu(interaction, menuId);
-      }
+
     }
   }
 
