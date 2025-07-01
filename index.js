@@ -124,7 +124,11 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isButton()) {
-      const [ctx, action, extra, menuId] = interaction.customId.split(":");
+      const parts = interaction.customId.split(":");
+      const ctx = parts[0];
+      const action = parts[1];
+      const extra = parts[2];
+      const menuId = parts[3];
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -149,20 +153,22 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "publish") {
-          if (!extra) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
-          return publishMenu(interaction, extra);
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
+          return publishMenu(interaction, targetMenuId);
         }
 
         if (action === "type") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          const targetMenuId = menuId;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
-          db.saveSelectionType(menuId, selectedTypes);
+          db.saveSelectionType(targetMenuId, selectedTypes);
 
           // Start with dropdown roles selection if included
           const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
+            .setCustomId(`rr:selectroles:${nextType}:${targetMenuId}`)
             .setMinValues(1)
             .setMaxValues(Math.min(allRoles.size, 25))
             .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
@@ -175,8 +181,9 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "addemoji") {
           // Show modal to add emojis to roles for dropdown or button
-          if (!menuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          const targetMenuId = menuId;
+          if (!targetMenuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           // Prepare modal with text inputs per role for emojis
@@ -184,7 +191,7 @@ client.on("interactionCreate", async (interaction) => {
           const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
           if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
 
-          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${menuId}`).setTitle(`Add Emojis for ${type}`);
+          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${targetMenuId}`).setTitle(`Add Emojis for ${type}`);
 
           // Discord limits max 5 action rows per modal
           // So max 5 roles at once — ideally extend with paginated modals but keep simple here
@@ -210,13 +217,14 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "setlimits") {
           // Show modal to set role limits
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
           const allRoles = [...new Set([...menu.dropdownRoles, ...menu.buttonRoles])];
           if (!allRoles.length) return interaction.reply({ content: "No roles to set limits on.", ephemeral: true });
 
-          const modal = new ModalBuilder().setCustomId(`rr:modal:setlimits:${menuId}`).setTitle("Set Role Limits");
+          const modal = new ModalBuilder().setCustomId(`rr:modal:setlimits:${targetMenuId}`).setTitle("Set Role Limits");
 
           const maxInputs = Math.min(allRoles.length, 5);
           for (let i = 0; i < maxInputs; i++) {
@@ -240,12 +248,13 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "setexclusions") {
           // Show modal to set exclusions JSON
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
           
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:setexclusions:${menuId}`)
+            .setCustomId(`rr:modal:setexclusions:${targetMenuId}`)
             .setTitle("Set Role Exclusions")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -263,8 +272,9 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "config") {
           // Show configuration options for a menu
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const embed = new EmbedBuilder()
@@ -277,14 +287,14 @@ client.on("interactionCreate", async (interaction) => {
             );
 
           const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${menuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
-            new ButtonBuilder().setCustomId(`rr:addemoji:button:${menuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
-            new ButtonBuilder().setCustomId(`rr:setlimits:${menuId}`).setLabel("📊 Role Limits").setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`rr:setexclusions:${menuId}`).setLabel("🚫 Exclusions").setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${targetMenuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
+            new ButtonBuilder().setCustomId(`rr:addemoji:button:${targetMenuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
+            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Role Limits").setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId(`rr:setexclusions:${targetMenuId}`).setLabel("🚫 Exclusions").setStyle(ButtonStyle.Secondary)
           );
 
           const row2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`rr:publish:${targetMenuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
           );
 
