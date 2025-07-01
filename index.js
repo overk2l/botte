@@ -430,6 +430,30 @@ async function publishMenu(interaction, menuId) {
 
   const msg = await interaction.channel.send({ embeds: [embed], components });
   db.saveMessageId(menuId, interaction.channel.id, msg.id);
+
+  await interaction.deferUpdate();
+  await interaction.followUp({ content: "🚀 Published!", ephemeral: true });
+}
+
+
+  if (menu.selectionType.includes("button") && menu.buttonRoles.length) {
+    const buttons = menu.buttonRoles.map((roleId) => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      const emoji = menu.emojis.button?.[roleId];
+      return new ButtonBuilder()
+        .setCustomId(`rr:assign:${roleId}`)
+        .setLabel(role?.name || "Unknown")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji(emoji || null);
+    });
+
+    for (let i = 0; i < buttons.length; i += 5) {
+      components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+    }
+  }
+
+  const msg = await interaction.channel.send({ embeds: [embed], components });
+  db.saveMessageId(menuId, interaction.channel.id, msg.id);
   await interaction.update({ content: "🚀 Published!", components: [] });
 }
 
