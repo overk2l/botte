@@ -17,11 +17,9 @@ const {
   StringSelectMenuBuilder,
 } = require("discord.js");
 
-// In‑memory storage; swap for a real DB as needed
 const db = {
-  menus: new Map(),       // guildId -> array of menuIds
-  menuData: new Map(),    // menuId -> menu object
-
+  menus: new Map(),
+  menuData: new Map(),
   createMenu(guildId, name, desc) {
     const id = Date.now().toString();
     if (!this.menus.has(guildId)) this.menus.set(guildId, []);
@@ -30,78 +28,97 @@ const db = {
       guildId,
       name,
       desc,
-      selectionType: [],   // e.g. ['dropdown','button']
       dropdownRoles: [],
       buttonRoles: [],
-      dropdownEmojis: {},  // roleId -> emoji string
-      buttonEmojis: {},    // roleId -> emoji string
-      exclusions: {},      // roleId -> [roleIdToRemove,...]
+      selectionType: [],
+      dropdownEmojis: {},   // key: roleId, value: emoji string
+      buttonEmojis: {},     // key: roleId, value: emoji string
+      regionalLimits: {},   // key: regionName, value: { limit: number, roleIds: [roleId1, roleId2] }
       channelId: null,
       messageId: null,
     });
     return id;
   },
-
   getMenus(guildId) {
-    return (this.menus.get(guildId) || []).map(id => ({ id, ...this.menuData.get(id) }));
+    return (this.menus.get(guildId) || []).map((id) => ({ id, ...this.menuData.get(id) }));
   },
-
+  saveRoles(menuId, roles, type) {
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    if (type === "dropdown") menu.dropdownRoles = roles;
+    if (type === "button") menu.buttonRoles = roles;
+  },
+  saveSelectionType(menuId, types) {
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.selectionType = types;
+  },
+  saveEmojis(menuId, emojis, type) {
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    if (type === "dropdown") {
+      menu.dropdownEmojis = { ...menu.dropdownEmojis, ...emojis };
+    } else if (type === "button") {
+      menu.buttonEmojis = { ...menu.buttonEmojis, ...emojis };
+    }
+  },
+  saveRegionalLimits(menuId, regionalLimits) {
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.regionalLimits = regionalLimits;
+  },
   getMenu(menuId) {
     return this.menuData.get(menuId);
   },
-
-  saveSelectionType(menuId, types) {
-    const m = this.menuData.get(menuId);
-    if (m) m.selectionType = types;
-  },
-
-  saveRoles(menuId, roles, type) {
-    const m = this.menuData.get(menuId);
-    if (!m) return;
-    if (type === "dropdown") m.dropdownRoles = roles;
-    else m.buttonRoles = roles;
-  },
-
-  saveEmojis(menuId, emojis, type) {
-    const m = this.menuData.get(menuId);
-    if (!m) return;
-    if (type === "dropdown") m.dropdownEmojis = { ...m.dropdownEmojis, ...emojis };
-    else m.buttonEmojis = { ...m.buttonEmojis, ...emojis };
-  },
-
-  saveExclusions(menuId, map) {
-    const m = this.menuData.get(menuId);
-    if (m) m.exclusions = map;
-  },
-
   saveMessageId(menuId, channelId, messageId) {
-    const m = this.menuData.get(menuId);
-    if (m) {
-      m.channelId = channelId;
-      m.messageId = messageId;
-    }
+    const menu = this.menuData.get(menuId);
+    if (!menu) return;
+    menu.channelId = channelId;
+    menu.messageId = messageId;
   },
 };
 
-// Parse a user‑entered emoji string into Discord.js emoji spec
+// Helper function to parse emoji strings for Discord components
 function parseEmoji(emoji) {
-  if (!emoji) return undefined;
-  const custom = emoji.match(/^<a?:([^:]+):(\d+)>$/);
-  if (custom) return { id: custom[2], name: custom[1], animated: emoji.startsWith("<a:") };
+  if (!emoji) return null;
+  
+  // Check if it's a custom emoji: <a:name:id> or <:name:id>
+  const customEmojiRegex = /^<a?:([a-zA-Z0-9_]+):(\d+)>$/;
+  const match = emoji.match(customEmojiRegex);
+  
+  if (match) {
+    return {
+      id: match[2],
+      name: match[1],
+      animated: emoji.startsWith("<a:"),
+    };
+  }
+  
+  // It's a unicode emoji
   return { name: emoji };
 }
 
-// Remove any roles mapped under the selected ones
-function applyExclusions(member, menu, selectedRoleIds) {
-  const map = menu.exclusions || {};
-  for (const roleId of selectedRoleIds) {
-    const toRemove = map[roleId];
-    if (Array.isArray(toRemove)) {
-      toRemove.forEach(badId => {
-        if (member.roles.cache.has(badId)) member.roles.remove(badId).catch(() => {});
-      });
+// Helper function to check regional limits
+function checkRegionalLimits(member, menu, newRoleIds) {
+  const memberRoles = member.roles.cache;
+  const violations = [];
+
+  for (const [regionName, regionData] of Object.entries(menu.regionalLimits)) {
+    const { limit, roleIds } = regionData;
+    if (!limit || !roleIds || !roleIds.length) continue;
+
+    // Count how many roles from this region the user would have after the change
+    const currentRegionRoles = roleIds.filter(roleId => memberRoles.has(roleId));
+    const newRegionRoles = roleIds.filter(roleId => newRoleIds.includes(roleId));
+    
+    // For dropdown: newRoleIds represents the complete new selection
+    // For buttons: we need to check if adding this role would exceed the limit
+    if (newRegionRoles.length > limit) {
+      violations.push(`You can only select ${limit} role(s) from the ${regionName} region.`);
     }
   }
+
+  return violations;
 }
 
 const client = new Client({
@@ -112,36 +129,32 @@ const client = new Client({
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   const rest = new REST().setToken(process.env.TOKEN);
-  const dashCmd = new SlashCommandBuilder()
-    .setName("dashboard")
-    .setDescription("Open the guild dashboard")
-    .toJSON();
-  await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [dashCmd] });
-  console.log("📑 /dashboard deployed");
+  const cmd = new SlashCommandBuilder().setName("dashboard").setDescription("Open the guild dashboard").toJSON();
+  await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [cmd] });
+  console.log("📑 /dashboard command deployed");
 });
 
-client.on("interactionCreate", async interaction => {
+client.on("interactionCreate", async (interaction) => {
   try {
-    // Slash /dashboard
     if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("dash:reactionroles").setLabel("Reaction Roles").setStyle(ButtonStyle.Primary)
-      );
-      return interaction.reply({ content: "🛠️ Dashboard", components: [row], ephemeral: true });
+      return sendMainDashboard(interaction);
     }
 
-    // Button clicks
     if (interaction.isButton()) {
-      const [ctx, action, type, menuId] = interaction.customId.split(":");
-      // Dashboard nav
+      const parts = interaction.customId.split(":");
+      const ctx = parts[0];
+      const action = parts[1];
+      const extra = parts[2];
+      const menuId = parts[3];
+
       if (ctx === "dash") {
-        if (action === "reactionroles") return showMenus(interaction);
-        if (action === "back") return interaction.update({ content: "🛠️ Dashboard", components: [], ephemeral: true });
+        if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
+        if (action === "back") return sendMainDashboard(interaction);
       }
-      // Reaction‑role flow
+
       if (ctx === "rr") {
-        // Create menu modal
         if (action === "create") {
+          // New reaction role menu modal
           const modal = new ModalBuilder()
             .setCustomId("rr:modal:create")
             .setTitle("New Reaction Role Menu")
@@ -155,257 +168,475 @@ client.on("interactionCreate", async interaction => {
             );
           return interaction.showModal(modal);
         }
-        // Select dropdown/buttons/both
+
+        if (action === "publish") {
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
+          return publishMenu(interaction, targetMenuId);
+        }
+
         if (action === "type") {
-          const types = type === "both" ? ["dropdown", "button"] : [type];
-          db.saveSelectionType(menuId, types);
-          const next = types.includes("dropdown") ? "dropdown" : "button";
-          const all = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
-          const menu = db.getMenu(menuId);
+          const targetMenuId = menuId;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
+          db.saveSelectionType(targetMenuId, selectedTypes);
+
+          // Start with dropdown roles selection if included
+          const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
+          const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${next}:${menuId}`)
+            .setCustomId(`rr:selectroles:${nextType}:${targetMenuId}`)
             .setMinValues(1)
-            .setMaxValues(Math.min(all.size, 25))
-            .addOptions(all.map(r => ({ label: r.name, value: r.id })));
+            .setMaxValues(Math.min(allRoles.size, 25))
+            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+
           return interaction.update({
-            content: `✅ Saved selectionType. Now pick **${next}** roles:`,
+            content: `✅ Selection type saved. Now select roles for **${nextType}**:`,
             components: [new ActionRowBuilder().addComponents(select)],
           });
         }
-        // After roles chosen: show config buttons
-        if (action === "config") {
-          const menu = db.getMenu(menuId);
-          const embed = new EmbedBuilder()
-            .setTitle(`⚙️ Configure ${menu.name}`)
-            .setDescription(menu.desc)
-            .addFields(
-              { name: "Type", value: menu.selectionType.join(" + ") || "-", inline: true },
-              { name: "Dropdown count", value: `${menu.dropdownRoles.length}`, inline: true },
-              { name: "Button count", value: `${menu.buttonRoles.length}`, inline: true }
+
+        if (action === "addemoji") {
+          // Show modal to add emojis to roles for dropdown or button
+          const targetMenuId = menuId;
+          if (!targetMenuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+          // Prepare modal with text inputs per role for emojis
+          const type = extra; // dropdown or button
+          const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
+          if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
+
+          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${targetMenuId}`).setTitle(`Add Emojis for ${type}`);
+
+          // Discord limits max 5 action rows per modal
+          // So max 5 roles at once — ideally extend with paginated modals but keep simple here
+          const maxInputs = Math.min(roles.length, 5);
+          for (let i = 0; i < maxInputs; i++) {
+            const roleId = roles[i];
+            const role = interaction.guild.roles.cache.get(roleId);
+            const currentEmoji = type === "dropdown" ? menu.dropdownEmojis[roleId] : menu.buttonEmojis[roleId];
+            modal.addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId(roleId)
+                  .setLabel(`Emoji for ${role ? role.name : "Unknown Role"}`)
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Enter emoji (🔥 or <:name:id>)")
+                  .setValue(currentEmoji || "")
+              )
             );
-          const row1 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`rr:addemoji:dropdown:${menuId}`)
-              .setLabel("🎨 Dropdown Emojis")
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(!menu.dropdownRoles.length),
-            new ButtonBuilder()
-              .setCustomId(`rr:addemoji:button:${menuId}`)
-              .setLabel("🎨 Button Emojis")
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(!menu.buttonRoles.length),
-            new ButtonBuilder()
-              .setCustomId(`rr:setexclusions:${menuId}`)
-              .setLabel("🚫 Set Exclusions")
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Success)
-          );
-          const row2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId("dash:reactionroles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
-          );
-          return interaction.update({ embeds: [embed], components: [row1, row2] });
+          }
+          return interaction.showModal(modal);
         }
-        // Show exclusions modal
-        if (action === "setexclusions") {
+
+        if (action === "setlimits") {
+          // Show modal to set regional limits
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:setexclusions:${menuId}`)
-            .setTitle("Role Exclusions Mapping")
+            .setCustomId(`rr:modal:setlimits:${targetMenuId}`)
+            .setTitle("Set Regional Role Limits")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("exclusions")
-                  .setLabel("Paste JSON map")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setPlaceholder(`{
-  "ROLE_ID_EU": ["ROLE_ID_NA","ROLE_ID_ASIA"],
-  "ROLE_ID_NA": ["ROLE_ID_EU","ROLE_ID_ASIA"]
-}`)
+                  .setCustomId("au")
+                  .setLabel("Limit For AU")
+                  .setStyle(TextInputStyle.Short)
+                  .setPlaceholder("1")
                   .setRequired(false)
+                  .setValue(menu.regionalLimits.AU?.limit?.toString() || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("eu")
+                  .setLabel("Limit For EU")
+                  .setStyle(TextInputStyle.Short)
+                  .setPlaceholder("1")
+                  .setRequired(false)
+                  .setValue(menu.regionalLimits.EU?.limit?.toString() || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("na")
+                  .setLabel("Limit For NA")
+                  .setStyle(TextInputStyle.Short)
+                  .setPlaceholder("1")
+                  .setRequired(false)
+                  .setValue(menu.regionalLimits.NA?.limit?.toString() || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("role_assignments")
+                  .setLabel("Role Assignments (JSON)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setPlaceholder('{"AU": ["roleId1"], "EU": ["roleId2"], "NA": ["roleId3"]}')
+                  .setRequired(false)
+                  .setValue(JSON.stringify(Object.fromEntries(
+                    Object.entries(menu.regionalLimits).map(([region, data]) => [region, data.roleIds || []])
+                  )) || "")
               )
             );
           return interaction.showModal(modal);
         }
-        // Publish immediately
-        if (action === "publish") {
-          return publishMenu(interaction, menuId);
+
+        if (action === "config") {
+          // Show configuration options for a menu
+          const targetMenuId = extra;
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
+          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+          const embed = new EmbedBuilder()
+            .setTitle(`⚙️ Configure: ${menu.name}`)
+            .setDescription(`**Description:** ${menu.desc}`)
+            .addFields(
+              { name: "Selection Type", value: menu.selectionType.join(", ") || "None", inline: true },
+              { name: "Dropdown Roles", value: menu.dropdownRoles.length.toString(), inline: true },
+              { name: "Button Roles", value: menu.buttonRoles.length.toString(), inline: true },
+              { 
+                name: "Regional Limits", 
+                value: Object.keys(menu.regionalLimits).length 
+                  ? Object.entries(menu.regionalLimits).map(([region, data]) => `${region}: ${data.limit || 0}`).join(", ")
+                  : "None set", 
+                inline: false 
+              }
+            );
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`rr:addemoji:dropdown:${targetMenuId}`).setLabel("🎨 Dropdown Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.dropdownRoles.length),
+            new ButtonBuilder().setCustomId(`rr:addemoji:button:${targetMenuId}`).setLabel("🎨 Button Emojis").setStyle(ButtonStyle.Secondary).setDisabled(!menu.buttonRoles.length),
+            new ButtonBuilder().setCustomId(`rr:setlimits:${targetMenuId}`).setLabel("📊 Regional Limits").setStyle(ButtonStyle.Secondary)
+          );
+
+          const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`rr:publish:${targetMenuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
+          );
+
+          return interaction.update({ embeds: [embed], components: [row, row2] });
         }
       }
     }
 
-    // Modal submissions
     if (interaction.isModalSubmit()) {
       const parts = interaction.customId.split(":");
-      // Create menu
-      if (parts[0] === "rr" && parts[2] === "create") {
-        const name = interaction.fields.getTextInputValue("name").trim();
-        const desc = interaction.fields.getTextInputValue("desc").trim();
-        const id = db.createMenu(interaction.guild.id, name, desc);
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "create") {
+        // Create menu from modal input
+        const name = interaction.fields.getTextInputValue("name");
+        const desc = interaction.fields.getTextInputValue("desc");
+        if (!name || !desc) return interaction.reply({ content: "Name and description are required.", ephemeral: true });
+        const menuId = db.createMenu(interaction.guild.id, name, desc);
+
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`rr:type:dropdown:${id}`).setLabel("Dropdown").setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`rr:type:button:${id}`).setLabel("Buttons").setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`rr:type:both:${id}`).setLabel("Both").setStyle(ButtonStyle.Success)
+          new ButtonBuilder().setCustomId(`rr:type:dropdown:${menuId}`).setLabel("Use Dropdown").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`rr:type:button:${menuId}`).setLabel("Use Buttons").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`rr:type:both:${menuId}`).setLabel("Use Both").setStyle(ButtonStyle.Success)
         );
-        return interaction.reply({ content: `Menu ${id} created`, components: [row], ephemeral: true });
+
+        return interaction.reply({ content: "Choose how users should select roles:", components: [row], ephemeral: true });
       }
-      // Save exclusions map
-      if (parts[2] === "setexclusions") {
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "addemoji") {
+        // Save emojis from modal input
+        const type = parts[3]; // dropdown or button
+        const menuId = parts[4];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const emojis = {};
+        for (const [key, input] of interaction.fields.fields) {
+          const val = input.value;
+          if (val && val.trim()) {
+            emojis[key] = val.trim();
+          }
+        }
+        db.saveEmojis(menuId, emojis, type);
+        return interaction.reply({ content: `✅ Emojis saved for ${type}. You can now publish the menu!`, ephemeral: true });
+      }
+
+      if (parts[0] === "rr" && parts[1] === "modal" && parts[2] === "setlimits") {
         const menuId = parts[3];
-        const raw = interaction.fields.getTextInputValue("exclusions").trim();
-        let map = {};
-        if (raw) {
-          try { map = JSON.parse(raw); }
-          catch { return interaction.reply({ content: "❌ Invalid JSON.", ephemeral: true }); }
-        }
-        db.getMenu(menuId).exclusions = map;
-        return interaction.reply({ content: "✅ Exclusions saved.", ephemeral: true });
-      }
-    }
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
-    // Role selection steps
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:selectroles:")) {
-      const [, , type, menuId] = interaction.customId.split(":");
-      db.saveRoles(menuId, interaction.values, type);
-      const menu = db.getMenu(menuId);
-      // next step?
-      const need = menu.selectionType.includes("dropdown") && !menu.dropdownRoles.length
-        ? "dropdown"
-        : menu.selectionType.includes("button") && !menu.buttonRoles.length
-        ? "button"
-        : null;
-      if (need) {
-        const all = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
-        const select = new StringSelectMenuBuilder()
-          .setCustomId(`rr:selectroles:${need}:${menuId}`)
-          .setMinValues(1)
-          .setMaxValues(Math.min(all.size,25))
-          .addOptions(all.map(r=>({ label:r.name, value:r.id })));
-        return interaction.update({
-          content: `✅ Saved ${type}. Now pick ${need}:`,
-          components: [new ActionRowBuilder().addComponents(select)],
-        });
-      }
-      // done picking: show config
-      return showConfigRow(interaction, menuId);
-    }
+        try {
+          const auLimit = interaction.fields.getTextInputValue("au");
+          const euLimit = interaction.fields.getTextInputValue("eu");
+          const naLimit = interaction.fields.getTextInputValue("na");
+          const roleAssignmentsRaw = interaction.fields.getTextInputValue("role_assignments");
 
-    // Dropdown usage by user
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:use:")) {
-      const menuId = interaction.customId.split(":")[2];
-      const menu = db.getMenu(menuId);
-      if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
-      const sel = interaction.values;
-      const member = interaction.member;
-      // apply toggles
-      for (const rid of menu.dropdownRoles) {
-        if (sel.includes(rid)) {
-          if (!member.roles.cache.has(rid)) member.roles.add(rid);
-        } else {
-          if (member.roles.cache.has(rid)) member.roles.remove(rid);
+          let roleAssignments = {};
+          if (roleAssignmentsRaw && roleAssignmentsRaw.trim()) {
+            roleAssignments = JSON.parse(roleAssignmentsRaw);
+          }
+
+          const regionalLimits = {};
+          
+          if (auLimit && !isNaN(auLimit)) {
+            regionalLimits.AU = {
+              limit: Number(auLimit),
+              roleIds: roleAssignments.AU || []
+            };
+          }
+          
+          if (euLimit && !isNaN(euLimit)) {
+            regionalLimits.EU = {
+              limit: Number(euLimit),
+              roleIds: roleAssignments.EU || []
+            };
+          }
+          
+          if (naLimit && !isNaN(naLimit)) {
+            regionalLimits.NA = {
+              limit: Number(naLimit),
+              roleIds: roleAssignments.NA || []
+            };
+          }
+
+          db.saveRegionalLimits(menuId, regionalLimits);
+          return interaction.reply({ content: "✅ Regional limits saved.", ephemeral: true });
+        } catch (error) {
+          console.error("Error saving regional limits:", error);
+          return interaction.reply({ content: "❌ Invalid JSON format in role assignments.", ephemeral: true });
         }
       }
-      // apply exclusions after
-      applyExclusions(member, menu, sel);
-      return interaction.reply({ content: "✅ Updated!", ephemeral: true });
     }
 
-    // Button usage by user
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith("rr:selectroles:")) {
+        // Save selected roles per type (dropdown/button)
+        const [_, __, type, menuId] = interaction.customId.split(":");
+        if (!interaction.values.length) return interaction.reply({ content: "❌ No roles selected.", ephemeral: true });
+
+        db.saveRoles(menuId, interaction.values, type);
+
+        const selectionType = db.getMenu(menuId)?.selectionType || [];
+        const stillNeeds =
+          selectionType.includes("dropdown") && !db.getMenu(menuId).dropdownRoles.length
+            ? "dropdown"
+            : selectionType.includes("button") && !db.getMenu(menuId).buttonRoles.length
+            ? "button"
+            : null;
+
+        if (stillNeeds) {
+          const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+          const select = new StringSelectMenuBuilder()
+            .setCustomId(`rr:selectroles:${stillNeeds}:${menuId}`)
+            .setMinValues(1)
+            .setMaxValues(Math.min(allRoles.size, 25))
+            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+
+          return interaction.update({
+            content: `✅ Saved roles for ${type}. Now select roles for **${stillNeeds}**:`,
+            components: [new ActionRowBuilder().addComponents(select)],
+          });
+        }
+
+        // All roles selected, show configuration options
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`rr:config:${menuId}`).setLabel("⚙️ Configure").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish Now").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
+        );
+        return interaction.update({ content: "✅ All roles saved! Configure emojis and settings, or publish now.", components: [row] });
+      }
+
+      if (interaction.customId.startsWith("rr:use:")) {
+        // Handle dropdown role selection by users
+        const menuId = interaction.customId.split(":")[2];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+
+        const chosen = interaction.values;
+        const member = interaction.member;
+
+        // Check regional limits
+        const violations = checkRegionalLimits(member, menu, chosen);
+        if (violations.length > 0) {
+          return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
+        }
+
+        // Remove roles not chosen that user has from dropdownRoles
+        for (const roleId of menu.dropdownRoles) {
+          if (chosen.includes(roleId)) {
+            if (!member.roles.cache.has(roleId)) await member.roles.add(roleId);
+          } else {
+            if (member.roles.cache.has(roleId)) await member.roles.remove(roleId);
+          }
+        }
+
+        return interaction.reply({ content: "✅ Your roles have been updated!", ephemeral: true });
+      }
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith("rr:assign:")) {
+      // Handle button role assign/remove
       const roleId = interaction.customId.split(":")[2];
       const member = interaction.member;
-      const has = member.roles.cache.has(roleId);
-      const menu = [...db.menuData.values()].find(m => m.buttonRoles.includes(roleId));
-      if (!has) {
-        // apply exclusions before adding
-        applyExclusions(member, menu, [roleId]);
-        await member.roles.add(roleId);
-      } else {
-        await member.roles.remove(roleId);
+      const hasRole = member.roles.cache.has(roleId);
+
+      // Find the menu this role belongs to for regional limit checking
+      let targetMenu = null;
+      for (const [menuId, menu] of db.menuData) {
+        if (menu.buttonRoles.includes(roleId)) {
+          targetMenu = menu;
+          break;
+        }
       }
-      return interaction.reply({ content: `✅ ${has?"Removed":"Added"} <@&${roleId}>`, ephemeral: true });
+
+      if (targetMenu && !hasRole) {
+        // Check if adding this role would violate regional limits
+        const currentRoles = Array.from(member.roles.cache.keys());
+        const newRoles = [...currentRoles, roleId];
+        const violations = checkRegionalLimits(member, targetMenu, newRoles);
+        
+        if (violations.length > 0) {
+          return interaction.reply({ content: `❌ ${violations.join(' ')}`, ephemeral: true });
+        }
+      }
+
+      if (hasRole) await member.roles.remove(roleId);
+      else await member.roles.add(roleId);
+
+      return interaction.reply({ content: `✅ You now ${hasRole ? "removed" : "added"} <@&${roleId}>`, ephemeral: true });
     }
-  } catch (err) {
-    console.error(err);
-    if (!interaction.replied) interaction.reply({ content: "❌ Something went wrong.", ephemeral: true }).catch(() => {});
+  } catch (error) {
+    console.error("Error handling interaction:", error);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
+    }
   }
 });
 
-// Show all menus and “Create” button
-async function showMenus(interaction) {
-  const list = db.getMenus(interaction.guild.id);
+async function sendMainDashboard(interaction) {
   const embed = new EmbedBuilder()
-    .setTitle("🎨 Reaction Role Menus")
-    .setDescription(list.length ? list.map((m,i) => `**${i+1}.** ${m.name}`).join("\n") : "*None yet*");
-  const buttons = [
-    new ButtonBuilder().setCustomId("rr:create").setLabel("➕ Create").setStyle(ButtonStyle.Success)
-  ];
-  list.slice(0,3).forEach((m,i)=>buttons.push(
-    new ButtonBuilder().setCustomId(`rr:config:${m.id}`).setLabel(`⚙️ ${i+1}`).setStyle(ButtonStyle.Primary)
-  ));
-  buttons.push(new ButtonBuilder().setCustomId("dash:back").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary));
-  await interaction.update({ embeds: [embed], components: [new ActionRowBuilder().addComponents(buttons)] });
-}
-
-// Show the config row after roles‐picked
-function showConfigRow(interaction, menuId) {
+    .setTitle("🛠️ Server Dashboard")
+    .setDescription("Click a button to configure server features:")
+    .setColor(0x5865F2);
+    
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`rr:config:${menuId}`).setLabel("⚙️ Configure").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish Now").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("dash:reactionroles").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId("dash:reaction-roles").setLabel("🎨 Reaction Roles").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("dash:back").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary).setDisabled(true)
   );
-  return interaction.update({ content: "✅ Roles saved—now configure or publish.", components: [row] });
+  
+  const method = interaction.replied ? 'editReply' : 'reply';
+  await interaction[method]({ embeds: [embed], components: [row], ephemeral: true });
 }
 
-// Publish the menu to channel
+async function showReactionRolesDashboard(interaction) {
+  const menus = db.getMenus(interaction.guild.id);
+  const embed = new EmbedBuilder()
+    .setTitle("🎨 Reaction Roles Manager")
+    .setDescription(menus.length ? menus.map((m, i) => `**${i + 1}.** ${m.name} (${m.selectionType.join(", ") || "Not configured"})`).join("\n") : "*No reaction role menus created yet*")
+    .setColor(0x5865F2);
+    
+  const buttons = [
+    new ButtonBuilder().setCustomId("rr:create").setLabel("➕ Create New Menu").setStyle(ButtonStyle.Success)
+  ];
+  
+  // Add edit buttons for existing menus (max 4 to fit with back button)
+  menus.slice(0, 3).forEach((m, i) => {
+    buttons.push(new ButtonBuilder().setCustomId(`rr:config:${m.id}`).setLabel(`⚙️ Menu ${i + 1}`).setStyle(ButtonStyle.Primary));
+  });
+  
+  buttons.push(new ButtonBuilder().setCustomId("dash:back").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary));
+  
+  const row = new ActionRowBuilder().addComponents(buttons);
+  await interaction.update({ embeds: [embed], components: [row] });
+}
+
 async function publishMenu(interaction, menuId) {
   const menu = db.getMenu(menuId);
   if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
+  // Create embed
   const embed = new EmbedBuilder()
     .setTitle(menu.name)
     .setDescription(menu.desc)
-    .setFooter({ text: "Pick a role below!" });
+    .setColor(0x5865F2)
+    .setFooter({ text: "Select your roles below!" });
 
-  const comps = [];
+  const components = [];
 
-  // Dropdown
+  // Add dropdown if configured
   if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length) {
-    const opts = menu.dropdownRoles.map(rid => {
-      const role = interaction.guild.roles.cache.get(rid);
-      if (!role) return null;
-      const emo = menu.dropdownEmojis[rid];
-      return { label: role.name, value: rid, emoji: emo? parseEmoji(emo): undefined };
-    }).filter(Boolean);
-    comps.push(new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
+    const options = menu.dropdownRoles
+      .map((roleId) => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        const emojiStr = menu.dropdownEmojis[roleId];
+        const option = {
+          label: role.name,
+          value: role.id,
+          description: `Click to toggle ${role.name}`,
+        };
+        if (emojiStr) {
+          const parsedEmoji = parseEmoji(emojiStr);
+          if (parsedEmoji) option.emoji = parsedEmoji;
+        }
+        return option;
+      })
+      .filter(Boolean);
+
+    if (options.length) {
+      const select = new StringSelectMenuBuilder()
         .setCustomId(`rr:use:${menuId}`)
+        .setPlaceholder("Select roles from the dropdown...")
         .setMinValues(0)
-        .setMaxValues(opts.length)
-        .addOptions(opts)
-    ));
+        .setMaxValues(options.length)
+        .addOptions(options);
+      components.push(new ActionRowBuilder().addComponents(select));
+    }
   }
 
-  // Buttons
+  // Add buttons if configured
   if (menu.selectionType.includes("button") && menu.buttonRoles.length) {
-    const btns = menu.buttonRoles.map(rid => {
-      const role = interaction.guild.roles.cache.get(rid);
-      if (!role) return null;
-      const b = new ButtonBuilder()
-        .setCustomId(`rr:assign:${rid}`)
-        .setLabel(role.name)
-        .setStyle(ButtonStyle.Secondary);
-      const emo = menu.buttonEmojis[rid];
-      if (emo) try { b.setEmoji(parseEmoji(emo)); } catch {}
-      return b;
-    }).filter(Boolean);
-    for (let i=0; i<btns.length; i+=5) comps.push(new ActionRowBuilder().addComponents(btns.slice(i,i+5)));
+    const buttons = menu.buttonRoles
+      .map((roleId) => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        const emojiStr = menu.buttonEmojis[roleId];
+        const button = new ButtonBuilder()
+          .setCustomId(`rr:assign:${roleId}`)
+          .setLabel(role.name)
+          .setStyle(ButtonStyle.Secondary);
+        if (emojiStr) {
+          try {
+            const parsedEmoji = parseEmoji(emojiStr);
+            if (parsedEmoji) button.setEmoji(parsedEmoji);
+          } catch (err) {
+            console.log(`Failed to set emoji for role ${role.name}:`, err.message);
+          }
+        }
+        return button;
+      })
+      .filter(Boolean);
+
+    // Split buttons into rows (max 5 per row)
+    for (let i = 0; i < buttons.length; i += 5) {
+      components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+    }
   }
 
-  if (!comps.length) {
-    return interaction.reply({ content: "❌ Nothing to publish.", ephemeral: true });
+  if (components.length === 0) {
+    return interaction.reply({ content: "❌ No roles configured for this menu.", ephemeral: true });
   }
 
-  await interaction.channel.send({ embeds: [embed], components: comps });
-  return interaction.reply({ content: "🚀 Published!", ephemeral: true });
+  try {
+    const message = await interaction.channel.send({ embeds: [embed], components });
+    db.saveMessageId(menuId, interaction.channel.id, message.id);
+    return interaction.reply({ content: "🚀 Reaction role menu published successfully!", ephemeral: true });
+  } catch (error) {
+    console.error("Error publishing menu:", error);
+    return interaction.reply({ content: "❌ Failed to publish menu. Check that emojis are valid.", ephemeral: true });
+  }
 }
 
 client.login(process.env.TOKEN);
