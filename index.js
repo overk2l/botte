@@ -1,4 +1,4 @@
-// index.js (Updated: Dropdown + Button role separation)
+// index.js (Updated: Dropdown + Button role separation + optional emojis + role limits + exclusions)
 require("dotenv").config();
 
 const {
@@ -23,9 +23,23 @@ const db = {
   menuData: new Map(),
   createMenu(guildId, name, desc) {
     const id = Date.now().toString();
-    this.menus.has(guildId) || this.menus.set(guildId, []);
+    if (!this.menus.has(guildId)) this.menus.set(guildId, []);
     this.menus.get(guildId).push(id);
-    this.menuData.set(id, { guildId, name, desc, dropdownRoles: [], buttonRoles: [], selectionType: [], channelId: null, messageId: null });
+    this.menuData.set(id, {
+      guildId,
+      name,
+      desc,
+      dropdownRoles: [],
+      buttonRoles: [],
+      dropdownEmojis: [],  // new: emoji strings for dropdown roles (optional)
+      buttonEmojis: [],    // new: emoji strings for button roles (optional)
+      dropdownLimit: 0,    // 0 = no limit
+      buttonLimit: 0,      // 0 = no limit
+      exclusions: {},      // { groupName: [roleId, ...], ... }
+      selectionType: [],
+      channelId: null,
+      messageId: null,
+    });
     return id;
   },
   getMenus(guildId) {
@@ -34,6 +48,17 @@ const db = {
   saveRoles(menuId, roles, type) {
     if (type === 'dropdown') this.menuData.get(menuId).dropdownRoles = roles;
     if (type === 'button') this.menuData.get(menuId).buttonRoles = roles;
+  },
+  saveEmojis(menuId, emojis, type) {
+    if (type === 'dropdown') this.menuData.get(menuId).dropdownEmojis = emojis;
+    if (type === 'button') this.menuData.get(menuId).buttonEmojis = emojis;
+  },
+  saveLimits(menuId, limit, type) {
+    if (type === 'dropdown') this.menuData.get(menuId).dropdownLimit = limit;
+    if (type === 'button') this.menuData.get(menuId).buttonLimit = limit;
+  },
+  saveExclusions(menuId, exclusions) {
+    this.menuData.get(menuId).exclusions = exclusions;
   },
   saveSelectionType(menuId, types) {
     this.menuData.get(menuId).selectionType = types;
@@ -48,7 +73,10 @@ const db = {
   }
 };
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds], partials: [Partials.Channel] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  partials: [Partials.Channel],
+});
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -61,6 +89,7 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") return sendMainDashboard(interaction);
 
+  // BUTTONS
   if (interaction.isButton()) {
     const [ctx, action, extra, menuId] = interaction.customId.split(":");
 
@@ -71,15 +100,16 @@ client.on("interactionCreate", async interaction => {
 
     if (ctx === "rr") {
       if (action === "create") {
+        // Create new menu modal (name + description)
         const modal = new ModalBuilder()
           .setCustomId("rr:modal:create")
           .setTitle("New Reaction Role Menu")
           .addComponents(
             new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short)
+              new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short).setRequired(true)
             ),
             new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph)
+              new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true)
             )
           );
         return interaction.showModal(modal);
@@ -88,93 +118,321 @@ client.on("interactionCreate", async interaction => {
       if (action === "publish") return publishMenu(interaction, extra);
 
       if (action === "type") {
+        // Save selection types (dropdown, button, both)
         let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
         db.saveSelectionType(menuId, selectedTypes);
 
+        // Start with dropdown or button roles selection
         const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
         const allRoles = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
+
+        // Filter out duplicates if both are selected (prevent role duplicates)
+        let options = allRoles;
+        if (selectedTypes.length === 2) {
+          // Exclude roles already selected in other type (if any)
+          const otherType = nextType === "dropdown" ? "button" : "dropdown";
+          const otherRoles = db.getMenu(menuId)[otherType + "Roles"];
+          options = allRoles.filter(r => !otherRoles.includes(r.id));
+        }
+
         const select = new StringSelectMenuBuilder()
           .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
           .setMinValues(1)
-          .setMaxValues(Math.min(allRoles.size, 25))
-          .addOptions(allRoles.map(r => ({ label: r.name, value: r.id }))); // only first 25 allowed
+          .setMaxValues(Math.min(options.size, 25))
+          .addOptions(options.map(r => ({ label: r.name, value: r.id })));
 
         return interaction.update({
           content: `✅ Selection type saved. Now select roles for **${nextType}**:`,
           components: [new ActionRowBuilder().addComponents(select)],
         });
       }
+
+      if (action === "addemojis") {
+        // Show modal for emojis input for dropdown or button roles
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.reply({ content: "❌ Menu not found.", flags: 64 });
+
+        // Determine type param
+        const type = extra;
+        let roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
+        if (!roles.length) return interaction.reply({ content: `❌ No roles selected for ${type} yet.`, flags: 64 });
+
+        // Prepare a modal with one TextInput per role emoji (1 emoji per role, optional)
+        // Because modals max 5 inputs, we will do one role per modal in a sequence (simpler)
+        // So here we send a modal for the first role without emoji, or continue next role later
+        // Store current index in extra param like: rr:addemojis:dropdown:menuId:idx
+        // For simplicity, parse extra param as "dropdown" or "button" only, we use ephemeral prompts for multiple emojis (or do sequential modals)
+
+        // Instead, for now let's just show one input modal asking for comma separated emojis in order (must match roles order)
+        // User can input emojis separated by commas, or leave blank.
+
+        const roleLabels = roles
+          .map(id => {
+            const r = interaction.guild.roles.cache.get(id);
+            return r ? r.name : "Unknown";
+          })
+          .join(", ");
+
+        const modal = new ModalBuilder()
+          .setCustomId(`rr:modal:emojis:${type}:${menuId}`)
+          .setTitle(`Add Emojis for ${type} roles (optional)`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("emojis")
+                .setLabel(`Enter emojis separated by commas (for roles in order):\n${roleLabels}`)
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+            )
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (action === "setlimits") {
+        // Show modal to set limits for dropdown or button role selection
+        const type = extra;
+        const modal = new ModalBuilder()
+          .setCustomId(`rr:modal:limits:${type}:${menuId}`)
+          .setTitle(`Set Role Limit for ${type}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("limit")
+                .setLabel(`Enter max roles selectable (0 = no limit)`)
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            )
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (action === "exclusions") {
+        // Show modal to set exclusions (e.g. regions groups) as JSON string, to keep UI simple
+        const modal = new ModalBuilder()
+          .setCustomId(`rr:modal:exclusions:${menuId}`)
+          .setTitle(`Set Role Exclusions`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("exclusions")
+                .setLabel(`Enter exclusions JSON. Example:\n{"region": ["roleId1", "roleId2"]}`)
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+            )
+          );
+        return interaction.showModal(modal);
+      }
     }
   }
 
-  if (interaction.isModalSubmit() && interaction.customId === "rr:modal:create") {
-    const name = interaction.fields.getTextInputValue("name");
-    const desc = interaction.fields.getTextInputValue("desc");
-    const menuId = db.createMenu(interaction.guild.id, name, desc);
+  // MODAL SUBMITS
+  if (interaction.isModalSubmit()) {
+    const [ctx, action, subAction, typeOrMenuId, maybeMenuId] = interaction.customId.split(":");
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rr:type:dropdown:${menuId}`).setLabel("Use Dropdown").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`rr:type:button:${menuId}`).setLabel("Use Buttons").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`rr:type:both:${menuId}`).setLabel("Use Both").setStyle(ButtonStyle.Success)
-    );
+    if (ctx === "rr") {
+      if (action === "modal") {
+        if (subAction === "create") {
+          // Create menu modal submission
+          const name = interaction.fields.getTextInputValue("name");
+          const desc = interaction.fields.getTextInputValue("desc");
+          const menuId = db.createMenu(interaction.guild.id, name, desc);
 
-    return interaction.reply({ content: "Choose how users should select roles:", components: [row], flags: 64 });
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`rr:type:dropdown:${menuId}`).setLabel("Use Dropdown").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`rr:type:button:${menuId}`).setLabel("Use Buttons").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`rr:type:both:${menuId}`).setLabel("Use Both").setStyle(ButtonStyle.Success)
+          );
+
+          return interaction.reply({ content: "Choose how users should select roles:", components: [row], flags: 64 });
+        }
+
+        if (subAction === "emojis") {
+          const type = typeOrMenuId; // dropdown or button
+          const menuId = maybeMenuId;
+
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.reply({ content: "❌ Menu not found.", flags: 64 });
+
+          const raw = interaction.fields.getTextInputValue("emojis").trim();
+          let emojis = [];
+
+          if (raw.length > 0) {
+            // Parse emojis separated by comma, trim spaces
+            emojis = raw.split(",").map(s => s.trim());
+          }
+
+          // Save emojis array for the type, pad/truncate to roles length
+          const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
+          while (emojis.length < roles.length) emojis.push("");
+          emojis = emojis.slice(0, roles.length);
+
+          db.saveEmojis(menuId, emojis, type);
+
+          return interaction.reply({ content: `✅ Emojis saved for ${type} roles.`, flags: 64 });
+        }
+
+        if (subAction === "limits") {
+          const type = typeOrMenuId; // dropdown or button
+          const menuId = maybeMenuId;
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.reply({ content: "❌ Menu not found.", flags: 64 });
+
+          let limitRaw = interaction.fields.getTextInputValue("limit");
+          let limit = parseInt(limitRaw);
+          if (isNaN(limit) || limit < 0) limit = 0;
+
+          db.saveLimits(menuId, limit, type);
+
+          return interaction.reply({ content: `✅ Role limit set to ${limit} for ${type}.`, flags: 64 });
+        }
+
+        if (subAction === "exclusions") {
+          const menuId = typeOrMenuId;
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.reply({ content: "❌ Menu not found.", flags: 64 });
+
+          const raw = interaction.fields.getTextInputValue("exclusions").trim();
+          let exclusions = {};
+          if (raw.length > 0) {
+            try {
+              exclusions = JSON.parse(raw);
+            } catch {
+              return interaction.reply({ content: "❌ Invalid JSON format for exclusions.", flags: 64 });
+            }
+          }
+
+          db.saveExclusions(menuId, exclusions);
+
+          return interaction.reply({ content: "✅ Exclusions saved.", flags: 64 });
+        }
+      }
+    }
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:selectroles:")) {
-    const [_, __, type, menuId] = interaction.customId.split(":");
-    if (!interaction.values.length) return interaction.reply({ content: "❌ No roles selected.", flags: 64 });
+  // SELECT MENUS for roles selection
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId.startsWith("rr:selectroles:")) {
+      const [_, __, type, menuId] = interaction.customId.split(":");
+      if (!interaction.values.length) return interaction.reply({ content: "❌ No roles selected.", flags: 64 });
 
-    db.saveRoles(menuId, interaction.values, type);
-    const selectionType = db.getMenu(menuId).selectionType;
-    const stillNeeds = selectionType.includes("dropdown") && !db.getMenu(menuId).dropdownRoles.length ? "dropdown"
-                       : selectionType.includes("button") && !db.getMenu(menuId).buttonRoles.length ? "button"
-                       : null;
+      // Save roles
+      db.saveRoles(menuId, interaction.values, type);
 
-    if (stillNeeds) {
-      const allRoles = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
-      const select = new StringSelectMenuBuilder()
-        .setCustomId(`rr:selectroles:${stillNeeds}:${menuId}`)
-        .setMinValues(1)
-        .setMaxValues(Math.min(allRoles.size, 25))
-        .addOptions(allRoles.map(r => ({ label: r.name, value: r.id })));
+      // Check if need to select the other type roles
+      const selectionType = db.getMenu(menuId).selectionType;
+      const menu = db.getMenu(menuId);
+
+      // Determine next type that still needs roles selected
+      const needsDropdown = selectionType.includes("dropdown") && (!menu.dropdownRoles || !menu.dropdownRoles.length);
+      const needsButton = selectionType.includes("button") && (!menu.buttonRoles || !menu.buttonRoles.length);
+      let stillNeeds = null;
+      if (needsDropdown && type !== "dropdown") stillNeeds = "dropdown";
+      else if (needsButton && type !== "button") stillNeeds = "button";
+
+      if (stillNeeds) {
+        const allRoles = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
+
+        // Exclude roles already selected in the other type to avoid duplicates
+        let options = allRoles;
+        if (selectionType.length === 2) {
+          const otherType = stillNeeds === "dropdown" ? "button" : "dropdown";
+          const otherRoles = db.getMenu(menuId)[otherType + "Roles"] || [];
+          options = allRoles.filter(r => !otherRoles.includes(r.id));
+        }
+
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`rr:selectroles:${stillNeeds}:${menuId}`)
+          .setMinValues(1)
+          .setMaxValues(Math.min(options.size, 25))
+          .addOptions(options.map(r => ({ label: r.name, value: r.id })));
+
+        return interaction.update({
+          content: `✅ Saved roles for ${type}. Now select roles for **${stillNeeds}**:`,
+          components: [new ActionRowBuilder().addComponents(select)],
+        });
+      }
+
+      // After roles selection done, show buttons to add emojis, set limits, exclusions, and publish
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`rr:addemojis:dropdown:${menuId}`).setLabel("Add Dropdown Emojis").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`rr:addemojis:button:${menuId}`).setLabel("Add Button Emojis").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`rr:setlimits:dropdown:${menuId}`).setLabel("Set Dropdown Limit").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`rr:setlimits:button:${menuId}`).setLabel("Set Button Limit").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`rr:exclusions:${menuId}`).setLabel("Set Exclusions").setStyle(ButtonStyle.Danger)
+      );
+
+      const publishRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("dash:back").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
+      );
 
       return interaction.update({
-        content: `✅ Saved roles for ${type}. Now select roles for **${stillNeeds}**:`,
-        components: [new ActionRowBuilder().addComponents(select)],
+        content: "✅ All roles saved. You can now add emojis, set limits, exclusions, or publish.",
+        components: [row, publishRow],
       });
     }
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rr:publish:${menuId}`).setLabel("🚀 Publish").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId("dash:back").setLabel("🔙 Back").setStyle(ButtonStyle.Secondary)
-    );
-    return interaction.update({ content: "✅ All roles saved. Click Publish to post.", components: [row] });
-  }
+    // User selecting roles from published dropdown menu
+    if (interaction.customId.startsWith("rr:use:")) {
+      const menuId = interaction.customId.split(":")[2];
+      const menu = db.getMenu(menuId);
+      if (!menu) return interaction.reply({ content: "❌ Menu not found.", flags: 64 });
 
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:use:")) {
-    const menuId = interaction.customId.split(":")[2];
-    const menu = db.getMenu(menuId);
-    const chosen = interaction.values;
-    const member = interaction.member;
+      const chosen = interaction.values;
+      const member = interaction.member;
 
-    for (const roleId of menu.dropdownRoles) {
-      if (chosen.includes(roleId)) {
-        if (!member.roles.cache.has(roleId)) await member.roles.add(roleId);
-      } else {
-        if (member.roles.cache.has(roleId)) await member.roles.remove(roleId);
+      // Handle role limits and exclusions
+
+      // Enforce dropdown limit
+      if (menu.dropdownLimit > 0 && chosen.length > menu.dropdownLimit) {
+        return interaction.reply({
+          content: `❌ You can select up to ${menu.dropdownLimit} roles from this menu.`,
+          flags: 64,
+        });
       }
+
+      // Enforce exclusions
+      if (menu.exclusions) {
+        // For each group in exclusions, ensure user only has one from that group after this selection
+        for (const [groupName, roleIds] of Object.entries(menu.exclusions)) {
+          const hasGroupRoles = roleIds.filter(rid => member.roles.cache.has(rid));
+          const chosenInGroup = chosen.filter(rid => roleIds.includes(rid));
+          if (chosenInGroup.length > 1) {
+            return interaction.reply({
+              content: `❌ You can only have one role from the "${groupName}" group.`,
+              flags: 64,
+            });
+          }
+          if (chosenInGroup.length === 1 && hasGroupRoles.length > 0 && !hasGroupRoles.includes(chosenInGroup[0])) {
+            // Remove other roles in the group if conflicting
+            for (const rId of hasGroupRoles) {
+              await member.roles.remove(rId).catch(() => {});
+            }
+          }
+        }
+      }
+
+      // Add new roles selected
+      for (const roleId of menu.dropdownRoles) {
+        if (chosen.includes(roleId)) {
+          if (!member.roles.cache.has(roleId)) await member.roles.add(roleId).catch(() => {});
+        } else {
+          if (member.roles.cache.has(roleId)) await member.roles.remove(roleId).catch(() => {});
+        }
+      }
+
+      return interaction.reply({ content: "✅ Your roles have been updated!", flags: 64 });
     }
-    return interaction.reply({ content: "✅ Your roles have been updated!", flags: 64 });
   }
 
+  // Button presses on published buttons
   if (interaction.isButton() && interaction.customId.startsWith("rr:assign:")) {
     const roleId = interaction.customId.split(":")[2];
     const member = interaction.member;
     const hasRole = member.roles.cache.has(roleId);
 
-    if (hasRole) await member.roles.remove(roleId);
-    else await member.roles.add(roleId);
+    if (hasRole) await member.roles.remove(roleId).catch(() => {});
+    else await member.roles.add(roleId).catch(() => {});
 
     return interaction.reply({ content: `✅ You now ${hasRole ? "removed" : "added"} <@&${roleId}>`, flags: 64 });
   }
@@ -210,25 +468,69 @@ async function publishMenu(interaction, menuId) {
   const components = [];
 
   if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length) {
+    // Use emojis in dropdown options if present
+    const options = menu.dropdownRoles.map((roleId, i) => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      const emojiRaw = menu.dropdownEmojis[i] || null;
+      let emoji = null;
+      if (emojiRaw) {
+        // Try to parse custom emoji: <a:name:id> or <:name:id>
+        const customEmojiMatch = emojiRaw.match(/<(a?):(\w+):(\d+)>/);
+        if (customEmojiMatch) {
+          emoji = {
+            id: customEmojiMatch[3],
+            name: customEmojiMatch[2],
+            animated: customEmojiMatch[1] === "a",
+          };
+        } else {
+          // Unicode emoji fallback
+          emoji = emojiRaw;
+        }
+      }
+      return {
+        label: role?.name || "Unknown",
+        value: roleId,
+        emoji,
+      };
+    });
+
     const dropdown = new StringSelectMenuBuilder()
       .setCustomId(`rr:use:${menuId}`)
       .setMinValues(0)
-      .setMaxValues(menu.dropdownRoles.length)
-      .addOptions(menu.dropdownRoles.map(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        return { label: role?.name || "Unknown", value: roleId };
-      }));
+      .setMaxValues(menu.dropdownLimit > 0 ? menu.dropdownLimit : menu.dropdownRoles.length)
+      .addOptions(options);
+
     components.push(new ActionRowBuilder().addComponents(dropdown));
   }
 
   if (menu.selectionType.includes("button") && menu.buttonRoles.length) {
-    const buttons = menu.buttonRoles.map(roleId => {
+    // Use emojis in button labels if present
+    const buttons = menu.buttonRoles.map((roleId, i) => {
       const role = interaction.guild.roles.cache.get(roleId);
-      return new ButtonBuilder()
+      const emojiRaw = menu.buttonEmojis[i] || null;
+      let label = role?.name || "Unknown";
+      let emoji = null;
+      if (emojiRaw) {
+        // Try custom emoji or unicode
+        const customEmojiMatch = emojiRaw.match(/<(a?):(\w+):(\d+)>/);
+        if (customEmojiMatch) {
+          emoji = {
+            id: customEmojiMatch[3],
+            name: customEmojiMatch[2],
+            animated: customEmojiMatch[1] === "a",
+          };
+        } else {
+          emoji = emojiRaw;
+        }
+      }
+      const btn = new ButtonBuilder()
         .setCustomId(`rr:assign:${roleId}`)
-        .setLabel(role?.name || "Unknown")
+        .setLabel(label)
         .setStyle(ButtonStyle.Secondary);
+      if (emoji) btn.setEmoji(emoji);
+      return btn;
     });
+
     for (let i = 0; i < buttons.length; i += 5) {
       components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
     }
