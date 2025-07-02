@@ -506,7 +506,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Thumbnail Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("[https://example.com/thumbnail.png](https://example.com/thumbnail.png)")
+                  .setPlaceholder("https://example.com/thumbnail.png")
                   .setValue(menu.embedThumbnail || "")
               ),
               new ActionRowBuilder().addComponents(
@@ -515,7 +515,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Main Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("[https://example.com/image.png](https://example.com/image.png)")
+                  .setPlaceholder("https://example.com/image.png")
                   .setValue(menu.embedImage || "")
               ),
               new ActionRowBuilder().addComponents(
@@ -533,7 +533,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Author Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("[https://example.com/author_icon.png](https://example.com/author_icon.png)")
+                  .setPlaceholder("https://example.com/author_icon.png")
                   .setValue(menu.embedAuthorIconURL || "")
               )
             );
@@ -565,7 +565,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Footer Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("[https://example.com/footer_icon.png](https://example.com/footer_icon.png)")
+                  .setPlaceholder("https://example.com/footer_icon.png")
                   .setValue(menu.embedFooterIconURL || "")
               )
             );
@@ -634,6 +634,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "selectmenu") {
           const targetMenuId = interaction.values[0];
+          console.log(`[Interaction] Selected menu: ${targetMenuId}`);
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
@@ -744,19 +745,25 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
 
+        // Defer the modal submission interaction *before* calling showMenuConfiguration
+        // This ensures the interaction is acknowledged and can be edited later.
+        await interaction.deferUpdate();
+
         if (action === "modal") {
           if (extra === "create") {
             const name = interaction.fields.getTextInputValue("name");
             const desc = interaction.fields.getTextInputValue("desc");
             const newMenuId = db.createMenu(interaction.guild.id, name, desc);
-            await interaction.reply({ content: `✅ Menu "${name}" created with ID: ${newMenuId}`, ephemeral: true });
+            // showMenuConfiguration will now edit the deferred reply
             return showMenuConfiguration(interaction, newMenuId);
           }
           if (extra === "addemoji") {
             const type = parts[3];
             const menuId = parts[4];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const newEmojis = {};
             const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
@@ -769,13 +776,14 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
             db.saveEmojis(menuId, newEmojis, type);
-            await interaction.reply({ content: "✅ Emojis saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
           if (extra === "setlimits") {
             const menuId = parts[3];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const auLimit = parseInt(interaction.fields.getTextInputValue("au_limit"));
             const euLimit = parseInt(interaction.fields.getTextInputValue("eu_limit"));
@@ -802,7 +810,7 @@ client.on("interactionCreate", async (interaction) => {
                 }
               }
             } catch (jsonError) {
-              return interaction.reply({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", ephemeral: true });
+              return interaction.followUp({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", ephemeral: true });
             }
 
             db.saveRegionalLimits(menuId, newRegionalLimits);
@@ -813,19 +821,19 @@ client.on("interactionCreate", async (interaction) => {
               if (!isNaN(parsedLimit) && parsedLimit >= 0) {
                 maxRolesLimit = parsedLimit;
               } else {
-                return interaction.reply({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", ephemeral: true });
+                return interaction.followUp({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", ephemeral: true });
               }
             }
             db.saveMaxRolesLimit(menuId, maxRolesLimit);
-
-            await interaction.reply({ content: "✅ Limits and regional assignments saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
 
           if (extra === "customize_embed") {
             const menuId = parts[3];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const embedColor = interaction.fields.getTextInputValue("embed_color") || null;
             const embedThumbnail = interaction.fields.getTextInputValue("thumbnail_url") || null;
@@ -840,14 +848,15 @@ client.on("interactionCreate", async (interaction) => {
               embedAuthorName,
               embedAuthorIconURL,
             });
-            await interaction.reply({ content: "✅ Embed appearance settings saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
 
           if (extra === "customize_footer") {
             const menuId = parts[3];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const footerText = interaction.fields.getTextInputValue("footer_text") || null;
             const footerIconURL = interaction.fields.getTextInputValue("footer_icon_url") || null;
@@ -856,13 +865,14 @@ client.on("interactionCreate", async (interaction) => {
               embedFooterText: footerText,
               embedFooterIconURL: footerIconURL,
             });
-            await interaction.reply({ content: "✅ Embed footer settings saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
           if (extra === "custom_messages") {
             const menuId = parts[3];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const successAdd = interaction.fields.getTextInputValue("success_add_message") || null;
             const successRemove = interaction.fields.getTextInputValue("success_remove_message") || null;
@@ -873,7 +883,6 @@ client.on("interactionCreate", async (interaction) => {
               successMessageRemove: successRemove || "✅ You removed the role <@&{roleId}>!",
               limitExceededMessage: limitExceeded || "❌ You have reached the maximum number of roles for this menu or region.",
             });
-            await interaction.reply({ content: "✅ Custom messages saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
 
@@ -882,7 +891,6 @@ client.on("interactionCreate", async (interaction) => {
             const roleId = parts[4];
             const description = interaction.fields.getTextInputValue("description_input");
             db.saveRoleDescriptions(menuId, { [roleId]: description || null });
-            await interaction.reply({ content: "✅ Role description saved!", ephemeral: true });
             return showMenuConfiguration(interaction, menuId);
           }
 
@@ -890,7 +898,9 @@ client.on("interactionCreate", async (interaction) => {
           if (extra === "webhook_branding") {
             const menuId = parts[3];
             const menu = db.getMenu(menuId);
-            if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+            if (!menu) {
+                return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+            }
 
             const name = interaction.fields.getTextInputValue("name");
             const avatar = interaction.fields.getTextInputValue("avatar");
@@ -898,11 +908,6 @@ client.on("interactionCreate", async (interaction) => {
             db.saveWebhookSettings(menuId, {
               webhookName: name || null,
               webhookAvatar: avatar || null
-            });
-
-            await interaction.reply({
-              content: "✅ Webhook branding settings saved!",
-              ephemeral: true
             });
             return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
           }
@@ -1015,7 +1020,7 @@ client.on("interactionCreate", async (interaction) => {
         if (error.code === 50013) {
             await interaction.reply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
         } else {
-            await interaction.reply({ content: "❌ There was an error clearing your roles.", ephemeral: true });
+            await interaction.reply({ content: "❌ There was an error clearing your roles.", ephemeral: ephemeral: true });
         }
       }
     }
@@ -1046,7 +1051,9 @@ async function sendMainDashboard(interaction) {
 }
 
 async function showReactionRolesDashboard(interaction) {
+  console.log("[showReactionRolesDashboard] Function called.");
   const menus = db.getMenus(interaction.guild.id);
+  console.log(`[showReactionRolesDashboard] Found ${menus.length} menus.`);
 
   const embed = new EmbedBuilder()
     .setTitle("Reaction Role Menus")
@@ -1058,6 +1065,7 @@ async function showReactionRolesDashboard(interaction) {
   // Only add the select menu if there are existing menus
   if (menus.length > 0) {
     const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+    console.log(`[showReactionRolesDashboard] Generated ${menuOptions.length} select menu options.`);
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("rr:selectmenu")
       .setPlaceholder("Select a menu to configure...")
@@ -1065,6 +1073,7 @@ async function showReactionRolesDashboard(interaction) {
     components.push(new ActionRowBuilder().addComponents(selectMenu));
   } else {
     embed.setDescription("No reaction role menus found. Create a new one!");
+    console.log("[showReactionRolesDashboard] No menus found, omitting select menu.");
   }
 
   const createButton = new ButtonBuilder()
@@ -1079,12 +1088,30 @@ async function showReactionRolesDashboard(interaction) {
 
   components.push(new ActionRowBuilder().addComponents(createButton, backButton));
 
-  await interaction.update({ embeds: [embed], components, ephemeral: true });
+  try {
+    console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
+    await interaction.update({ embeds: [embed], components, ephemeral: true });
+    console.log("[showReactionRolesDashboard] Interaction updated successfully.");
+  } catch (error) {
+    console.error("[showReactionRolesDashboard] Error updating interaction:", error);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", ephemeral: true });
+    }
+  }
 }
 
 async function showMenuConfiguration(interaction, menuId) {
+  console.log(`[showMenuConfiguration] Function called for menuId: ${menuId}`);
   const menu = db.getMenu(menuId);
-  if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+  if (!menu) {
+    console.error(`[showMenuConfiguration] Menu not found for ID: ${menuId}`);
+    // If interaction is already replied/deferred, use followUp, otherwise reply.
+    if (interaction.replied || interaction.deferred) {
+        return interaction.followUp({ content: "Menu not found.", ephemeral: true }).catch(e => console.error("Error sending followUp:", e));
+    }
+    return interaction.reply({ content: "Menu not found.", ephemeral: true });
+  }
+  console.log(`[showMenuConfiguration] Menu data retrieved for ${menu.name}.`);
 
   const embed = new EmbedBuilder()
     .setTitle(`Configuring: ${menu.name}`)
@@ -1157,6 +1184,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.buttonRoles.length)
   );
+  console.log("[showMenuConfiguration] row created.");
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -1180,6 +1208,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Custom Messages")
       .setStyle(ButtonStyle.Primary)
   );
+  console.log("[showMenuConfiguration] row2 created.");
 
   const reorderDropdownButton = new ButtonBuilder()
     .setCustomId(`rr:reorder_dropdown:${menuId}`)
@@ -1218,6 +1247,7 @@ async function showMenuConfiguration(interaction, menuId) {
   const row3 = new ActionRowBuilder().addComponents(reorderDropdownButton, reorderButtonButton, setDescriptionsButton);
   const row3_5_dropdown = new ActionRowBuilder().addComponents(toggleDropdownClearButton);
   const row3_5_button = new ActionRowBuilder().addComponents(toggleButtonClearButton);
+  console.log("[showMenuConfiguration] row3, row3_5_dropdown, row3_5_button created.");
 
 
   // Add webhook control buttons
@@ -1232,6 +1262,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setStyle(ButtonStyle.Primary)
       .setDisabled(!menu.useWebhook)
   );
+  console.log("[showMenuConfiguration] webhookRow created.");
 
 
   const publishButton = new ButtonBuilder()
@@ -1258,10 +1289,42 @@ async function showMenuConfiguration(interaction, menuId) {
     .setStyle(ButtonStyle.Secondary);
 
   const row4 = new ActionRowBuilder().addComponents(publishButton, editPublishedButton, deletePublishedButton, backToRRButton);
+  console.log("[showMenuConfiguration] row4 created.");
 
   const components = [row, row2, row3, row3_5_dropdown, row3_5_button, webhookRow, row4];
+  console.log(`[showMenuConfiguration] Total components to send: ${components.length}.`);
 
-  await interaction.update({ embeds: [embed], components, ephemeral: true });
+  try {
+    if (interaction.replied || interaction.deferred) {
+      console.log("[showMenuConfiguration] Interaction already replied/deferred, attempting to editReply.");
+      await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+    } else {
+      console.log("[showMenuConfiguration] Interaction not replied/deferred, attempting to update/reply.");
+      // For buttons/select menus, use update. For slash commands, use reply.
+      // If none of these, defer and then editReply.
+      if (interaction.isButton() || interaction.isStringSelectMenu()) {
+          await interaction.update({ embeds: [embed], components, ephemeral: true });
+      } else if (interaction.isChatInputCommand()) {
+          await interaction.reply({ embeds: [embed], components, ephemeral: true });
+      } else {
+          // Fallback, should ideally not be hit if interaction flow is managed correctly
+          await interaction.deferReply({ ephemeral: true });
+          await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+      }
+    }
+    console.log("[showMenuConfiguration] Interaction response sent successfully.");
+  } catch (error) {
+    console.error("[showMenuConfiguration] Error during interaction response:", error);
+    if (error.code === 10062) { // Unknown interaction
+        console.error("This often means the interaction token expired (3 seconds).");
+        await interaction.followUp({ content: "❌ It took too long to respond. Please try again.", ephemeral: true }).catch(e => console.error("Error sending followUp:", e));
+    } else if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true });
+    } else {
+        // If already replied/deferred, try followUp as a last resort for error message
+        await interaction.followUp({ content: "❌ An error occurred after initial response. Please check console.", ephemeral: true }).catch(e => console.error("Error sending followUp for error:", e));
+    }
+  }
 }
 
 async function publishMenu(interaction, menuId, messageToEdit = null) {
