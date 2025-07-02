@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const {
@@ -355,256 +356,276 @@ async function createReactionRoleEmbed(guild, menu) {
 
 // Helper to update the components on the published message
 async function updatePublishedMessageComponents(interaction, menu) {
-    if (!menu.channelId || !menu.messageId) return;
+  try {
+    // Check if menu exists and has required properties
+    if (!menu || !menu.channelId || !menu.messageId) {
+      console.log("Missing menu data for updating components:", menu?.id);
+      return;
+    }
 
     const guild = interaction.guild;
-    const member = interaction.member; // The member who triggered the interaction
-
-    try {
-        const originalChannel = await guild.channels.fetch(menu.channelId);
-        const originalMessage = await originalChannel.messages.fetch(menu.messageId);
-
-        const components = [];
-
-        // Rebuild Dropdown Select Menu
-        if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
-            const currentDropdownRolesHeldByMember = (menu.dropdownRoles || []).filter(id => member.roles.cache.has(id));
-            const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-                ? menu.dropdownRoleOrder
-                : menu.dropdownRoles
-            ).map(roleId => {
-                const role = guild.roles.cache.get(roleId);
-                if (!role) return null;
-                const isSelected = currentDropdownRolesHeldByMember.includes(roleId);
-                const parsedEmoji = parseEmoji(menu.dropdownEmojis[role.id]); // Parse emoji
-                return {
-                    label: role.name,
-                    value: role.id,
-                    emoji: parsedEmoji, // Use parsed emoji
-                    description: menu.dropdownRoleDescriptions[role.id] || undefined,
-                    default: isSelected // Set default based on current roles
-                };
-            }).filter(Boolean);
-
-            if (dropdownOptions.length > 0) {
-                const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`rr-role-select:${menu.id}`)
-                    .setPlaceholder("Select your roles...")
-                    .setMinValues(0)
-                    .setMaxValues(dropdownOptions.length)
-                    .addOptions(dropdownOptions);
-                components.push(new ActionRowBuilder().addComponents(selectMenu));
-            }
-        }
-
-        // Rebuild Clear dropdown roles button
-        if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
-            const clearButton = new ButtonBuilder()
-                .setCustomId(`rr-clear-roles:${menu.id}:dropdown`)
-                .setLabel("Clear All Dropdown Roles")
-                .setStyle(ButtonStyle.Secondary);
-            components.push(new ActionRowBuilder().addComponents(clearButton));
-        }
-
-        // Rebuild Buttons (no default state for buttons, they are stateless)
-        if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
-            const buttonRows = [];
-            let currentRow = new ActionRowBuilder();
-            const orderedButtonRoles = menu.buttonRoleOrder.length > 0
-                ? menu.buttonRoleOrder
-                : menu.buttonRoles;
-
-            for (const roleId of orderedButtonRoles) {
-                const role = guild.roles.cache.get(roleId);
-                if (!role) continue;
-
-                const button = new ButtonBuilder()
-                    .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
-                    .setLabel(role.name)
-                    .setStyle(member.roles.cache.has(roleId) ? ButtonStyle.Success : ButtonStyle.Secondary); // Highlight if member has role
-                
-                // Only set emoji if parseEmoji returns a valid result
-                const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-                if (parsedEmoji) { // Add this check!
-                    button.setEmoji(parsedEmoji);
-                }
-
-                if (currentRow.components.length < 5) {
-                    currentRow.addComponents(button);
-                } else {
-                    buttonRows.push(currentRow);
-                    currentRow = new ActionRowBuilder().addComponents(button);
-                }
-            }
-            if (currentRow.components.length > 0) {
-                buttonRows.push(currentRow);
-            }
-            components.push(...buttonRows);
-        }
-
-        // Rebuild Clear button roles button
-        if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
-            const clearButton = new ButtonBuilder()
-                .setCustomId(`rr-clear-roles:${menu.id}:button`)
-                .setLabel("Clear All Button Roles")
-                .setStyle(ButtonStyle.Secondary);
-            components.push(new ActionRowBuilder().addComponents(clearButton));
-        }
-
-        const publishedEmbed = await createReactionRoleEmbed(guild, menu);
-
-        // Edit the message
-        if (menu.useWebhook) {
-            const webhook = await getOrCreateWebhook(originalChannel);
-            await webhook.editMessage(originalMessage.id, {
-                embeds: [publishedEmbed],
-                components,
-                username: menu.webhookName || interaction.guild.me.displayName,
-                avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
-            });
-        } else {
-            await originalMessage.edit({ embeds: [publishedEmbed], components });
-        }
-
-    } catch (error) {
-        console.error("Error updating published message components:", error);
+    if (!guild) {
+      console.log("Guild not available in interaction");
+      return;
     }
+
+    // Fetch channel with error handling
+    const channel = await guild.channels.fetch(menu.channelId).catch(err => {
+      console.error(`Failed to fetch channel ${menu.channelId}:`, err);
+      return null;
+    });
+    
+    if (!channel) {
+      console.log(`Channel ${menu.channelId} not found or inaccessible`);
+      return;
+    }
+
+    // Fetch message with error handling
+    const message = await channel.messages.fetch(menu.messageId).catch(err => {
+      console.error(`Failed to fetch message ${menu.messageId}:`, err);
+      return null;
+    });
+
+    if (!message) {
+      console.log(`Message ${menu.messageId} not found or inaccessible`);
+      return;
+    }
+
+    // Get member for state checking
+    const member = interaction.member;
+    
+    // Prepare components array
+    const components = [];
+
+    // Rebuild Dropdown
+    if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
+      const dropdownOptions = menu.dropdownRoles.map(roleId => {
+        const role = guild.roles.cache.get(roleId);
+        if (!role) return null;
+
+        // Use ordered roles if available
+        const orderedRoles = menu.dropdownRoleOrder.length > 0
+          ? menu.dropdownRoleOrder
+          : menu.dropdownRoles;
+
+        const option = {
+          label: role.name,
+          value: role.id,
+          default: member.roles.cache.has(role.id)
+        };
+
+        // Add description if available
+        if (menu.dropdownRoleDescriptions && menu.dropdownRoleDescriptions[role.id]) {
+          option.description = menu.dropdownRoleDescriptions[role.id];
+        }
+
+        // Add emoji if available
+        const parsedEmoji = parseEmoji(menu.dropdownEmojis[role.id]);
+        if (parsedEmoji) {
+          option.emoji = parsedEmoji;
+        }
+
+        return option;
+      }).filter(Boolean);
+
+      if (dropdownOptions.length > 0) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`rr-role-select:${menu.id}`)
+          .setPlaceholder("Select your roles...")
+          .setMinValues(0)
+          .setMaxValues(dropdownOptions.length)
+          .addOptions(dropdownOptions);
+        components.push(new ActionRowBuilder().addComponents(selectMenu));
+      }
+    }
+  } catch (error) {
+    console.error("Error updating published message components:", error);
+  }
 }
 
 // Helper function to handle role assignment/removal for users
-async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonClear = false, isSelectMenu = false) {
-    const menu = db.getMenu(menuId);
-    if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
+async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonClear = false, isDropdownClear = false, isSelectMenu = false) {
+  const menu = db.getMenu(menuId);
+  if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
 
-    const member = interaction.member;
-    const guild = interaction.guild;
+  const member = interaction.member;
+  const guild = interaction.guild;
 
-    let rolesToAdd = [];
-    let rolesToRemove = [];
-    let messages = [];
+  let rolesToAdd = [];
+  let rolesToRemove = [];
+  let messages = [];
 
-    // If it's a clear button, remove all roles associated with this menu
-    if (isButtonClear) {
-        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-        rolesToRemove = member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
-        if (rolesToRemove.length === 0) {
-            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", flags: MessageFlags.Ephemeral });
-        }
-    } else {
-        // For regular role assignment (button or select menu)
-        const selectedRoleIds = Array.isArray(roleIdsInput) ? roleIdsInput : [roleIdsInput];
-
-        // Determine roles to add and remove based on selection
-        if (interaction.isButton() && interaction.customId.startsWith("rr-role-button:")) {
-            // For buttons, it's a toggle: if member has it, remove; otherwise, add.
-            const toggledRoleId = selectedRoleIds[0]; // There's only one role for a button click
-            if (member.roles.cache.has(toggledRoleId)) {
-                rolesToRemove.push(toggledRoleId);
-            } else {
-                rolesToAdd.push(toggledRoleId);
-            }
-        } else { // This is for StringSelectMenu
-            // Get all roles currently held by the member that are part of THIS menu
-            const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-            const currentMenuRoleIdsHeldByMember = allMenuRoleIds.filter(id => member.roles.cache.has(id));
-
-            rolesToAdd = selectedRoleIds.filter(id => !member.roles.cache.has(id));
-            rolesToRemove = currentMenuRoleIdsHeldByMember.filter(id => !selectedRoleIds.includes(id));
-        }
-
-        // Combined list of roles after this interaction (for limit checks)
-        let potentialNewRoleIds = member.roles.cache.map(r => r.id) // Start with all current member roles
-            .filter(id => !rolesToRemove.includes(id)) // Remove roles being unselected
-            .concat(rolesToAdd); // Add roles being selected
-
-        // Filter out duplicates if any
-        potentialNewRoleIds = [...new Set(potentialNewRoleIds)];
-
-        // Handle exclusions first (roles to remove due to a selected role)
-        let rolesToRemoveByExclusion = [];
-        for (const selectedRoleId of rolesToAdd) { // Only check exclusions for roles being newly added
-            if (menu.exclusionMap && menu.exclusionMap[selectedRoleId]) {
-                const excludedRoles = menu.exclusionMap[selectedRoleId].filter(id => member.roles.cache.has(id));
-                if (excludedRoles.length > 0) {
-                    rolesToRemoveByExclusion.push(...excludedRoles);
-                    const removedRoleNames = excludedRoles.map(id => guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
-                    messages.push(`Removed conflicting roles: ${removedRoleNames}`);
-                }
-            }
-        }
-        rolesToRemove.push(...rolesToRemoveByExclusion);
-        rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
-
-        // Re-evaluate potentialNewRoleIds after exclusions
-        potentialNewRoleIds = member.roles.cache.map(r => r.id)
-            .filter(id => !rolesToRemove.includes(id))
-            .concat(rolesToAdd);
-        potentialNewRoleIds = [...new Set(potentialNewRoleIds)];
-
-
-        // Check regional limits
-        const regionalViolations = checkRegionalLimits(member, menu, potentialNewRoleIds);
-        if (regionalViolations.length > 0) {
-            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, flags: MessageFlags.Ephemeral });
-            // If it was a select menu, re-sync its state
-            if (isSelectMenu) {
-                await updatePublishedMessageComponents(interaction, menu);
-            }
-            return;
-        }
-
-        // Check overall max roles limit
-        if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
-            const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-            const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
-            if (currentRelevantRolesCount > menu.maxRolesLimit) {
-                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, flags: MessageFlags.Ephemeral });
-                // If it was a select menu, re-sync its state
-                if (isSelectMenu) {
-                    await updatePublishedMessageComponents(interaction, menu);
-                }
-                return;
-            }
-        }
-
-        // Prepare success/remove messages for roles based on final add/remove lists
-        rolesToAdd.forEach(id => {
-            messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
-        });
-        rolesToRemove.forEach(id => {
-            // Only add message if it's not a role that was just added and then removed by exclusion
-            // Or if it's a role that was explicitly unselected by the user (dropdown) or toggled off (button)
-            if (!selectedRoleIds.includes(id) || rolesToRemoveByExclusion.includes(id) || (interaction.isButton() && rolesToRemove.includes(id))) {
-                messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
-            }
-        });
-    } // End of isButtonClear else block
-
-    try {
-        if (rolesToAdd.length > 0) {
-            await member.roles.add(rolesToAdd);
-        }
-        if (rolesToRemove.length > 0) {
-            await member.roles.remove(rolesToRemove);
-        }
-
-        if (messages.length > 0) {
-            await interaction.editReply({ content: messages.join("\n"), flags: MessageFlags.Ephemeral });
-        } else {
-            await interaction.editReply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
-        }
-
-        // Update the original published message components to reflect current selections
-        await updatePublishedMessageComponents(interaction, menu);
-
-    } catch (error) {
-        console.error("Error managing roles:", error);
-        if (error.code === 50013) {
-            await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
-        } else {
-            await interaction.editReply({ content: "❌ An error occurred while updating your roles.", flags: MessageFlags.Ephemeral });
-        }
+  // If it's a clear button, remove all roles associated with this menu
+  if (isButtonClear || isDropdownClear) {
+    const roleType = isButtonClear ? "button" : "dropdown";
+    const menuRoleIds = roleType === "button" ? menu.buttonRoles : menu.dropdownRoles;
+    
+    rolesToRemove = member.roles.cache
+      .filter(role => menuRoleIds.includes(role.id))
+      .map(role => role.id);
+      
+    if (rolesToRemove.length === 0) {
+      return interaction.editReply({ 
+        content: `You don't have any ${roleType} roles from this menu to clear.`, 
+        flags: MessageFlags.Ephemeral 
+      });
     }
+  } else {
+    // For regular role assignment (button or select menu)
+    const selectedRoleIds = Array.isArray(roleIdsInput) ? roleIdsInput : [roleIdsInput];
+
+    // Determine roles to add and remove based on selection
+    if (interaction.isButton() && interaction.customId.startsWith("rr-role-button:")) {
+      // For buttons, it's a toggle: if member has it, remove; otherwise, add.
+      const toggledRoleId = selectedRoleIds[0]; // There's only one role for a button click
+      if (member.roles.cache.has(toggledRoleId)) {
+        rolesToRemove.push(toggledRoleId);
+      } else {
+        rolesToAdd.push(toggledRoleId);
+      }
+    } else if (isSelectMenu) {
+      // For select menu, compare current selection with previous roles
+      const allMenuRoleIds = menu.dropdownRoles || [];
+      
+      // Roles to add: selected roles that member doesn't have
+      rolesToAdd = selectedRoleIds.filter(id => 
+        !member.roles.cache.has(id) && allMenuRoleIds.includes(id)
+      );
+      
+      // Roles to remove: roles from this menu that member has but didn't select
+      rolesToRemove = member.roles.cache
+        .filter(role => allMenuRoleIds.includes(role.id) && !selectedRoleIds.includes(role.id))
+        .map(role => role.id);
+    }
+
+    // Handle exclusion logic
+    let rolesToRemoveByExclusion = [];
+    
+    // For each role being added, check if it has exclusions
+    for (const roleId of rolesToAdd) {
+      const exclusionRoleIds = menu.exclusionMap[roleId] || [];
+      
+      // Find which exclusion roles the member currently has
+      const memberExclusionRoles = member.roles.cache
+        .filter(role => exclusionRoleIds.includes(role.id))
+        .map(role => role.id);
+        
+      // Add these to the removal list
+      rolesToRemoveByExclusion.push(...memberExclusionRoles);
+      
+      // Also check if any of the roles being added would exclude each other
+      const otherAddedRoles = rolesToAdd.filter(id => id !== roleId);
+      const conflictingRoles = otherAddedRoles.filter(id => 
+        exclusionRoleIds.includes(id) || 
+        (menu.exclusionMap[id] && menu.exclusionMap[id].includes(roleId))
+      );
+      
+      // If conflicts found, prioritize the current role and remove others from add list
+      if (conflictingRoles.length > 0) {
+        rolesToAdd = rolesToAdd.filter(id => !conflictingRoles.includes(id));
+      }
+    }
+    
+    // Add exclusion roles to the remove list
+    rolesToRemove = [...new Set([...rolesToRemove, ...rolesToRemoveByExclusion])];
+    
+    // Calculate what the member's roles would be after these changes
+    const currentRoleIds = Array.from(member.roles.cache.keys());
+    const potentialNewRoleIds = [
+      ...currentRoleIds.filter(id => !rolesToRemove.includes(id)),
+      ...rolesToAdd
+    ];
+
+    // Check regional limits
+    const regionalViolations = checkRegionalLimits(member, menu, potentialNewRoleIds);
+    if (regionalViolations.length > 0) {
+      await interaction.editReply({ 
+        content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, 
+        flags: MessageFlags.Ephemeral 
+      });
+      
+      // If it was a select menu, re-sync its state
+      if (isSelectMenu) {
+        await updatePublishedMessageComponents(interaction, menu);
+      }
+      return;
+    }
+
+    // Check overall max roles limit
+    if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
+      const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+      const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
+      
+      if (currentRelevantRolesCount > menu.maxRolesLimit) {
+        await interaction.editReply({ 
+          content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+        
+        // If it was a select menu, re-sync its state
+        if (isSelectMenu) {
+          await updatePublishedMessageComponents(interaction, menu);
+        }
+        return;
+      }
+    }
+
+    // Prepare success/remove messages for roles based on final add/remove lists
+    rolesToAdd.forEach(id => {
+      messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
+    });
+    
+    rolesToRemove.forEach(id => {
+      // Only add message if it's not a role that was just added and then removed by exclusion
+      // Or if it's a role that was explicitly unselected by the user (dropdown) or toggled off (button)
+      if (!selectedRoleIds.includes(id) || rolesToRemoveByExclusion.includes(id) || (interaction.isButton() && rolesToRemove.includes(id))) {
+        messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
+      }
+    });
+  }
+
+  // If there are no roles to add or remove, inform the user
+  if (rolesToAdd.length === 0 && rolesToRemove.length === 0) {
+    return interaction.editReply({ 
+      content: "No role changes were made.", 
+      flags: MessageFlags.Ephemeral 
+    });
+  }
+
+  try {
+    // Apply role changes
+    if (rolesToAdd.length > 0) {
+      await member.roles.add(rolesToAdd);
+    }
+    
+    if (rolesToRemove.length > 0) {
+      await member.roles.remove(rolesToRemove);
+    }
+
+    // Send success message
+    await interaction.editReply({ 
+      content: messages.join("\n"), 
+      flags: MessageFlags.Ephemeral 
+    });
+
+    // Update the message components to reflect new state
+    if (isSelectMenu || interaction.isButton()) {
+      await updatePublishedMessageComponents(interaction, menu);
+    }
+  } catch (error) {
+    console.error("Error managing roles:", error);
+    if (error.code === 50013) {
+      await interaction.editReply({ 
+        content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", 
+        flags: MessageFlags.Ephemeral 
+      });
+    } else {
+      await interaction.editReply({ 
+        content: "❌ An error occurred while updating your roles.", 
+        flags: MessageFlags.Ephemeral 
+      });
+    }
+  }
 }
 
 
