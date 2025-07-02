@@ -24,7 +24,24 @@ const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, getDocs
 
 // Initialize Firebase (using global variables provided by Canvas)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+let firebaseConfig = {};
+try {
+  if (typeof __firebase_config !== 'undefined' && __firebase_config) { // Check if not undefined and not empty string
+    firebaseConfig = JSON.parse(__firebase_config);
+  }
+} catch (e) {
+  console.error("[Firebase Init Error] Could not parse __firebase_config:", e);
+  // Fallback to an empty config if parsing fails
+  firebaseConfig = {};
+}
+
+// Ensure projectId is present, even if it's a placeholder for debugging
+if (!firebaseConfig.projectId) {
+  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure __firebase_config is correctly provided by the environment.");
+  // Provide a dummy projectId to allow initializeApp to proceed without immediate crash,
+  // but further Firestore operations will fail without a real project.
+  firebaseConfig.projectId = 'missing-project-id';
+}
 
 const firebaseApp = initializeApp(firebaseConfig);
 const dbFirestore = getFirestore(firebaseApp);
@@ -383,7 +400,7 @@ client.on("interactionCreate", async (interaction) => {
             try {
                 const message = await channel.messages.fetch(menu.messageId);
                 await message.delete();
-                await db.clearMessageId(targetMenuId);
+                await db.deleteMenu(targetMenuId); // Use deleteMenu to remove from Firestore and in-memory
                 await interaction.update({ content: "✅ Published reaction role message deleted successfully!", components: [], ephemeral: true });
                 return showMenuConfiguration(interaction, targetMenuId);
             } catch (error) {
