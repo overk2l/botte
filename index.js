@@ -1020,8 +1020,7 @@ client.on("interactionCreate", async (interaction) => {
         if (error.code === 50013) {
             await interaction.reply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
         } else {
-            await interaction.reply({ content: "❌ There was an error clearing your roles.", ephemeral: ephemeral: true });
-        }
+        await interaction.reply({ content: "❌ There was an error clearing your roles.", ephemeral: true });        }
       }
     }
 
