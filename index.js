@@ -521,20 +521,19 @@ async function updatePublishedMessageComponents(interaction, menu) {
 
         // Rebuild Dropdown Select Menu
         if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
-            const currentDropdownRolesHeldByMember = (menu.dropdownRoles || []).filter(id => member.roles.cache.has(id));
+            // Removed currentDropdownRolesHeldByMember as we no longer want default selected state
             const dropdownOptions = (menu.dropdownRoleOrder.length > 0
                 ? menu.dropdownRoleOrder
                 : menu.dropdownRoles
             ).map(roleId => {
                 const role = guild.roles.cache.get(roleId);
                 if (!role) return null;
-                const isSelected = currentDropdownRolesHeldByMember.includes(roleId);
                 return {
                     label: role.name,
                     value: role.id,
                     emoji: parseEmoji(menu.dropdownEmojis[role.id]),
                     description: menu.dropdownRoleDescriptions[role.id] || undefined,
-                    default: isSelected // Set default based on current roles
+                    default: false // Always set default to false so roles are not pre-selected
                 };
             }).filter(Boolean);
 
@@ -2185,6 +2184,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         value: role.id,
         emoji: parseEmoji(menu.dropdownEmojis[role.id]),
         description: menu.dropdownRoleDescriptions[role.id] || undefined,
+        default: false // Always set default to false so roles are not pre-selected
       };
     }).filter(Boolean); // Filter out any nulls from roles not found
 
