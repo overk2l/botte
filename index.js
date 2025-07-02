@@ -358,9 +358,24 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
-      const targetMenuId = parts[2]; // For actions like publish, edit_published, delete_published, toggle_webhook, config_webhook
-      const type = parts[2]; // For actions like type (dropdown, button, both)
-      const newState = parts[3]; // For toggle clear buttons
+      // Re-evaluate targetMenuId and type based on action for clarity and correctness
+      let targetMenuId;
+      let type;
+      let newState; // For toggle buttons
+
+      if (action === "type") {
+        type = parts[2]; // This is 'dropdown', 'button', or 'both'
+        targetMenuId = parts[3]; // The actual menu ID for 'type' buttons
+      } else if (action === "addemoji") {
+        type = parts[2]; // 'dropdown' or 'button'
+        targetMenuId = parts[3]; // The menu ID for 'addemoji' buttons
+      } else if (action.startsWith("toggle_")) { // For clear button toggles
+        targetMenuId = parts[2]; // The menu ID
+        newState = parts[3]; // The boolean state as a string
+      } else {
+        targetMenuId = parts[2]; // Default for most other buttons where menuId is parts[2]
+      }
+
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -474,15 +489,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "type") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          if (!menuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
-          let selectedTypes = type === "both" ? ["dropdown", "button"] : [type]; // type is now at parts[2]
-          await db.saveSelectionType(menuId, selectedTypes);
+          // menuId and type are already correctly derived from parts at the top of the button handler
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
+          await db.saveSelectionType(targetMenuId, selectedTypes);
 
           const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
+            .setCustomId(`rr:selectroles:${nextType}:${targetMenuId}`) // Use targetMenuId here
             .setMinValues(1)
             .setMaxValues(Math.min(allRoles.size, 25))
             .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
@@ -494,16 +509,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "addemoji") {
-          const menuId = parts[3]; // menuId is now at parts[3]
-          const type = parts[2]; // type is now at parts[2]
-          if (!menuId || !type) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          // menuId and type are already correctly derived from parts at the top of the button handler
+          if (!targetMenuId || !type) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
           if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
 
-          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${menuId}`).setTitle(`Add Emojis for ${type}`);
+          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${targetMenuId}`).setTitle(`Add Emojis for ${type}`);
 
           const maxInputs = Math.min(roles.length, 5);
           for (let i = 0; i < maxInputs; i++) {
@@ -526,13 +540,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setlimits") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:setlimits:${menuId}`)
+            .setCustomId(`rr:modal:setlimits:${targetMenuId}`)
             .setTitle("Set Regional Role Limits & Max Roles")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -587,16 +600,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setexclusions") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           if (!allRoles.size) return interaction.reply({ content: "No roles available to set exclusions.", ephemeral: true });
 
           const selectTriggerRole = new StringSelectMenuBuilder()
-            .setCustomId(`rr:select_trigger_role:${menuId}`)
+            .setCustomId(`rr:select_trigger_role:${targetMenuId}`)
             .setPlaceholder("Select a role to set its exclusions...")
             .setMinValues(1)
             .setMaxValues(1)
@@ -610,13 +622,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_embed") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:customize_embed:${menuId}`)
+            .setCustomId(`rr:modal:customize_embed:${targetMenuId}`)
             .setTitle("Customize Embed Appearance")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -669,13 +680,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_footer") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:customize_footer:${menuId}`)
+            .setCustomId(`rr:modal:customize_footer:${targetMenuId}`)
             .setTitle("Customize Embed Footer")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -702,28 +712,28 @@ client.on("interactionCreate", async (interaction) => {
 
         // New webhook toggle button handler
         if (action === "toggle_webhook") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
-          const newState = !menu.useWebhook;
-          await db.saveWebhookSettings(menuId, { useWebhook: newState });
+          const newStateBoolean = !menu.useWebhook; // Get the actual boolean state
+          await db.saveWebhookSettings(targetMenuId, { useWebhook: newStateBoolean });
 
           await interaction.reply({
-            content: `✅ Webhook sending is now ${newState ? "ENABLED" : "DISABLED"}`,
+            content: `✅ Webhook sending is now ${newStateBoolean ? "ENABLED" : "DISABLED"}`,
             ephemeral: true
           });
-          return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
+          return showMenuConfiguration(interaction, targetMenuId); // Refresh the menu config view
         }
 
         // Webhook branding configuration handler
         if (action === "config_webhook") {
-          const menuId = targetMenuId; // menuId is now at parts[2]
-          const menu = db.getMenu(menuId);
+          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:webhook_branding:${menuId}`)
+            .setCustomId(`rr:modal:webhook_branding:${targetMenuId}`)
             .setTitle("Webhook Branding Settings")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -748,16 +758,16 @@ client.on("interactionCreate", async (interaction) => {
 
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
-          const menuId = targetMenuId; // menuId is at parts[2]
+          // targetMenuId and newState are already correctly derived from parts at the top
           const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
-          await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
-          return showMenuConfiguration(interaction, menuId);
+          await db.saveEnableDropdownClearRolesButton(targetMenuId, newStateBoolean);
+          return showMenuConfiguration(interaction, targetMenuId);
         }
         if (action === "toggle_button_clear_button") {
-          const menuId = targetMenuId; // menuId is at parts[2]
+          // targetMenuId and newState are already correctly derived from parts at the top
           const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
-          await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
-          return showMenuConfiguration(interaction, menuId);
+          await db.saveEnableButtonClearRolesButton(targetMenuId, newStateBoolean);
+          return showMenuConfiguration(interaction, targetMenuId);
         }
       }
     }
