@@ -2038,10 +2038,12 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         .setLabel(role.name)
         .setStyle(ButtonStyle.Secondary);
 
-      // Only set emoji if parseEmoji returns a valid result
-      const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-      if (parsedEmoji) { // Add this check!
-        button.setEmoji(parsedEmoji);
+      // Only set emoji if it exists and parseEmoji returns a valid result
+      if (menu.buttonEmojis && menu.buttonEmojis[role.id]) {
+        const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+        if (parsedEmoji) {
+          button.setEmoji(parsedEmoji);
+        }
       }
 
       if (currentRow.components.length < 5) {
@@ -2140,3 +2142,42 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 }
 
 client.login(process.env.TOKEN);
+
+// Add a helper function to safely parse emojis
+function parseEmoji(emojiString) {
+  if (!emojiString) return null;
+  
+  try {
+    // Handle custom emoji format like <:name:id>
+    if (emojiString.startsWith('<') && emojiString.endsWith('>')) {
+      const match = emojiString.match(/<(?:a)?:(\w+):(\d+)>/);
+      if (match) {
+        return { name: match[1], id: match[2], animated: emojiString.startsWith('<a:') };
+      }
+    }
+    
+    // Handle standard emoji (just return the string)
+    return emojiString;
+  } catch (error) {
+    console.error("Error parsing emoji:", error);
+    return null;
+  }
+}
+
+// For the interaction not replied error, add a defer before any potential long operations
+try {
+  // Add this at the beginning of any interaction handler
+  await interaction.deferReply({ ephemeral: true });
+  
+  // Rest of the code...
+} catch (error) {
+  console.error("Error handling interaction:", error);
+  // Check if we can reply or edit reply
+  if (!interaction.replied && !interaction.deferred) {
+    await interaction.reply({ content: "An error occurred", ephemeral: true }).catch(console.error);
+  } else {
+    await interaction.editReply({ content: "An error occurred" }).catch(console.error);
+  }
+}
+
+
