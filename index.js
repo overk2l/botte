@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const {
   Client,
   GatewayIntentBits,
@@ -1129,7 +1131,7 @@ client.on("interactionCreate", async (interaction) => {
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", components: [], ephemeral: true });
+            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", ephemeral: true });
           }
 
           const selectExclusionRoles = new StringSelectMenuBuilder()
@@ -1391,14 +1393,613 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
     }
+    // Role adding/removing on select menu or button press (User-facing)
+    // This section handles the actual role assignment/removal for users clicking buttons/selects on published messages.
+    if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
+        (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
+
+        const menuId = interaction.customId.split(":")[1];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+
+        const selectedRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
+
+        let rolesToAdd = [];
+        let rolesToRemove = [];
+        let messages = [];
+
+        // Handle exclusions first (roles to remove due to a selected role)
+        let rolesToRemoveByExclusion = [];
+        for (const selectedRoleId of selectedRoleIds) { // Check exclusions for roles being newly selected
+            if (menu.exclusionMap && menu.exclusionMap[selectedRoleId]) {
+                const excludedRoles = menu.exclusionMap[selectedRoleId].filter(id => interaction.member.roles.cache.has(id));
+                if (excludedRoles.length > 0) {
+                    rolesToRemoveByExclusion.push(...excludedRoles);
+                    const removedRoleNames = excludedRoles.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
+                    messages.push(`Removed conflicting roles: ${removedRoleNames}`);
+                }
+            }
+        }
+        // Add roles to be removed by exclusion to the main rolesToRemove list
+        rolesToRemove.push(...rolesToRemoveByExclusion);
+        rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates
+
+        // Determine roles to add and remove based on selection and current member roles
+        const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
+        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
+
+        // Roles to add are those selected that the member doesn't currently have and are not being removed by exclusion
+        rolesToAdd = selectedRoleIds.filter(id => !currentMemberRoleIds.includes(id) && !rolesToRemove.includes(id));
+
+        // Roles to remove are those currently held from the menu that are NOT in the new selection
+        // AND those explicitly marked for removal by exclusion
+        const rolesToUnselect = currentMenuRolesHeldByMember.filter(id => !selectedRoleIds.includes(id));
+        rolesToRemove.push(...rolesToUnselect);
+        rolesToRemove = [...new Set(rolesToRemove)]; // Final deduplication
+
+        // Combined list of roles after this interaction (for limit checks)
+        let potentialNewRoleIds = currentMemberRoleIds
+            .filter(id => !rolesToRemove.includes(id)) // Start with current roles, remove those being removed
+            .concat(rolesToAdd); // Add those being added
+        potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
+
+        // Check regional limits
+        const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialNewRoleIds);
+        if (regionalViolations.length > 0) {
+            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+            await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
+            return;
+        }
+
+        // Check overall max roles limit
+        if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
+            const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
+            if (currentRelevantRolesCount > menu.maxRolesLimit) {
+                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
+                return;
+            }
+        }
+
+        // Add success/remove messages for roles based on final add/remove lists
+        rolesToAdd.forEach(id => {
+            messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
+        });
+        rolesToRemove.forEach(id => {
+            messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
+        });
+
+        try {
+            if (rolesToAdd.length > 0) {
+                await interaction.member.roles.add(rolesToAdd);
+            }
+            if (rolesToRemove.length > 0) {
+                await interaction.member.roles.remove(rolesToRemove);
+            }
+
+            if (messages.length > 0) {
+                await interaction.editReply({ content: messages.join("\n"), ephemeral: true });
+            } else {
+                await interaction.editReply({ content: "No changes made to your roles.", ephemeral: true });
+            }
+
+            // Update the original published message components to reflect current selections
+            await updatePublishedMessageComponents(interaction, menu);
+
+        } catch (error) {
+            console.error("Error updating roles:", error);
+            if (error.code === 50013) {
+                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+            } else {
+                await interaction.editReply({ content: "❌ There was an error updating your roles.", ephemeral: true });
+            }
+        }
+    }
+
+    // Handle Clear All Roles Button (User-facing)
+    if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
+        const menuId = interaction.customId.split(":")[1];
+        const menu = db.getMenu(menuId);
+        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+
+        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
+
+        if (rolesToRemove.length === 0) {
+            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
+        }
+
+        try {
+            await interaction.member.roles.remove(rolesToRemove);
+            await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", ephemeral: true });
+            await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
+        } catch (error) {
+            console.error("Error clearing roles:", error);
+            if (error.code === 50013) {
+                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+            } else {
+                await interaction.editReply({ content: "❌ There was an error clearing your roles.", ephemeral: true });
+            }
+        }
+    }
+
   } catch (error) {
     console.error("Error handling interaction:", error);
     if (!interaction.replied && !interaction.deferred) {
+      // If an error occurs before defer or reply, send a fresh reply
       await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
     } else if (interaction.deferred) {
+      // If deferred, but an error occurred before editing, edit the reply
       await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
     }
   }
 });
+
+// --- Dashboard Functions ---
+
+async function sendMainDashboard(interaction) {
+  const embed = new EmbedBuilder()
+    .setTitle("Bot Dashboard")
+    .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
+    .setColor("#5865F2");
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("dash:reaction-roles")
+      .setLabel("Reaction Roles")
+      .setStyle(ButtonStyle.Primary)
+  );
+  // Use editReply now that interaction is deferred
+  await interaction.editReply({ embeds: [embed], components: [row], ephemeral: true });
+}
+
+async function showReactionRolesDashboard(interaction) {
+  console.log("[showReactionRolesDashboard] Function called.");
+  const menus = db.getMenus(interaction.guild.id);
+  console.log(`[showReactionRolesDashboard] Found ${menus.length} menus.`);
+
+  const embed = new EmbedBuilder()
+    .setTitle("Reaction Role Menus")
+    .setDescription("Manage your reaction role menus here. Create new ones or configure existing.")
+    .setColor("#5865F2");
+
+  const components = [];
+
+  // Only add the select menu if there are existing menus
+  if (menus.length > 0) {
+    const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+    console.log(`[showReactionRolesDashboard] Generated ${menuOptions.length} select menu options.`);
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("rr:selectmenu")
+      .setPlaceholder("Select a menu to configure...")
+      .addOptions(menuOptions);
+    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  } else {
+    embed.setDescription("No reaction role menus found. Create a new one!");
+    console.log("[showReactionRolesDashboard] No menus found, omitting select menu.");
+  }
+
+  const createButton = new ButtonBuilder()
+    .setCustomId("rr:create")
+    .setLabel("Create New Menu")
+    .setStyle(ButtonStyle.Success)
+    .setEmoji("➕"); // Added emoji
+
+  const backButton = new ButtonBuilder()
+    .setCustomId("dash:back")
+    .setLabel("Back to Dashboard")
+    .setStyle(ButtonStyle.Secondary);
+
+  components.push(new ActionRowBuilder().addComponents(createButton, backButton));
+
+  try {
+    console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
+    // Use editReply now that interaction is deferred
+    await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+    console.log("[showReactionRolesDashboard] Interaction updated successfully.");
+  } catch (error) {
+    console.error("[showReactionRolesDashboard] Error updating interaction:", error);
+    // If an error occurs after deferring, use editReply
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+  }
+}
+
+async function showMenuConfiguration(interaction, menuId) {
+  // Add validation at the start of the function
+  if (!menuId || typeof menuId !== 'string' || menuId.length < 5) {
+    console.error(`Invalid menuId: ${menuId}`);
+    // Use editReply as interaction is now deferred globally
+    return interaction.editReply({
+      content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
+      ephemeral: true
+    }).catch(e => console.error("Error editing deferred reply for invalid menuId:", e));
+  }
+
+  console.log(`[showMenuConfiguration] Function called for menuId: ${menuId}`);
+  const menu = db.getMenu(menuId);
+  if (!menu) {
+    console.error(`[showMenuConfiguration] Menu not found for ID: ${menuId}`);
+    // Use editReply as interaction is now deferred globally
+    return interaction.editReply({ content: "Menu not found.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+  }
+  console.log(`[showMenuConfiguration] Menu data retrieved for ${menu.name}.`);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`Configuring: ${menu.name}`)
+    .setDescription(menu.desc)
+    .addFields(
+      { name: "Menu ID", value: `\`${menu.id}\``, inline: true },
+      { name: "Dropdown Roles", value: menu.dropdownRoles.length > 0 ? menu.dropdownRoles.map((r) => `<@&${r}>`).join(", ") : "None", inline: false },
+      { name: "Button Roles", value: menu.buttonRoles.length > 0 ? menu.buttonRoles.map((r) => `<@&${r}>`).join(", ") : "None", inline: false },
+      { name: "Selection Type", value: menu.selectionType.join(" & ") || "Not set", inline: true },
+      { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
+    )
+    .setColor(menu.embedColor || "#5865F2");
+
+  if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+  if (menu.embedImage) embed.setImage(menu.embedImage);
+  if (menu.embedAuthorName) {
+    embed.setAuthor({
+      name: menu.embedAuthorName,
+      iconURL: menu.embedAuthorIconURL || undefined
+    });
+  }
+  if (menu.embedFooterText) {
+    embed.setFooter({
+      text: menu.embedFooterText,
+      iconURL: menu.embedFooterIconURL || undefined
+    });
+  }
+
+  // Add webhook status to embed
+  embed.addFields(
+    {
+      name: "Webhook Sending",
+      value: menu.useWebhook ? "✅ Enabled" : "❌ Disabled",
+      inline: true
+    },
+    {
+      name: "Webhook Branding",
+      value: menu.webhookName
+        ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
+        : "Not configured",
+      inline: true
+    }
+  );
+
+
+  const row1_role_types = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:type:dropdown:${menuId}`)
+      .setLabel("Set Dropdown Roles")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(menu.selectionType.length > 0 && !menu.selectionType.includes("dropdown")),
+    new ButtonBuilder()
+      .setCustomId(`rr:type:button:${menuId}`)
+      .setLabel("Set Button Roles")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(menu.selectionType.length > 0 && !menu.selectionType.includes("button")),
+    new ButtonBuilder()
+      .setCustomId(`rr:type:both:${menuId}`)
+      .setLabel("Set Both Types")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(menu.selectionType.length === 2),
+  );
+  console.log("[showMenuConfiguration] row1_role_types created.");
+
+  const row2_emojis_reorder = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:addemoji:dropdown:${menuId}`)
+      .setLabel("Add Dropdown Emojis")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!menu.dropdownRoles.length),
+    new ButtonBuilder()
+      .setCustomId(`rr:addemoji:button:${menuId}`)
+      .setLabel("Add Button Emojis")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!menu.buttonRoles.length),
+    new ButtonBuilder()
+      .setCustomId(`rr:reorder_dropdown:${menuId}`)
+      .setLabel("Reorder Dropdown Roles")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(menu.dropdownRoles.length <= 1),
+    new ButtonBuilder()
+      .setCustomId(`rr:reorder_button:${menuId}`)
+      .setLabel("Reorder Button Roles")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(menu.buttonRoles.length <= 1)
+  );
+  console.log("[showMenuConfiguration] row2_emojis_reorder created.");
+
+  const row3_limits_exclusions_descriptions = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:setlimits:${menuId}`)
+      .setLabel("Set Regional Limits & Max Roles")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:setexclusions:${menuId}`)
+      .setLabel("Set Role Exclusions")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:set_role_descriptions:${menuId}`)
+      .setLabel("Set Role Descriptions")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!menu.dropdownRoles.length) // Only applies to dropdown for now
+  );
+  console.log("[showMenuConfiguration] row3_limits_exclusions_descriptions created.");
+
+  const row4_customize_messages_webhook = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:customize_embed:${menuId}`)
+      .setLabel("Customize Embed")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:customize_footer:${menuId}`)
+      .setLabel("Customize Footer")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:custom_messages:${menuId}`)
+      .setLabel("Custom Messages")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:toggle_webhook:${menuId}`)
+      .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
+      .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`rr:config_webhook:${menuId}`)
+      .setLabel("Configure Branding")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!menu.useWebhook)
+  );
+  console.log("[showMenuConfiguration] row4_customize_messages_webhook created.");
+
+  // Clear role buttons as simple toggles (buttons instead of select menus)
+  const row5_clear_buttons_toggles = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}:${!menu.enableDropdownClearRolesButton}`)
+      .setLabel(`Dropdown Clear: ${menu.enableDropdownClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+      .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setDisabled(!menu.selectionType.includes("dropdown")), // Disable if not relevant for dropdown
+    new ButtonBuilder()
+      .setCustomId(`rr:toggle_button_clear_button:${menuId}:${!menu.enableButtonClearRolesButton}`)
+      .setLabel(`Button Clear: ${menu.enableButtonClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+      .setStyle(menu.enableButtonClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setDisabled(!menu.selectionType.includes("button")) // Disable if not relevant for button
+  );
+  console.log("[showMenuConfiguration] row5_clear_buttons_toggles created.");
+
+
+  const row_publish_back = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:publish:${menuId}`)
+      .setLabel("Publish Menu")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!menu.selectionType.length || (!menu.dropdownRoles.length && !menu.buttonRoles.length)), // Disable if no roles are set
+    new ButtonBuilder()
+      .setCustomId(`rr:edit_published:${menuId}`)
+      .setLabel("Update Published Menu")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId(`rr:delete_published:${menuId}`)
+      .setLabel("Delete Published Menu")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId("dash:reaction-roles")
+      .setLabel("Back to RR Dashboard")
+      .setStyle(ButtonStyle.Secondary)
+  );
+  console.log("[showMenuConfiguration] row_publish_back created.");
+
+
+  // Collect all potential rows and filter out empty ones, then slice to 5
+  const allPossibleRows = [
+    row1_role_types,
+    row2_emojis_reorder,
+    row3_limits_exclusions_descriptions,
+    row4_customize_messages_webhook,
+    row5_clear_buttons_toggles,
+    row_publish_back // This will be the 6th row, so it will be truncated if all others are present
+  ];
+
+  const finalComponents = allPossibleRows.filter(row => row.components.length > 0).slice(0, 5);
+  console.log(`[showMenuConfiguration] Total final components to send: ${finalComponents.length}.`);
+
+  try {
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
+    console.log("[showMenuConfiguration] Interaction response sent successfully.");
+  } catch (error) {
+    console.error("Error during interaction response:", error);
+    // If an error occurs after deferring, use editReply
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+  }
+}
+
+async function publishMenu(interaction, menuId, messageToEdit = null) {
+  const menu = db.getMenu(menuId);
+  if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+
+  const embed = new EmbedBuilder()
+    .setTitle(menu.name)
+    .setDescription(menu.desc)
+    .setColor(menu.embedColor || "#5865F2");
+
+  if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+  if (menu.embedImage) embed.setImage(menu.embedImage);
+  if (menu.embedAuthorName) {
+    embed.setAuthor({
+      name: menu.embedAuthorName,
+      iconURL: menu.embedAuthorIconURL || undefined
+    });
+  }
+  if (menu.embedFooterText) {
+    embed.setFooter({
+      text: menu.embedFooterText,
+      iconURL: menu.embedFooterIconURL || undefined
+    });
+  }
+
+  const components = [];
+
+  // Dropdown Select Menu
+  if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
+    const dropdownOptions = menu.dropdownRoleOrder.length > 0
+      ? menu.dropdownRoleOrder.map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        return {
+          label: role.name,
+          value: role.id,
+          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+          description: menu.dropdownRoleDescriptions[role.id] || undefined,
+        };
+      }).filter(Boolean)
+      : menu.dropdownRoles.map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        return {
+          label: role.name,
+          value: role.id,
+          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+          description: menu.dropdownRoleDescriptions[role.id] || undefined,
+        };
+      }).filter(Boolean);
+
+    if (dropdownOptions.length > 0) {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`rr-role-select:${menuId}`)
+        .setPlaceholder("Select a role...")
+        .setMinValues(0)
+        .setMaxValues(dropdownOptions.length)
+        .addOptions(dropdownOptions);
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+    }
+  }
+
+  // Clear dropdown roles button
+  if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
+    const clearButton = new ButtonBuilder()
+      .setCustomId(`rr-clear-roles:${menuId}:dropdown`)
+      .setLabel("Clear All Dropdown Roles")
+      .setStyle(ButtonStyle.Secondary);
+    components.push(new ActionRowBuilder().addComponents(clearButton));
+  }
+
+
+  // Buttons
+  if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
+    const buttonRows = [];
+    let currentRow = new ActionRowBuilder();
+    const orderedButtonRoles = menu.buttonRoleOrder.length > 0
+      ? menu.buttonRoleOrder
+      : menu.buttonRoles;
+
+    for (const roleId of orderedButtonRoles) {
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (!role) continue;
+
+      const button = new ButtonBuilder()
+        .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+        .setLabel(role.name)
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
+
+      if (currentRow.components.length < 5) {
+        currentRow.addComponents(button);
+      } else {
+        buttonRows.push(currentRow);
+        currentRow = new ActionRowBuilder().addComponents(button);
+      }
+    }
+    if (currentRow.components.length > 0) {
+      buttonRows.push(currentRow);
+    }
+    components.push(...buttonRows);
+  }
+
+  // Clear button roles button
+  if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
+    const clearButton = new ButtonBuilder()
+      .setCustomId(`rr-clear-roles:${menuId}:button`)
+      .setLabel("Clear All Button Roles")
+      .setStyle(ButtonStyle.Secondary);
+    components.push(new ActionRowBuilder().addComponents(clearButton));
+  }
+
+  try {
+    // Delete old message if exists and it's a fresh publish (not an edit)
+    if (menu.messageId && !messageToEdit) {
+      try {
+        const oldChannel = interaction.guild.channels.cache.get(menu.channelId);
+        if (oldChannel) {
+          const oldMessage = await oldChannel.messages.fetch(menu.messageId);
+          await oldMessage.delete();
+        }
+      } catch (error) {
+        console.log("Couldn't delete old message, probably already deleted or not found.");
+      }
+    }
+
+    let message;
+    if (messageToEdit) {
+      // Edit existing message
+      if (menu.useWebhook) {
+        const webhook = await getOrCreateWebhook(messageToEdit.channel);
+        await webhook.editMessage(messageToEdit.id, {
+          embeds: [embed],
+          components,
+          username: menu.webhookName || interaction.guild.me.displayName,
+          avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+        });
+        message = messageToEdit; // Keep the same message reference
+      } else {
+        message = await messageToEdit.edit({
+          embeds: [embed],
+          components
+        });
+      }
+    } else if (menu.useWebhook) {
+      // WEBHOOK MODE: Custom branding + functional components
+      const webhook = await getOrCreateWebhook(interaction.channel);
+
+      message = await webhook.send({
+        embeds: [embed],
+        components,
+        username: menu.webhookName || interaction.guild.me.displayName,
+        avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+      });
+    } else {
+      // REGULAR MODE: Standard bot message
+      message = await interaction.channel.send({
+        embeds: [embed],
+        components
+      });
+    }
+
+    await db.saveMessageId(menuId, interaction.channel.id, message.id);
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({
+      content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!`,
+      ephemeral: true
+    });
+  } catch (error) {
+    console.error("Publishing error:", error);
+    let errorMsg = "❌ Failed to publish menu. ";
+
+    if (error.code === 50013) {
+      errorMsg += "Bot lacks permissions. Required: 'Manage Webhooks' and 'Send Messages'";
+    } else if (error.message.includes("ENOENT")) {
+      errorMsg += "Invalid image URL or resource not found.";
+    } else {
+      errorMsg += error.message;
+    }
+
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({ content: errorMsg, ephemeral: true });
+  }
+}
 
 client.login(process.env.TOKEN);
