@@ -1729,30 +1729,35 @@ client.on("interactionCreate", async (interaction) => {
                 return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "Input Error");
             }
 
-            const menuName = parsedJson.title || "New Menu from JSON";
-            const menuDescription = parsedJson.description || "No description provided.";
+            // Extract embed data from the first embed in the 'embeds' array if it exists
+            const embedData = (parsedJson.embeds && Array.isArray(parsedJson.embeds) && parsedJson.embeds.length > 0)
+                               ? parsedJson.embeds[0]
+                               : parsedJson; // Fallback to top-level if no embeds array or empty
+
+            const menuName = embedData.title || "New Menu from JSON";
+            const menuDescription = embedData.description || "No description provided.";
 
             // Create the new menu
             const newMenuId = await db.createMenu(interaction.guild.id, menuName, menuDescription);
-            const newMenu = db.getMenu(newMenuId); // Fetch the newly created menu
+            // No need to fetch newMenu again, as createMenu already adds it to menuData
 
             const embedUpdateData = {};
 
             // Map JSON fields to menu properties for embed customization
-            if (typeof parsedJson.color === 'number') {
-                embedUpdateData.embedColor = '#' + (parsedJson.color >>> 0).toString(16).padStart(6, '0');
-            } else if (typeof parsedJson.color === 'string' && /^#[0-9A-F]{6}$/i.test(parsedJson.color)) {
-                embedUpdateData.embedColor = parsedJson.color;
+            if (typeof embedData.color === 'number') {
+                embedUpdateData.embedColor = '#' + (embedData.color >>> 0).toString(16).padStart(6, '0');
+            } else if (typeof embedData.color === 'string' && /^#[0-9A-F]{6}$/i.test(embedData.color)) {
+                embedUpdateData.embedColor = embedData.color;
             } else {
                 embedUpdateData.embedColor = null;
             }
             
-            embedUpdateData.embedThumbnail = parsedJson.thumbnail?.url || null;
-            embedUpdateData.embedImage = parsedJson.image?.url || null;
-            embedUpdateData.embedAuthorName = parsedJson.author?.name || null;
-            embedUpdateData.embedAuthorIconURL = parsedJson.author?.icon_url || null;
-            embedUpdateData.embedFooterText = parsedJson.footer?.text || null;
-            embedUpdateData.embedFooterIconURL = parsedJson.footer?.icon_url || null;
+            embedUpdateData.embedThumbnail = embedData.thumbnail?.url || null;
+            embedUpdateData.embedImage = embedData.image?.url || null;
+            embedUpdateData.embedAuthorName = embedData.author?.name || null;
+            embedUpdateData.embedAuthorIconURL = embedData.author?.icon_url || null;
+            embedUpdateData.embedFooterText = embedData.footer?.text || null;
+            embedUpdateData.embedFooterIconURL = embedData.footer?.icon_url || null;
             
             await db.saveEmbedCustomization(newMenuId, embedUpdateData);
             
