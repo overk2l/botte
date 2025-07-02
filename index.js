@@ -1319,7 +1319,8 @@ client.on("interactionCreate", async (interaction) => {
                 .setLabel("Paste Embed JSON Here")
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(true)
-                .setPlaceholder('{"color": 16711680, "thumbnail": {"url": "https://example.com/thumb.png"}, "title": "My Title", "description": "My description"}')
+                // Updated placeholder to be shorter
+                .setPlaceholder("e.g., {\"title\": \"My Embed\", \"description\": \"Hello!\"}")
                 .setMaxLength(4000)
             )
           );
@@ -1416,7 +1417,7 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = parts[2]; // menuId is at parts[2] for select_role_for_description
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
