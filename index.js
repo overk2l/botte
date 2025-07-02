@@ -65,23 +65,33 @@ const db = { // This in-memory map will now be synchronized with Firestore
 
   async loadAllMenus() {
     console.log("[Firestore] Loading all menus...");
-    const menusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`);
-    const querySnapshot = await getDocs(menusCollectionRef);
-    this.menus.clear();
-    this.menuData.clear();
+    // Only attempt to load if a valid projectId is available
+    if (firebaseConfig.projectId === 'missing-project-id') {
+      console.warn("[Firestore] Skipping menu loading: projectId is missing or invalid. Please configure Firebase.");
+      return;
+    }
+    try {
+      const menusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`);
+      const querySnapshot = await getDocs(menusCollectionRef);
+      this.menus.clear();
+      this.menuData.clear();
 
-    querySnapshot.forEach(doc => {
-      const menu = doc.data();
-      const menuId = doc.id;
-      const guildId = menu.guildId;
+      querySnapshot.forEach(doc => {
+        const menu = doc.data();
+        const menuId = doc.id;
+        const guildId = menu.guildId;
 
-      if (!this.menus.has(guildId)) {
-        this.menus.set(guildId, []);
-      }
-      this.menus.get(guildId).push(menuId);
-      this.menuData.set(menuId, menu);
-    });
-    console.log(`[Firestore] Loaded ${this.menuData.size} menus.`);
+        if (!this.menus.has(guildId)) {
+          this.menus.set(guildId, []);
+        }
+        this.menus.get(guildId).push(menuId);
+        this.menuData.set(menuId, menu);
+      });
+      console.log(`[Firestore] Loaded ${this.menuData.size} menus.`);
+    } catch (error) {
+      console.error("[Firestore] Error loading menus:", error);
+      // This will catch the PERMISSION_DENIED error and prevent bot from crashing
+    }
   },
 
   async createMenu(guildId, name, desc) {
@@ -120,16 +130,33 @@ const db = { // This in-memory map will now be synchronized with Firestore
       embedFooterIconURL: null,
     };
 
-    const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, id);
-    await setDoc(menuDocRef, newMenu);
-
-    if (!this.menus.has(guildId)) {
-      this.menus.set(guildId, []);
+    // Only attempt to save if a valid projectId is available
+    if (firebaseConfig.projectId === 'missing-project-id') {
+      console.warn("[Firestore] Skipping menu creation: projectId is missing or invalid. Please configure Firebase.");
+      // Create in-memory only for immediate testing, won't persist
+      if (!this.menus.has(guildId)) {
+        this.menus.set(guildId, []);
+      }
+      this.menus.get(guildId).push(id);
+      this.menuData.set(id, newMenu);
+      return id;
     }
-    this.menus.get(guildId).push(id);
-    this.menuData.set(id, newMenu);
-    console.log(`[Firestore] Created new menu with ID: ${id}`);
-    return id;
+
+    try {
+      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, id);
+      await setDoc(menuDocRef, newMenu);
+
+      if (!this.menus.has(guildId)) {
+        this.menus.set(guildId, []);
+      }
+      this.menus.get(guildId).push(id);
+      this.menuData.set(id, newMenu);
+      console.log(`[Firestore] Created new menu with ID: ${id}`);
+      return id;
+    } catch (error) {
+      console.error("[Firestore] Error creating menu:", error);
+      throw new Error("Failed to create menu in Firestore. Check permissions.");
+    }
   },
 
   getMenus(guildId) {
@@ -140,9 +167,21 @@ const db = { // This in-memory map will now be synchronized with Firestore
     const menu = this.menuData.get(menuId);
     if (!menu) return;
     Object.assign(menu, data); // Update in-memory
-    const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
-    await setDoc(menuDocRef, menu); // Update Firestore
-    console.log(`[Firestore] Updated menu with ID: ${menuId}`);
+
+    // Only attempt to save if a valid projectId is available
+    if (firebaseConfig.projectId === 'missing-project-id') {
+      console.warn("[Firestore] Skipping menu update: projectId is missing or invalid. Data will not persist.");
+      return;
+    }
+
+    try {
+      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
+      await setDoc(menuDocRef, menu); // Update Firestore
+      console.log(`[Firestore] Updated menu with ID: ${menuId}`);
+    } catch (error) {
+      console.error(`[Firestore] Error updating menu ${menuId}:`, error);
+      throw new Error("Failed to update menu in Firestore. Check permissions.");
+    }
   },
 
   async saveRoles(menuId, roles, type) {
@@ -157,7 +196,7 @@ const db = { // This in-memory map will now be synchronized with Firestore
   async saveEmojis(menuId, emojis, type) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
-    const currentEmojis = type === "dropdown" ? menu.dropdownEmojis : menu.buttonEmojis;
+    const currentEmojis = menu[type === "dropdown" ? "dropdownEmojis" : "buttonEmojis"];
     const updatedEmojis = { ...currentEmojis, ...emojis };
     const updateData = {};
     if (type === "dropdown") updateData.dropdownEmojis = updatedEmojis;
@@ -223,10 +262,21 @@ const db = { // This in-memory map will now be synchronized with Firestore
     }
     this.menuData.delete(menuId);
 
-    // Delete from Firestore
-    const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
-    await deleteDoc(menuDocRef);
-    console.log(`[Firestore] Deleted menu with ID: ${menuId}`);
+    // Only attempt to delete if a valid projectId is available
+    if (firebaseConfig.projectId === 'missing-project-id') {
+      console.warn("[Firestore] Skipping menu deletion: projectId is missing or invalid. Data will not persist.");
+      return;
+    }
+
+    try {
+      // Delete from Firestore
+      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
+      await deleteDoc(menuDocRef);
+      console.log(`[Firestore] Deleted menu with ID: ${menuId}`);
+    } catch (error) {
+      console.error(`[Firestore] Error deleting menu ${menuId}:`, error);
+      throw new Error("Failed to delete menu from Firestore. Check permissions.");
+    }
   }
 };
 
@@ -691,13 +741,13 @@ client.on("interactionCreate", async (interaction) => {
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
           const menuId = targetMenuId; // menuId is at parts[2]
-          const newState = extra === 'true'; // newState is at parts[3]
+          const newState = newState === 'true'; // newState is at parts[3]
           await db.saveEnableDropdownClearRolesButton(menuId, newState);
           return showMenuConfiguration(interaction, menuId);
         }
         if (action === "toggle_button_clear_button") {
           const menuId = targetMenuId; // menuId is at parts[2]
-          const newState = extra === 'true'; // newState is at parts[3]
+          const newState = newState === 'true'; // newState is at parts[3]
           await db.saveEnableButtonClearRolesButton(menuId, newState);
           return showMenuConfiguration(interaction, menuId);
         }
@@ -821,11 +871,11 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
+      const modalType = parts[2]; // This will be "create", "addemoji", "setlimits", etc.
+
       // Determine menuId based on modal's customId structure
       let currentMenuId;
-      if (action === "modal") { // For create modal
-        currentMenuId = parts[2]; // This is the menuId for create modal, but it's generated after submission
-      } else if (action === "addemoji" || action === "role_description") {
+      if (modalType === "addemoji" || modalType === "role_description") {
         currentMenuId = parts[4];
       } else {
         currentMenuId = parts[2]; // For other modals like setlimits, customize_embed, etc.
@@ -839,7 +889,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.deferUpdate();
 
         if (action === "modal") {
-          if (extra === "create") {
+          if (modalType === "create") { // Use modalType instead of extra
             const name = interaction.fields.getTextInputValue("name");
             const desc = interaction.fields.getTextInputValue("desc");
             const newMenuId = await db.createMenu(interaction.guild.id, name, desc); // Await creation
@@ -1014,7 +1064,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Handle exclusions first
         for (const roleId of selectedRoleIds) {
-          const exclusions = menu.exclusionMap[roleId]; // This is the line that was causing the TypeError
+          const exclusions = menu.exclusionMap[roleId];
           if (exclusions && exclusions.length > 0) {
             for (const excludedRoleId of exclusions) {
               if (interaction.member.roles.cache.has(excludedRoleId)) {
