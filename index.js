@@ -420,8 +420,13 @@ async function updatePublishedMessageComponents(interaction, menu) {
                 const button = new ButtonBuilder()
                     .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
                     .setLabel(role.name)
-                    .setStyle(member.roles.cache.has(roleId) ? ButtonStyle.Success : ButtonStyle.Secondary) // Highlight if member has role
-                    .setEmoji(parseEmoji(menu.buttonEmojis[role.id])); // Use parseEmoji directly
+                    .setStyle(member.roles.cache.has(roleId) ? ButtonStyle.Success : ButtonStyle.Secondary); // Highlight if member has role
+                
+                // Only set emoji if parseEmoji returns a valid result
+                const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+                if (parsedEmoji) {
+                    button.setEmoji(parsedEmoji);
+                }
 
                 if (currentRow.components.length < 5) {
                     currentRow.addComponents(button);
@@ -618,12 +623,13 @@ client.on("interactionCreate", async (interaction) => {
   const isCustomizeEmbedModal = interaction.isButton() && interaction.customId.startsWith("rr:customize_embed:");
   const isCustomizeFooterModal = interaction.isButton() && interaction.customId.startsWith("rr:customize_footer:");
   const isWebhookBrandingModal = interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:");
+  const isCustomMessagesModal = interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:");
 
 
   // Only defer if it's not one of the specific interactions that immediately show a modal
   if (!interaction.replied && !interaction.deferred &&
     (interaction.isChatInputCommand() ||
-      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal)) ||
+      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal || isCustomMessagesModal)) ||
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     )) {
@@ -693,7 +699,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type, newState based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
@@ -719,17 +725,10 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal); // showModal here
         }
 
-    if (action === "publish") {
-  console.log("Full customId:", interaction.customId);
-  console.log("Split parts:", parts);
-  console.log("Extracted menuId:", menuId);
-  console.log("MenuId type:", typeof menuId);
-  
-  if (!menuId || menuId === 'undefined') {
-    return interaction.editReply({ content: "Menu ID missing for publish.", flags: MessageFlags.Ephemeral });
-  }
-  return publishMenu(interaction, menuId);
-}
+        if (action === "publish") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", flags: MessageFlags.Ephemeral });
+          return publishMenu(interaction, menuId);
+        }
 
         if (action === "edit_published") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
@@ -877,18 +876,32 @@ client.on("interactionCreate", async (interaction) => {
           let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
           await db.saveSelectionType(menuId, selectedTypes);
 
-          const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
-          const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
-            .setMinValues(1)
-            .setMaxValues(Math.min(allRoles.size, 25))
-            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+          
+          // If "both" was selected, start with dropdown roles, and then prompt for button roles
+          if (type === "both") {
+            const selectDropdown = new StringSelectMenuBuilder()
+              .setCustomId(`rr:selectroles:dropdown:${menuId}:next:button`) // Add next type to customId
+              .setMinValues(0) // Allow 0 to save no roles
+              .setMaxValues(Math.min(allRoles.size, 25))
+              .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
 
-          return interaction.editReply({
-            content: `✅ Selection type saved. Now select roles for **${nextType}**:`,
-            components: [new ActionRowBuilder().addComponents(select)],
-          });
+            return interaction.editReply({
+              content: `✅ Selection type saved. Now select roles for **Dropdown** (step 1/2):`,
+              components: [new ActionRowBuilder().addComponents(selectDropdown)],
+            });
+          } else { // Single type selection
+            const select = new StringSelectMenuBuilder()
+              .setCustomId(`rr:selectroles:${type}:${menuId}`)
+              .setMinValues(0) // Allow 0 to save no roles
+              .setMaxValues(Math.min(allRoles.size, 25))
+              .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+
+            return interaction.editReply({
+              content: `✅ Selection type saved. Now select roles for **${type}**:`,
+              components: [new ActionRowBuilder().addComponents(select)],
+            });
+          }
         }
 
         if (action === "addemoji") {
@@ -1139,6 +1152,46 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "custom_messages") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:custom_messages:${menuId}`)
+            .setTitle("Customize Bot Messages")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("success_add_message")
+                  .setLabel("Success Message (Role Added) - Use {roleId}")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
+                  .setValue(menu.successMessageAdd || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("success_remove_message")
+                  .setLabel("Success Message (Role Removed) - Use {roleId}")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
+                  .setValue(menu.successMessageRemove || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("limit_exceeded_message")
+                  .setLabel("Limit Exceeded Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("❌ You have reached the maximum number of roles for this menu or region.")
+                  .setValue(menu.limitExceededMessage || "")
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
         if (action === "toggle_dropdown_clear_button") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
@@ -1156,8 +1209,9 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
-      const type = parts[2]; // Can be type or triggerRoleId
-      const menuId = parts[3]; // Can be menuId or menuId
+      const typeOrTriggerId = parts[2]; // Can be type (dropdown/button) or triggerRoleId
+      const menuId = parts[3]; // Can be menuId or nextType (if action is selectroles and next is defined)
+      const nextType = parts[4]; // Only for selectroles when type is 'both'
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -1172,13 +1226,31 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "selectroles") {
           const selectedRoleIds = interaction.values;
-          await db.saveRoles(menuId, selectedRoleIds, type);
-          await interaction.editReply({
-            content: `✅ Roles saved for ${type}.`,
-            components: [],
-            flags: MessageFlags.Ephemeral
-          });
-          return showMenuConfiguration(interaction, menuId); // Show menu configuration after saving roles
+          const currentType = typeOrTriggerId; // This is 'dropdown' or 'button'
+
+          await db.saveRoles(menuId, selectedRoleIds, currentType);
+          
+          if (nextType) { // If there's a next type to configure (e.g., after dropdown, go to button)
+              const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+              const selectNext = new StringSelectMenuBuilder()
+                  .setCustomId(`rr:selectroles:${nextType}:${menuId}`) // No further nextType
+                  .setMinValues(0)
+                  .setMaxValues(Math.min(allRoles.size, 25))
+                  .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+
+              return interaction.editReply({
+                  content: `✅ Roles saved for **${currentType}**. Now select roles for **${nextType}** (step 2/2):`,
+                  components: [new ActionRowBuilder().addComponents(selectNext)],
+                  flags: MessageFlags.Ephemeral
+              });
+          } else {
+              await interaction.editReply({
+                content: `✅ Roles saved for ${currentType}.`,
+                components: [],
+                flags: MessageFlags.Ephemeral
+              });
+              return showMenuConfiguration(interaction, menuId); // Show menu configuration after saving roles
+          }
         }
 
         if (action === "reorder_dropdown" || action === "reorder_button") {
@@ -1192,7 +1264,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "select_trigger_role") {
           const triggerRoleId = interaction.values[0];
-          const targetMenuId = type; // menuId is at parts[2]
+          const targetMenuId = typeOrTriggerId; // menuId is at parts[2]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
               return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
@@ -1222,7 +1294,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "select_exclusion_roles") {
-          const triggerRoleId = type; // The role that triggers the exclusion (parts[2])
+          const triggerRoleId = typeOrTriggerId; // The role that triggers the exclusion (parts[2])
           const targetMenuId = menuId; // The menuId (parts[3])
           const exclusionRoleIds = interaction.values; // The roles to be excluded
 
@@ -1978,15 +2050,15 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       if (!role) continue;
 
      const button = new ButtonBuilder()
-  .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-  .setLabel(role.name)
-  .setStyle(ButtonStyle.Secondary);
+        .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+        .setLabel(role.name)
+        .setStyle(ButtonStyle.Secondary);
 
-// Only set emoji if parseEmoji returns a valid result
-const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-if (parsedEmoji) {
-  button.setEmoji(parsedEmoji);
-}
+      // Only set emoji if parseEmoji returns a valid result
+      const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+      if (parsedEmoji) {
+        button.setEmoji(parsedEmoji);
+      }
 
       if (currentRow.components.length < 5) {
         currentRow.addComponents(button);
