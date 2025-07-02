@@ -406,7 +406,7 @@ const db = {
       // Delete from Firestore
       const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
       await deleteDoc(menuDocRef);
-      console.log(`[Firestore] Deleted menu with ID: ${menuId}`);
+      console.log(`[Firestore] Deleted menu with ID: ${id}`);
     } catch (error) {
       console.error(`[Firestore] Error deleting menu ${menuId}:`, error);
       throw new Error("Failed to delete menu from Firestore. Check permissions.");
@@ -678,9 +678,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:setlimits:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_embed:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_footer:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:")) || // ADDED THIS LINE
+    (interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:set_role_descriptions:")) // Select menu that leads to a modal
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) // UPDATED: This is the select menu that leads to a modal
   );
 
   // Defer non-modal-trigger interactions
@@ -745,7 +745,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type, newState based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) { // ADDED prompt_role_description_select
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
@@ -1269,6 +1269,38 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "prompt_role_description_select") { // NEW: Handle button click for role description selection
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+            const menu = db.getMenu(menuId);
+            if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+            const dropdownRoles = menu.dropdownRoles || [];
+            if (dropdownRoles.length === 0) {
+                return interaction.editReply({ content: "No dropdown roles configured for this menu. Please add dropdown roles first to set their descriptions.", flags: MessageFlags.Ephemeral });
+            }
+
+            const roleOptions = dropdownRoles.map(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                return {
+                    label: role ? role.name : `Unknown Role (${roleId})`,
+                    value: roleId
+                };
+            });
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`rr:select_role_for_description:${menuId}`) // Custom ID for the new select menu
+                .setPlaceholder("Select a dropdown role to set its description...")
+                .setMinValues(1)
+                .setMaxValues(1)
+                .addOptions(roleOptions);
+
+            return interaction.editReply({
+                content: "Please select a dropdown role to set its description:",
+                components: [new ActionRowBuilder().addComponents(selectMenu)],
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
         if (action === "toggle_dropdown_clear_button") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
@@ -1292,7 +1324,7 @@ client.on("interactionCreate", async (interaction) => {
       // For 'reorder_dropdown'/'reorder_button', parts[2] is the menuId.
       // For 'select_trigger_role', parts[2] is the menuId.
       // For 'select_exclusion_roles', parts[2] is triggerRoleId, parts[3] is menuId.
-      // For 'set_role_descriptions', parts[2] is menuId.
+      // For 'select_role_for_description', parts[2] is menuId.
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -1404,9 +1436,9 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId);
         }
 
-        if (action === "set_role_descriptions") {
+        if (action === "select_role_for_description") { // NEW: Handle selection of role for description
           const roleId = interaction.values[0];
-          const menuId = parts[2]; // menuId is at parts[2] for set_role_descriptions
+          const menuId = parts[2]; // menuId is at parts[2] for select_role_for_description
           const menu = db.getMenu(menuId);
           if (!menu) {
               return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
@@ -1448,7 +1480,7 @@ client.on("interactionCreate", async (interaction) => {
       if (modalType === "create") {
           currentMenuId = null; // No menuId yet for creation modal
       } else if (modalType === "addemoji" || modalType === "role_description") {
-          currentMenuId = parts[4]; // Specific case where type is parts[3] and menuId is parts[4]
+          currentMenuId = parts[3]; // UPDATED: menuId is now parts[3] for role_description modal
       } else {
           currentMenuId = parts[3]; // Default for other modals like setlimits, customize_embed, webhook_branding, etc.
       }
@@ -1606,7 +1638,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "role_description") {
-          const roleId = parts[4];
+          const roleId = parts[4]; // roleId is at parts[4] for role_description modal
           if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
@@ -2005,7 +2037,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Set Role Exclusions")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`rr:set_role_descriptions:${menuId}`)
+      .setCustomId(`rr:prompt_role_description_select:${menuId}`) // UPDATED: Changed customId for role descriptions
       .setLabel("Set Role Descriptions")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.dropdownRoles.length)
