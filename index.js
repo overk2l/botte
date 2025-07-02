@@ -245,7 +245,7 @@ client.on("interactionCreate", async (interaction) => {
       const ctx = parts[0];
       const action = parts[1];
       const extra = parts[2];
-      const menuId = parts[3];
+      const menuId = parts[3]; // This can be undefined if not present in customId
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -354,7 +354,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "type") {
-          const targetMenuId = menuId;
+          const targetMenuId = menuId; // Correctly get menuId from customId
           if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = extra === "both" ? ["dropdown", "button"] : [extra];
           db.saveSelectionType(targetMenuId, selectedTypes);
@@ -374,7 +374,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "addemoji") {
-          const targetMenuId = menuId;
+          const targetMenuId = menuId; // Correctly get menuId from customId
           if (!targetMenuId || !extra) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
           const menu = db.getMenu(targetMenuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
@@ -633,7 +633,7 @@ client.on("interactionCreate", async (interaction) => {
       const ctx = parts[0];
       const action = parts[1];
       const type = parts[2];
-      const menuId = parts[3];
+      const menuId = parts[3]; // This can be undefined if not present in customId
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -667,6 +667,9 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "select_trigger_role") {
           const triggerRoleId = interaction.values[0];
           const menu = db.getMenu(menuId);
+          if (!menu) { // Added check here
+              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+          }
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
@@ -696,6 +699,9 @@ client.on("interactionCreate", async (interaction) => {
           const exclusionRoleIds = interaction.values; // The roles to be excluded
 
           const menu = db.getMenu(menuId);
+          if (!menu) { // Added check here
+              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+          }
           const newExclusionMap = { ...menu.exclusionMap, [triggerRoleId]: exclusionRoleIds };
           db.saveExclusionMap(menuId, newExclusionMap);
 
@@ -706,6 +712,9 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "set_role_descriptions") {
           const roleId = interaction.values[0];
           const menu = db.getMenu(menuId);
+          if (!menu) { // Added check here
+              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+          }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
 
@@ -727,21 +736,23 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "toggle_dropdown_clear_button") {
-          const newState = interaction.values[0] === 'true';
-          db.saveEnableDropdownClearRolesButton(menuId, newState);
-          console.log(`[Toggle Clear Button] Menu ID: ${menuId}, New State: ${newState}`);
-          console.log(`[Toggle Clear Button] DB Menu Data for ${menuId}:`, db.getMenu(menuId));
-          await interaction.update({ content: `✅ Dropdown "Clear Roles" button is now ${newState ? "ENABLED" : "DISABLED"}.`, components: [], ephemeral: true });
-          return showMenuConfiguration(interaction, menuId);
+          const targetMenuId = menuId; // Get menuId from customId
+          const newState = parts[4] === 'true'; // Get newState from customId
+          db.saveEnableDropdownClearRolesButton(targetMenuId, newState);
+          console.log(`[Toggle Clear Button] Menu ID: ${targetMenuId}, New State: ${newState}`);
+          console.log(`[Toggle Clear Button] DB Menu Data for ${targetMenuId}:`, db.getMenu(targetMenuId));
+          // No need for update here, showMenuConfiguration will handle the response
+          return showMenuConfiguration(interaction, targetMenuId);
         }
 
         if (action === "toggle_button_clear_button") {
-          const newState = interaction.values[0] === 'true';
-          db.saveEnableButtonClearRolesButton(menuId, newState);
-          console.log(`[Toggle Clear Button] Menu ID: ${menuId}, New State: ${newState}`);
-          console.log(`[Toggle Clear Button] DB Menu Data for ${menuId}:`, db.getMenu(menuId));
-          await interaction.update({ content: `✅ Button "Clear Roles" button is now ${newState ? "ENABLED" : "DISABLED"}.`, components: [], ephemeral: true });
-          return showMenuConfiguration(interaction, menuId);
+          const targetMenuId = menuId; // Get menuId from customId
+          const newState = parts[4] === 'true'; // Get newState from customId
+          db.saveEnableButtonClearRolesButton(targetMenuId, newState);
+          console.log(`[Toggle Clear Button] Menu ID: ${targetMenuId}, New State: ${newState}`);
+          console.log(`[Toggle Clear Button] DB Menu Data for ${targetMenuId}:`, db.getMenu(targetMenuId));
+          // No need for update here, showMenuConfiguration will handle the response
+          return showMenuConfiguration(interaction, targetMenuId);
         }
       }
     }
@@ -750,6 +761,7 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
+      const menuId = parts[3] || parts[4]; // menuId can be at parts[3] or parts[4] depending on modal customId structure
       const extra = parts[2]; // This is often the menuId or a type
 
       if (ctx === "rr") {
@@ -766,13 +778,12 @@ client.on("interactionCreate", async (interaction) => {
             const name = interaction.fields.getTextInputValue("name");
             const desc = interaction.fields.getTextInputValue("desc");
             const newMenuId = db.createMenu(interaction.guild.id, name, desc);
-            // showMenuConfiguration will now edit the deferred reply
             return showMenuConfiguration(interaction, newMenuId);
           }
           if (extra === "addemoji") {
             const type = parts[3];
-            const menuId = parts[4];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[4]; // Corrected menuId extraction for addemoji modal
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -787,12 +798,12 @@ client.on("interactionCreate", async (interaction) => {
                 delete newEmojis[roleId]; // Remove if empty
               }
             }
-            db.saveEmojis(menuId, newEmojis, type);
-            return showMenuConfiguration(interaction, menuId);
+            db.saveEmojis(currentMenuId, newEmojis, type);
+            return showMenuConfiguration(interaction, currentMenuId);
           }
           if (extra === "setlimits") {
-            const menuId = parts[3];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[3]; // Corrected menuId extraction
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -825,7 +836,7 @@ client.on("interactionCreate", async (interaction) => {
               return interaction.followUp({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", ephemeral: true });
             }
 
-            db.saveRegionalLimits(menuId, newRegionalLimits);
+            db.saveRegionalLimits(currentMenuId, newRegionalLimits);
 
             let maxRolesLimit = null;
             if (maxRolesLimitInput) {
@@ -836,13 +847,13 @@ client.on("interactionCreate", async (interaction) => {
                 return interaction.followUp({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", ephemeral: true });
               }
             }
-            db.saveMaxRolesLimit(menuId, maxRolesLimit);
-            return showMenuConfiguration(interaction, menuId);
+            db.saveMaxRolesLimit(currentMenuId, maxRolesLimit);
+            return showMenuConfiguration(interaction, currentMenuId);
           }
 
           if (extra === "customize_embed") {
-            const menuId = parts[3];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[3]; // Corrected menuId extraction
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -853,19 +864,19 @@ client.on("interactionCreate", async (interaction) => {
             const embedAuthorName = interaction.fields.getTextInputValue("author_name") || null;
             const embedAuthorIconURL = interaction.fields.getTextInputValue("author_icon_url") || null;
 
-            db.saveEmbedCustomization(menuId, {
+            db.saveEmbedCustomization(currentMenuId, {
               embedColor,
               embedThumbnail,
               embedImage,
               embedAuthorName,
               embedAuthorIconURL,
             });
-            return showMenuConfiguration(interaction, menuId);
+            return showMenuConfiguration(interaction, currentMenuId);
           }
 
           if (extra === "customize_footer") {
-            const menuId = parts[3];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[3]; // Corrected menuId extraction
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -873,15 +884,15 @@ client.on("interactionCreate", async (interaction) => {
             const footerText = interaction.fields.getTextInputValue("footer_text") || null;
             const footerIconURL = interaction.fields.getTextInputValue("footer_icon_url") || null;
 
-            db.saveEmbedCustomization(menuId, {
+            db.saveEmbedCustomization(currentMenuId, {
               embedFooterText: footerText,
               embedFooterIconURL: footerIconURL,
             });
-            return showMenuConfiguration(interaction, menuId);
+            return showMenuConfiguration(interaction, currentMenuId);
           }
           if (extra === "custom_messages") {
-            const menuId = parts[3];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[3]; // Corrected menuId extraction
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -890,26 +901,26 @@ client.on("interactionCreate", async (interaction) => {
             const successRemove = interaction.fields.getTextInputValue("success_remove_message") || null;
             const limitExceeded = interaction.fields.getTextInputValue("limit_exceeded_message") || null;
 
-            db.saveCustomMessages(menuId, {
+            db.saveCustomMessages(currentMenuId, {
               successMessageAdd: successAdd || "✅ You now have the role <@&{roleId}>!",
               successMessageRemove: successRemove || "✅ You removed the role <@&{roleId}>!",
               limitExceededMessage: limitExceeded || "❌ You have reached the maximum number of roles for this menu or region.",
             });
-            return showMenuConfiguration(interaction, menuId);
+            return showMenuConfiguration(interaction, currentMenuId);
           }
 
           if (extra === "role_description") {
-            const menuId = parts[3];
+            const currentMenuId = parts[3]; // Corrected menuId extraction
             const roleId = parts[4];
             const description = interaction.fields.getTextInputValue("description_input");
-            db.saveRoleDescriptions(menuId, { [roleId]: description || null });
-            return showMenuConfiguration(interaction, menuId);
+            db.saveRoleDescriptions(currentMenuId, { [roleId]: description || null });
+            return showMenuConfiguration(interaction, currentMenuId);
           }
 
           // Handle webhook branding modal
           if (extra === "webhook_branding") {
-            const menuId = parts[3];
-            const menu = db.getMenu(menuId);
+            const currentMenuId = parts[3]; // Corrected menuId extraction
+            const menu = db.getMenu(currentMenuId);
             if (!menu) {
                 return interaction.followUp({ content: "Menu not found.", ephemeral: true });
             }
@@ -917,11 +928,11 @@ client.on("interactionCreate", async (interaction) => {
             const name = interaction.fields.getTextInputValue("name");
             const avatar = interaction.fields.getTextInputValue("avatar");
 
-            db.saveWebhookSettings(menuId, {
+            db.saveWebhookSettings(currentMenuId, {
               webhookName: name || null,
               webhookAvatar: avatar || null
             });
-            return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
+            return showMenuConfiguration(interaction, currentMenuId); // Refresh the menu config view
           }
         }
       }
