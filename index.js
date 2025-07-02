@@ -908,15 +908,23 @@ client.on("interactionCreate", async (interaction) => {
             return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
           }
 
+          // If "both" is selected, start with dropdown roles, otherwise proceed with the single type.
+          const nextType = type === "both" ? "dropdown" : type;
+          const currentRoles = (menu[nextType + "Roles"] || []); // Get currently saved roles for this type
+
           const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${type}:${menuId}`) // Use 'type' directly as it's either 'dropdown' or 'button' or 'both'
-            .setPlaceholder("Select your roles...")
-            .setMinValues(0) // Allow selecting 0 roles initially
-            .setMaxValues(Math.min(allRoles.size, 25)) // Max 25 options per select menu
-            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
+            .setPlaceholder(`Select your ${nextType} roles...`)
+            .setMinValues(0)
+            .setMaxValues(Math.min(allRoles.size, 25))
+            .addOptions(allRoles.map((r) => ({
+                label: r.name,
+                value: r.id,
+                default: currentRoles.includes(r.id) // Pre-select if already saved
+            })));
 
           await interaction.editReply({
-            content: `✅ Selection type saved. Now select roles for **${type}** (you can select multiple):`,
+            content: `✅ Selection type saved. Now select roles for **${nextType}** (you can select multiple):`,
             components: [new ActionRowBuilder().addComponents(select)],
             flags: MessageFlags.Ephemeral
           });
@@ -1252,7 +1260,41 @@ client.on("interactionCreate", async (interaction) => {
           const selectedRoleIds = interaction.values;
           const type = parts[2]; // 'dropdown' or 'button'
           const menuId = parts[3];
-          await db.saveRoles(menuId, selectedRoleIds, type);
+          
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+            return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          if (type === "dropdown") {
+            await db.saveRoles(menuId, selectedRoleIds, "dropdown");
+            // If the menu was set to "both", now prompt for button roles
+            if (menu.selectionType.includes("button") && !menu.buttonRolesConfigured) { // Assuming a flag to track completion
+                const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+                const currentButtonRoles = (menu.buttonRoles || []);
+
+                const select = new StringSelectMenuBuilder()
+                    .setCustomId(`rr:selectroles:button:${menuId}`)
+                    .setPlaceholder("Select your button roles...")
+                    .setMinValues(0)
+                    .setMaxValues(Math.min(allRoles.size, 25))
+                    .addOptions(allRoles.map((r) => ({
+                        label: r.name,
+                        value: r.id,
+                        default: currentButtonRoles.includes(r.id)
+                    })));
+
+                await interaction.editReply({
+                    content: `✅ Dropdown roles saved. Now select roles for **buttons** (you can select multiple):`,
+                    components: [new ActionRowBuilder().addComponents(select)],
+                    flags: MessageFlags.Ephemeral
+                });
+                return; // Do not call showMenuConfiguration yet, wait for button role selection
+            }
+          } else if (type === "button") {
+            await db.saveRoles(menuId, selectedRoleIds, "button");
+          }
+
           await interaction.editReply({
             content: `✅ Roles saved for ${type}.`,
             components: [],
