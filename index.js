@@ -1446,6 +1446,9 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = interaction.values[0];
           if (!menuId) return sendEphemeralEmbed(interaction, "No menu selected.", "#FF0000", "Error");
           
+          // Defer the interaction update before showing the modal
+          await interaction.deferUpdate().catch(e => console.error("Error deferring select menu update:", e));
+
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:raw_embed_json:${menuId}`)
             .setTitle("Input Raw Embed JSON")
