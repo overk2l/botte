@@ -1047,44 +1047,182 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
         
-         if (action === "confirm_delete_published") {
-            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
-            const menu = db.getMenu(menuId);
-            if (!menu || !menu.channelId || !menu.messageId) {
-                return interaction.editReply({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
-            }
-            const channel = interaction.guild.channels.cache.get(menu.channelId);
-            if (!channel) {
-                await db.clearMessageId(menuId);
-                return interaction.editReply({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
-            }
+        client.on("interactionCreate", async (interaction) => {
+    // Defer reply at the beginning for commands and component interactions
+    if (interaction.isChatInputCommand() || interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+        // Only defer if not already replied or deferred to avoid errors
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.deferReply({ ephemeral: true }).catch(e => console.error("Error deferring reply:", e));
+        }
+    }
 
-            try {
-                const message = await channel.messages.fetch(menu.messageId);
-                await message.delete();
-                // Only clear message ID, don't delete the entire menu from Firestore
-                await db.clearMessageId(menuId);
-                await interaction.editReply({
-                    content: "✅ Published message deleted successfully!",
-                    components: [],
-                    ephemeral: true
-                });
-                return showMenuConfiguration(interaction, menuId);
-            } catch (error) {
-                console.error("Error deleting message:", error);
-                await db.clearMessageId(menuId);
-                return interaction.editReply({
-                    content: "❌ Failed to delete message. Message ID cleared.",
-                    ephemeral: true
-                });
+    // Check Firebase configuration at the start of every interaction
+    if (firebaseConfig.projectId === 'missing-project-id') {
+        // Use followUp since the interaction is now deferred
+        await interaction.followUp({
+            content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
+            ephemeral: true
+        }).catch(e => console.error("Error sending Firebase config warning:", e));
+    }
+
+    try {
+        // 1. Dashboard Permissions Check
+        if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                // Use editReply since it's already deferred
+                return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", ephemeral: true });
             }
+            return sendMainDashboard(interaction);
         }
 
-        if (action === "cancel_delete_published") {
-            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
-            return interaction.editReply({ content: "Deletion cancelled.", components: [], ephemeral: true });
-        }
+        if (interaction.isButton()) {
+            const parts = interaction.customId.split(":");
+            const ctx = parts[0];
+            const action = parts[1];
 
+            // Declare variables for menuId, type, newState at the top of the rr context
+            let menuId;
+            let type;
+            let newStateBoolean; // For toggle buttons
+
+            if (ctx === "dash") {
+                if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
+                if (action === "back") return sendMainDashboard(interaction);
+            }
+
+            if (ctx === "rr") {
+                // All dashboard-related buttons should also have a permission check
+                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+                }
+
+                // Assign menuId, type, newState based on action within the rr context
+                if (action === "create") {
+                    // No menuId needed yet, it's created in the modal submit
+                } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook"].includes(action)) {
+                    menuId = parts[2]; // For these actions, menuId is parts[2]
+                } else if (["type", "addemoji"].includes(action)) {
+                    type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
+                    menuId = parts[3]; // For these actions, menuId is parts[3]
+                } else if (["toggle_dropdown_clear_button", "toggle_button_clear_button"].includes(action)) {
+                    menuId = parts[2];
+                    newStateBoolean = parts[3] === 'true';
+                }
+
+
+                if (action === "create") {
+                    const modal = new ModalBuilder()
+                        .setCustomId("rr:modal:create")
+                        .setTitle("New Reaction Role Menu")
+                        .addComponents(
+                            new ActionRowBuilder().addComponents(
+                                new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short).setRequired(true)
+                            ),
+                            new ActionRowBuilder().addComponents(
+                                new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true)
+                            )
+                        );
+                    // Show modal doesn't need editReply as it's a new interaction type
+                    return interaction.showModal(modal);
+                }
+
+                if (action === "publish") {
+                    if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", ephemeral: true });
+                    return publishMenu(interaction, menuId);
+                }
+
+                if (action === "edit_published") {
+                    if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+                    const menu = db.getMenu(menuId);
+                    if (!menu || !menu.channelId || !menu.messageId) {
+                        return interaction.editReply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
+                    }
+                    const channel = interaction.guild.channels.cache.get(menu.channelId);
+                    if (!channel) return interaction.editReply({ content: "❌ Published channel not found.", ephemeral: true });
+
+                    try {
+                        const message = await channel.messages.fetch(menu.messageId);
+                        return publishMenu(interaction, menuId, message);
+                    } catch (error) {
+                        console.error("Error fetching message to edit:", error);
+                        return interaction.editReply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
+                    }
+                }
+
+                if (action === "delete_published") {
+                    if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+                    const menu = db.getMenu(menuId);
+                    if (!menu || !menu.channelId || !menu.messageId) {
+                        return interaction.editReply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
+                    }
+
+                    const confirmButton = new ButtonBuilder()
+                        .setCustomId(`rr:confirm_delete_published:${menuId}`)
+                        .setLabel("Confirm Delete")
+                        .setStyle(ButtonStyle.Danger);
+                    const cancelButton = new ButtonBuilder()
+                        .setCustomId(`rr:cancel_delete_published:${menuId}`)
+                        .setLabel("Cancel")
+                        .setStyle(ButtonStyle.Secondary);
+                    const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+                    return interaction.editReply({
+                        content: "⚠️ Are you sure you want to delete the published reaction role message? This cannot be undone.",
+                        components: [row],
+                        ephemeral: true
+                    });
+                }
+
+                if (action === "confirm_delete_published") {
+                    if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
+                    const menu = db.getMenu(menuId);
+                    if (!menu || !menu.channelId || !menu.messageId) {
+                        return interaction.editReply({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
+                    }
+                    const channel = interaction.guild.channels.cache.get(menu.channelId);
+                    if (!channel) {
+                        await db.clearMessageId(menuId);
+                        return interaction.editReply({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
+                    }
+
+                    try {
+                        const message = await channel.messages.fetch(menu.messageId);
+                        await message.delete();
+                        // Only clear message ID, don't delete the entire menu from Firestore
+                        await db.clearMessageId(menuId);
+                        await interaction.editReply({
+                            content: "✅ Published message deleted successfully!",
+                            components: [],
+                            ephemeral: true
+                        });
+                        return showMenuConfiguration(interaction, menuId);
+                    } catch (error) {
+                        console.error("Error deleting message:", error);
+                        await db.clearMessageId(menuId);
+                        return interaction.editReply({
+                            content: "❌ Failed to delete message. It might have already been deleted manually. Message ID cleared.",
+                            ephemeral: true
+                        });
+                    }
+                }
+
+                if (action === "cancel_delete_published") {
+                    if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
+                    return interaction.editReply({ content: "Deletion cancelled.", components: [], ephemeral: true });
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Interaction error:", error);
+        // Only reply if interaction hasn't been replied to or deferred
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: 'An error occurred while processing your interaction.', ephemeral: true }).catch(e => console.error("Error sending final error reply:", e));
+        } else {
+            // If already deferred/replied, use editReply or followUp
+            await interaction.followUp({ content: 'An error occurred while processing your interaction.', ephemeral: true }).catch(e => console.error("Error sending final error followUp:", e));
+        }
+    }
+});
         if (action === "type") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
