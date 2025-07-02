@@ -984,15 +984,15 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "reorder_dropdown" || action === "reorder_button") {
           try {
-            // IMPORTANT: Defer the interaction first
-            await interaction.deferReply({ ephemeral: true });
+            // No deferReply here, as showModal doesn't require it and handles its own response.
+            // The isModalTrigger check at the top of interactionCreate ensures the initial defer is skipped.
             
             type = action.split("_")[1]; // 'dropdown' or 'button'
             menuId = parts[2];
             
             const menu = db.getMenu(menuId);
             if (!menu) {
-              return interaction.editReply({ 
+              return interaction.reply({ // Use reply since no prior defer
                 content: "Menu not found.", 
                 ephemeral: true 
               });
@@ -1006,7 +1006,7 @@ client.on("interactionCreate", async (interaction) => {
             
             // Check if there are roles to reorder - use actualRoles for the count
             if (actualRoles.length <= 1) {
-              return interaction.editReply({ 
+              return interaction.reply({ // Use reply since no prior defer
                 content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
                 ephemeral: true 
               });
@@ -1028,18 +1028,19 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
             
-            // Delete the deferred reply before showing modal
-            await interaction.deleteReply();
+            // No deleteReply here, as there was no initial deferReply.
             return interaction.showModal(modal);
             
           } catch (error) {
             console.error("Error in reorder button handler:", error);
+            // Fallback reply if an error occurs before showing the modal
             if (!interaction.replied && !interaction.deferred) {
               return interaction.reply({ 
                 content: "An error occurred while preparing the reorder modal.", 
                 ephemeral: true 
               });
             } else {
+              // If somehow already replied/deferred (shouldn't happen with isModalTrigger logic), edit the existing reply.
               return interaction.editReply({ 
                 content: "An error occurred while preparing the reorder modal." 
               });
@@ -1609,8 +1610,7 @@ client.on("interactionCreate", async (interaction) => {
 
             await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
             
-            // Delete the deferred reply before showing the menu configuration
-            await interaction.deleteReply();
+            // No deleteReply here, as showMenuConfiguration will edit the deferred reply.
             return showMenuConfiguration(interaction, currentMenuId);
             
           } catch (error) {
