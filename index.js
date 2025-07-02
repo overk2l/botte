@@ -719,10 +719,17 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal); // showModal here
         }
 
-        if (action === "publish") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", flags: MessageFlags.Ephemeral });
-          return publishMenu(interaction, menuId);
-        }
+    if (action === "publish") {
+  console.log("Full customId:", interaction.customId);
+  console.log("Split parts:", parts);
+  console.log("Extracted menuId:", menuId);
+  console.log("MenuId type:", typeof menuId);
+  
+  if (!menuId || menuId === 'undefined') {
+    return interaction.editReply({ content: "Menu ID missing for publish.", flags: MessageFlags.Ephemeral });
+  }
+  return publishMenu(interaction, menuId);
+}
 
         if (action === "edit_published") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
@@ -1970,11 +1977,16 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       const role = interaction.guild.roles.cache.get(roleId);
       if (!role) continue;
 
-      const button = new ButtonBuilder()
-        .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-        .setLabel(role.name)
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji(parseEmoji(menu.buttonEmojis[role.id])); // Use parseEmoji directly
+     const button = new ButtonBuilder()
+  .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+  .setLabel(role.name)
+  .setStyle(ButtonStyle.Secondary);
+
+// Only set emoji if parseEmoji returns a valid result
+const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+if (parsedEmoji) {
+  button.setEmoji(parsedEmoji);
+}
 
       if (currentRow.components.length < 5) {
         currentRow.addComponents(button);
