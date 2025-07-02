@@ -692,7 +692,7 @@ client.on("interactionCreate", async (interaction) => {
       
       if (relevantInteraction && !interaction.replied) {
         await interaction.followUp({
-          content: "⚠️ **Warning: Firebase is not configured.** Your bot's data will not persist between restarts. To enable persistence, set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration.",
+          content: "⚠️ **Warning: Firebase is not configured.** Your bot's data (menus, roles, etc.) will not persist between restarts. To enable persistence, set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration.",
           flags: MessageFlags.Ephemeral
         }).catch(e => console.error("Error sending Firebase warning:", e));
       }
@@ -2029,19 +2029,17 @@ async function showMenuConfiguration(interaction, menuId) {
       name: "Webhook Sending",
       value: menu.useWebhook ? "✅ Enabled" : "❌ Disabled",
       inline: true
+    },
+    {
+      name: "Webhook Branding",
+      value: menu.useWebhook
+        ? (menu.webhookName
+          ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
+          : "Not configured")
+        : "N/A (Webhook Disabled)", // Explicitly show N/A when disabled
+      inline: true
     }
   );
-  
-  // Only show webhook branding if webhook is enabled
-  if (menu.useWebhook) {
-    embed.addFields({
-      name: "Webhook Branding",
-      value: menu.webhookName
-        ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
-        : "Not configured",
-      inline: true
-    });
-  }
 
   // --- Buttons for Publishing and Deleting ---
   const row_publish_delete = new ActionRowBuilder().addComponents(
