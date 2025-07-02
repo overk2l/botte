@@ -258,7 +258,7 @@ const db = { // This in-memory map will now be synchronized with Firestore
     if (guildMenus) {
       const index = guildMenus.indexOf(menuId);
       if (index > -1) {
-        guildMenus.splice(index, 1);
+        guildMenus.splice(0, 1); // Fix: Use splice(index, 1) to remove the correct element
       }
     }
     this.menuData.delete(menuId);
@@ -348,7 +348,7 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
   // Check Firebase configuration at the start of every interaction
   if (firebaseConfig.projectId === 'missing-project-id') {
-    if (interaction.isRepliable()) {
+    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) { // Only send if not already replied/deferred
       await interaction.reply({
         content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
         ephemeral: true
