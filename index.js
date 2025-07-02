@@ -506,7 +506,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Thumbnail Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("https://example.com/thumbnail.png")
+                  .setPlaceholder("[https://example.com/thumbnail.png](https://example.com/thumbnail.png)")
                   .setValue(menu.embedThumbnail || "")
               ),
               new ActionRowBuilder().addComponents(
@@ -515,7 +515,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Main Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("https://example.com/image.png")
+                  .setPlaceholder("[https://example.com/image.png](https://example.com/image.png)")
                   .setValue(menu.embedImage || "")
               ),
               new ActionRowBuilder().addComponents(
@@ -533,7 +533,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Author Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("https://example.com/author_icon.png")
+                  .setPlaceholder("[https://example.com/author_icon.png](https://example.com/author_icon.png)")
                   .setValue(menu.embedAuthorIconURL || "")
               )
             );
@@ -565,7 +565,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Footer Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("https://example.com/footer_icon.png")
+                  .setPlaceholder("[https://example.com/footer_icon.png](https://example.com/footer_icon.png)")
                   .setValue(menu.embedFooterIconURL || "")
               )
             );
@@ -1053,12 +1053,19 @@ async function showReactionRolesDashboard(interaction) {
     .setDescription("Manage your reaction role menus here. Create new ones or configure existing.")
     .setColor("#5865F2");
 
-  const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+  const components = [];
 
-  const selectMenu = new StringSelectMenuBuilder()
-    .setCustomId("rr:selectmenu")
-    .setPlaceholder("Select a menu to configure...")
-    .addOptions(menuOptions);
+  // Only add the select menu if there are existing menus
+  if (menus.length > 0) {
+    const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("rr:selectmenu")
+      .setPlaceholder("Select a menu to configure...")
+      .addOptions(menuOptions);
+    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  } else {
+    embed.setDescription("No reaction role menus found. Create a new one!");
+  }
 
   const createButton = new ButtonBuilder()
     .setCustomId("rr:create")
@@ -1070,10 +1077,7 @@ async function showReactionRolesDashboard(interaction) {
     .setLabel("Back to Dashboard")
     .setStyle(ButtonStyle.Secondary);
 
-  const components = [
-    new ActionRowBuilder().addComponents(selectMenu),
-    new ActionRowBuilder().addComponents(createButton, backButton),
-  ];
+  components.push(new ActionRowBuilder().addComponents(createButton, backButton));
 
   await interaction.update({ embeds: [embed], components, ephemeral: true });
 }
