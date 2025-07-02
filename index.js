@@ -385,7 +385,7 @@ const db = {
         // Continue with in-memory deletion only
       }
     } else {
-      console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`);
+      console.log(`[Database] Deleted menu with ID: ${id} (memory only)`);
     }
   },
 };
@@ -410,9 +410,27 @@ function parseEmoji(emoji) {
     };
   }
   
-  // For unicode emojis, just return the emoji as the name
-  // Discord.js will handle unicode emojis correctly when passed as { name: "🔥" }
-  return { name: emoji };
+  // Attempt to handle common unicode emojis.
+  // Discord.js generally handles unicode emojis if passed as { name: "🔥" }
+  // However, some might require special handling or might not be valid for all contexts.
+  // For now, we'll assume direct passing of unicode works, but add a fallback.
+  try {
+    // Check if it's a single unicode emoji character
+    if (emoji.length === 1 || /\p{Emoji}/u.test(emoji)) { // Using Unicode property escape for broader emoji detection
+      return { name: emoji };
+    }
+  } catch (e) {
+    // Fallback for environments that don't support Unicode property escapes
+    console.warn("Unicode property escapes not supported, falling back to basic emoji check.");
+    // A very basic check for common emoji ranges (not exhaustive)
+    const basicEmojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/u;
+    if (basicEmojiRegex.test(emoji)) {
+      return { name: emoji };
+    }
+  }
+
+  // If it's not a custom emoji and not a recognized unicode emoji, return undefined
+  return undefined;
 }
 
 /**
@@ -1992,7 +2010,7 @@ async function sendMainDashboard(interaction) {
             .setCustomId("dash:reaction-roles")
             .setLabel("Reaction Roles")
             .setStyle(ButtonStyle.Primary)
-            .setEmoji("🎭")
+            .setEmoji("�")
     );
     await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
@@ -2426,3 +2444,4 @@ client.login(process.env.TOKEN).catch(error => {
   console.error("Failed to login:", error);
   process.exit(1);
 });
+�
