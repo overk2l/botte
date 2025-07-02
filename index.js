@@ -729,6 +729,8 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "toggle_dropdown_clear_button") {
           const newState = interaction.values[0] === 'true';
           db.saveEnableDropdownClearRolesButton(menuId, newState);
+          console.log(`[Toggle Clear Button] Menu ID: ${menuId}, New State: ${newState}`);
+          console.log(`[Toggle Clear Button] DB Menu Data for ${menuId}:`, db.getMenu(menuId));
           await interaction.update({ content: `✅ Dropdown "Clear Roles" button is now ${newState ? "ENABLED" : "DISABLED"}.`, components: [], ephemeral: true });
           return showMenuConfiguration(interaction, menuId);
         }
@@ -736,6 +738,8 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "toggle_button_clear_button") {
           const newState = interaction.values[0] === 'true';
           db.saveEnableButtonClearRolesButton(menuId, newState);
+          console.log(`[Toggle Clear Button] Menu ID: ${menuId}, New State: ${newState}`);
+          console.log(`[Toggle Clear Button] DB Menu Data for ${menuId}:`, db.getMenu(menuId));
           await interaction.update({ content: `✅ Button "Clear Roles" button is now ${newState ? "ENABLED" : "DISABLED"}.`, components: [], ephemeral: true });
           return showMenuConfiguration(interaction, menuId);
         }
@@ -1164,7 +1168,7 @@ async function showMenuConfiguration(interaction, menuId) {
   );
 
 
-  const row = new ActionRowBuilder().addComponents(
+  const row1_role_types = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:type:dropdown:${menuId}`)
       .setLabel("Set Dropdown Roles")
@@ -1180,6 +1184,10 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Set Both Types")
       .setStyle(ButtonStyle.Primary)
       .setDisabled(menu.selectionType.length === 2),
+  );
+  console.log("[showMenuConfiguration] row1_role_types created.");
+
+  const row2_emojis_reorder = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:addemoji:dropdown:${menuId}`)
       .setLabel("Add Dropdown Emojis")
@@ -1189,11 +1197,21 @@ async function showMenuConfiguration(interaction, menuId) {
       .setCustomId(`rr:addemoji:button:${menuId}`)
       .setLabel("Add Button Emojis")
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(!menu.buttonRoles.length)
+      .setDisabled(!menu.buttonRoles.length),
+    new ButtonBuilder()
+      .setCustomId(`rr:reorder_dropdown:${menuId}`)
+      .setLabel("Reorder Dropdown Roles")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(menu.dropdownRoles.length <= 1),
+    new ButtonBuilder()
+      .setCustomId(`rr:reorder_button:${menuId}`)
+      .setLabel("Reorder Button Roles")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(menu.buttonRoles.length <= 1)
   );
-  console.log("[showMenuConfiguration] row created.");
+  console.log("[showMenuConfiguration] row2_emojis_reorder created.");
 
-  const row2 = new ActionRowBuilder().addComponents(
+  const row3_limits_exclusions_descriptions = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:setlimits:${menuId}`)
       .setLabel("Set Regional Limits & Max Roles")
@@ -1202,6 +1220,15 @@ async function showMenuConfiguration(interaction, menuId) {
       .setCustomId(`rr:setexclusions:${menuId}`)
       .setLabel("Set Role Exclusions")
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`rr:set_role_descriptions:${menuId}`)
+      .setLabel("Set Role Descriptions")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!menu.dropdownRoles.length) // Only applies to dropdown for now
+  );
+  console.log("[showMenuConfiguration] row3_limits_exclusions_descriptions created.");
+
+  const row4_customize_messages_webhook = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:customize_embed:${menuId}`)
       .setLabel("Customize Embed")
@@ -1213,52 +1240,7 @@ async function showMenuConfiguration(interaction, menuId) {
     new ButtonBuilder()
       .setCustomId(`rr:custom_messages:${menuId}`)
       .setLabel("Custom Messages")
-      .setStyle(ButtonStyle.Primary)
-  );
-  console.log("[showMenuConfiguration] row2 created.");
-
-  const reorderDropdownButton = new ButtonBuilder()
-    .setCustomId(`rr:reorder_dropdown:${menuId}`)
-    .setLabel("Reorder Dropdown Roles")
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(menu.dropdownRoles.length <= 1);
-
-  const reorderButtonButton = new ButtonBuilder()
-    .setCustomId(`rr:reorder_button:${menuId}`)
-    .setLabel("Reorder Button Roles")
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(menu.buttonRoles.length <= 1);
-
-  const setDescriptionsButton = new ButtonBuilder()
-    .setCustomId(`rr:set_role_descriptions:${menuId}`)
-    .setLabel("Set Role Descriptions")
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(!menu.dropdownRoles.length);
-
-  const toggleDropdownClearButton = new StringSelectMenuBuilder()
-    .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}`)
-    .setPlaceholder("Toggle Dropdown Clear Button")
-    .addOptions([
-      { label: "Enable", value: "true", default: menu.enableDropdownClearRolesButton },
-      { label: "Disable", value: "false", default: !menu.enableDropdownClearRolesButton },
-    ]);
-
-  const toggleButtonClearButton = new StringSelectMenuBuilder()
-    .setCustomId(`rr:toggle_button_clear_button:${menuId}`)
-    .setPlaceholder("Toggle Button Clear Button")
-    .addOptions([
-      { label: "Enable", value: "true", default: menu.enableButtonClearRolesButton },
-      { label: "Disable", value: "false", default: !menu.enableButtonClearRolesButton },
-    ]);
-
-  const row3 = new ActionRowBuilder().addComponents(reorderDropdownButton, reorderButtonButton, setDescriptionsButton);
-  const row3_5_dropdown = new ActionRowBuilder().addComponents(toggleDropdownClearButton);
-  const row3_5_button = new ActionRowBuilder().addComponents(toggleButtonClearButton);
-  console.log("[showMenuConfiguration] row3, row3_5_dropdown, row3_5_button created.");
-
-
-  // Add webhook control buttons
-  const webhookRow = new ActionRowBuilder().addComponents(
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`rr:toggle_webhook:${menuId}`)
       .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
@@ -1269,40 +1251,58 @@ async function showMenuConfiguration(interaction, menuId) {
       .setStyle(ButtonStyle.Primary)
       .setDisabled(!menu.useWebhook)
   );
-  console.log("[showMenuConfiguration] webhookRow created.");
+  console.log("[showMenuConfiguration] row4_customize_messages_webhook created.");
+
+  // Clear role buttons as simple toggles (buttons instead of select menus)
+  const row5_clear_buttons_toggles = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}:${!menu.enableDropdownClearRolesButton}`)
+      .setLabel(`Dropdown Clear: ${menu.enableDropdownClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+      .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`rr:toggle_button_clear_button:${menuId}:${!menu.enableButtonClearRolesButton}`)
+      .setLabel(`Button Clear: ${menu.enableButtonClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+      .setStyle(menu.enableButtonClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+  );
+  console.log("[showMenuConfiguration] row5_clear_buttons_toggles created.");
 
 
-  const publishButton = new ButtonBuilder()
-    .setCustomId(`rr:publish:${menuId}`)
-    .setLabel("Publish Menu")
-    .setStyle(ButtonStyle.Success)
-    .setDisabled(!menu.selectionType.length || (!menu.dropdownRoles.length && !menu.buttonRoles.length)); // Disable if no roles are set
+  const row_publish_back = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:publish:${menuId}`)
+      .setLabel("Publish Menu")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!menu.selectionType.length || (!menu.dropdownRoles.length && !menu.buttonRoles.length)), // Disable if no roles are set
+    new ButtonBuilder()
+      .setCustomId(`rr:edit_published:${menuId}`)
+      .setLabel("Update Published Menu")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId(`rr:delete_published:${menuId}`)
+      .setLabel("Delete Published Menu")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId("dash:reaction-roles")
+      .setLabel("Back to RR Dashboard")
+      .setStyle(ButtonStyle.Secondary)
+  );
+  console.log("[showMenuConfiguration] row_publish_back created.");
 
-  const editPublishedButton = new ButtonBuilder()
-    .setCustomId(`rr:edit_published:${menuId}`)
-    .setLabel("Update Published Menu")
-    .setStyle(ButtonStyle.Primary)
-    .setDisabled(!menu.messageId); // Disable if not already published
 
-  const deletePublishedButton = new ButtonBuilder()
-    .setCustomId(`rr:delete_published:${menuId}`)
-    .setLabel("Delete Published Menu")
-    .setStyle(ButtonStyle.Danger)
-    .setDisabled(!menu.messageId); // Disable if not already published
+  // Collect all potential rows and filter out empty ones, then slice to 5
+  const allPossibleRows = [
+    row1_role_types,
+    row2_emojis_reorder,
+    row3_limits_exclusions_descriptions,
+    row4_customize_messages_webhook,
+    row5_clear_buttons_toggles,
+    row_publish_back // This will be the 6th row, so it will be truncated if all others are present
+  ];
 
-  const backToRRButton = new ButtonBuilder()
-    .setCustomId("dash:reaction-roles")
-    .setLabel("Back to RR Dashboard")
-    .setStyle(ButtonStyle.Secondary);
-
-  const row4 = new ActionRowBuilder().addComponents(publishButton, editPublishedButton, deletePublishedButton, backToRRButton);
-  console.log("[showMenuConfiguration] row4 created.");
-
-  // Ensure we don't exceed 5 ActionRows
-  const components = [row, row2, row3, row3_5_dropdown, row3_5_button, webhookRow, row4].filter(ar => ar.components.length > 0);
-  // Trim to a maximum of 5 ActionRows if somehow more are generated
-  const finalComponents = components.slice(0, 5);
-  console.log(`[showMenuConfiguration] Total components to send: ${finalComponents.length}.`);
+  const finalComponents = allPossibleRows.filter(row => row.components.length > 0).slice(0, 5);
+  console.log(`[showMenuConfiguration] Total final components to send: ${finalComponents.length}.`);
 
   try {
     if (interaction.replied || interaction.deferred) {
@@ -1310,14 +1310,11 @@ async function showMenuConfiguration(interaction, menuId) {
       await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
     } else {
       console.log("[showMenuConfiguration] Interaction not replied/deferred, attempting to update/reply.");
-      // For buttons/select menus, use update. For slash commands, use reply.
-      // If none of these, defer and then editReply.
       if (interaction.isButton() || interaction.isStringSelectMenu()) {
           await interaction.update({ embeds: [embed], components: finalComponents, ephemeral: true });
       } else if (interaction.isChatInputCommand()) {
           await interaction.reply({ embeds: [embed], components: finalComponents, ephemeral: true });
       } else {
-          // Fallback, should ideally not be hit if interaction flow is managed correctly
           await interaction.deferReply({ ephemeral: true });
           await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
       }
@@ -1325,13 +1322,12 @@ async function showMenuConfiguration(interaction, menuId) {
     console.log("[showMenuConfiguration] Interaction response sent successfully.");
   } catch (error) {
     console.error("[showMenuConfiguration] Error during interaction response:", error);
-    if (error.code === 10062) { // Unknown interaction
+    if (error.code === 10062) {
         console.error("This often means the interaction token expired (3 seconds).");
         await interaction.followUp({ content: "❌ It took too long to respond. Please try again.", ephemeral: true }).catch(e => console.error("Error sending followUp:", e));
     } else if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true });
     } else {
-        // If already replied/deferred, try followUp as a last resort for error message
         await interaction.followUp({ content: "❌ An error occurred after initial response. Please check console.", ephemeral: true }).catch(e => console.error("Error sending followUp for error:", e));
     }
   }
