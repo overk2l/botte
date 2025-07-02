@@ -53,7 +53,7 @@ async function getOrCreateWebhook(channel, name = "Role Menu Webhook") {
   if (existing) return existing;
   return channel.createWebhook({
     name,
-    avatar: channel.client.user.displayAvatarURL(),
+    avatar: channel.client.user.displayAvatarURL(), // Use client.user.displayAvatarURL() for robustness
     reason: "For role menus with custom branding"
   });
 }
@@ -128,7 +128,7 @@ const db = { // This in-memory map will now be synchronized with Firestore
     };
 
     if (firebaseConfig.projectId === 'missing-project-id') {
-      console.warn("[Firestore] Skipping menu creation: projectId is missing or invalid. Please configure Firebase.");
+      console.warn("[Firestore] Skipping menu creation: projectId is missing or invalid. Data will not persist.");
       if (!this.menus.has(guildId)) {
         this.menus.set(guildId, []);
       }
@@ -376,10 +376,11 @@ async function updatePublishedMessageComponents(interaction, menu) {
                 const role = guild.roles.cache.get(roleId);
                 if (!role) return null;
                 const isSelected = currentDropdownRolesHeldByMember.includes(roleId);
+                const parsedEmoji = parseEmoji(menu.dropdownEmojis[role.id]); // Parse emoji
                 return {
                     label: role.name,
                     value: role.id,
-                    emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
+                    emoji: parsedEmoji, // Use parsed emoji
                     description: menu.dropdownRoleDescriptions[role.id] || undefined,
                     default: isSelected // Set default based on current roles
                 };
@@ -424,7 +425,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
                 
                 // Only set emoji if parseEmoji returns a valid result
                 const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-                if (parsedEmoji) {
+                if (parsedEmoji) { // Add this check!
                     button.setEmoji(parsedEmoji);
                 }
 
@@ -493,18 +494,26 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         // For regular role assignment (button or select menu)
         const selectedRoleIds = Array.isArray(roleIdsInput) ? roleIdsInput : [roleIdsInput];
 
-        // Get all roles currently held by the member that are part of THIS menu
-        const currentMenuRoleIdsHeldByMember = [
-            ...(menu.dropdownRoles || []),
-            ...(menu.buttonRoles || []),
-        ].filter(id => member.roles.cache.has(id));
-
         // Determine roles to add and remove based on selection
-        rolesToAdd = selectedRoleIds.filter(id => !member.roles.cache.has(id));
-        rolesToRemove = currentMenuRoleIdsHeldByMember.filter(id => !selectedRoleIds.includes(id));
+        if (interaction.isButton() && interaction.customId.startsWith("rr-role-button:")) {
+            // For buttons, it's a toggle: if member has it, remove; otherwise, add.
+            const toggledRoleId = selectedRoleIds[0]; // There's only one role for a button click
+            if (member.roles.cache.has(toggledRoleId)) {
+                rolesToRemove.push(toggledRoleId);
+            } else {
+                rolesToAdd.push(toggledRoleId);
+            }
+        } else { // This is for StringSelectMenu
+            // Get all roles currently held by the member that are part of THIS menu
+            const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+            const currentMenuRoleIdsHeldByMember = allMenuRoleIds.filter(id => member.roles.cache.has(id));
+
+            rolesToAdd = selectedRoleIds.filter(id => !member.roles.cache.has(id));
+            rolesToRemove = currentMenuRoleIdsHeldByMember.filter(id => !selectedRoleIds.includes(id));
+        }
 
         // Combined list of roles after this interaction (for limit checks)
-        let potentialNewRoleIds = currentMenuRoleIdsHeldByMember
+        let potentialNewRoleIds = member.roles.cache.map(r => r.id) // Start with all current member roles
             .filter(id => !rolesToRemove.includes(id)) // Remove roles being unselected
             .concat(rolesToAdd); // Add roles being selected
 
@@ -527,7 +536,10 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
 
         // Re-evaluate potentialNewRoleIds after exclusions
-        potentialNewRoleIds = potentialNewRoleIds.filter(id => !rolesToRemove.includes(id));
+        potentialNewRoleIds = member.roles.cache.map(r => r.id)
+            .filter(id => !rolesToRemove.includes(id))
+            .concat(rolesToAdd);
+        potentialNewRoleIds = [...new Set(potentialNewRoleIds)];
 
 
         // Check regional limits
@@ -543,6 +555,7 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
 
         // Check overall max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
+            const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
             const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
             if (currentRelevantRolesCount > menu.maxRolesLimit) {
                 await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, flags: MessageFlags.Ephemeral });
@@ -560,7 +573,8 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         });
         rolesToRemove.forEach(id => {
             // Only add message if it's not a role that was just added and then removed by exclusion
-            if (!selectedRoleIds.includes(id) || rolesToRemoveByExclusion.includes(id)) {
+            // Or if it's a role that was explicitly unselected by the user (dropdown) or toggled off (button)
+            if (!selectedRoleIds.includes(id) || rolesToRemoveByExclusion.includes(id) || (interaction.isButton() && rolesToRemove.includes(id))) {
                 messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
             }
         });
@@ -627,12 +641,14 @@ client.on("interactionCreate", async (interaction) => {
   // Add reorder modals to deferral check
   const isReorderDropdownModal = interaction.isButton() && interaction.customId.startsWith("rr:reorder_roles:dropdown:");
   const isReorderButtonModal = interaction.isButton() && interaction.customId.startsWith("rr:reorder_roles:button:");
+  // New button for showing role description select
+  const isShowRoleDescriptionSelect = interaction.isButton() && interaction.customId.startsWith("rr:show_role_description_select:");
 
 
   // Only defer if it's not one of the specific interactions that immediately show a modal
   if (!interaction.replied && !interaction.deferred &&
     (interaction.isChatInputCommand() ||
-      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal || isCustomMessagesModal || isReorderDropdownModal || isReorderButtonModal)) ||
+      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal || isCustomMessagesModal || isReorderDropdownModal || isReorderButtonModal || isShowRoleDescriptionSelect)) || // Added isShowRoleDescriptionSelect
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     )) {
@@ -704,7 +720,7 @@ client.on("interactionCreate", async (interaction) => {
           // No menuId needed yet, it's created in the modal submit
         } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
-        } else if (["type", "addemoji", "reorder_roles"].includes(action)) { // Added reorder_roles
+        } else if (["type", "addemoji", "reorder_roles", "show_role_description_select"].includes(action)) { // Added reorder_roles and show_role_description_select
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji; 'dropdown', 'button' for reorder_roles
           menuId = parts[3]; // For these actions, menuId is parts[3]
         } else if (["toggle_dropdown_clear_button", "toggle_button_clear_button"].includes(action)) {
@@ -976,6 +992,34 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({
             content: `Select the roles for the **${type}** menu in the order you want them to appear:`,
             components: [new ActionRowBuilder().addComponents(reorderSelectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        // New handler for "Set Role Descriptions" button to show a select menu first
+        if (action === "show_role_description_select") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const rolesForDescriptions = menu.dropdownRoles || []; // Descriptions currently only apply to dropdowns
+          if (rolesForDescriptions.length === 0) {
+            return interaction.editReply({ content: "No dropdown roles configured to set descriptions for.", flags: MessageFlags.Ephemeral });
+          }
+
+          const selectRoleForDesc = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_role_for_description:${menuId}`)
+            .setPlaceholder("Select a role to set its description...")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(rolesForDescriptions.map(roleId => {
+              const role = interaction.guild.roles.cache.get(roleId);
+              return role ? { label: role.name, value: role.id } : null;
+            }).filter(Boolean));
+
+          return interaction.editReply({
+            content: "Please select the dropdown role for which you want to set a description:",
+            components: [new ActionRowBuilder().addComponents(selectRoleForDesc)],
             flags: MessageFlags.Ephemeral
           });
         }
@@ -1355,9 +1399,10 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
-        if (action === "set_role_descriptions") {
+        // Corrected handler for the select menu that appears after clicking "Set Role Descriptions" button
+        if (action === "select_role_for_description") {
           const roleId = interaction.values[0];
-          const targetMenuId = menuId; // menuId is at parts[3]
+          const targetMenuId = typeOrTriggerId; // menuId is at parts[2]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
               return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
@@ -1593,125 +1638,16 @@ client.on("interactionCreate", async (interaction) => {
 
         const selectedRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
 
-        let rolesToAdd = [];
-        let rolesToRemove = [];
-        let messages = [];
-
-        // Handle exclusions first (roles to remove due to a selected role)
-        let rolesToRemoveByExclusion = [];
-        for (const selectedRoleId of selectedRoleIds) { // Check exclusions for roles being newly selected
-            if (menu.exclusionMap && menu.exclusionMap[selectedRoleId]) {
-                const excludedRoles = menu.exclusionMap[selectedRoleId].filter(id => interaction.member.roles.cache.has(id));
-                if (excludedRoles.length > 0) {
-                    rolesToRemoveByExclusion.push(...excludedRoles);
-                    const removedRoleNames = excludedRoles.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
-                    messages.push(`Removed conflicting roles: ${removedRoleNames}`);
-                }
-            }
-        }
-        // Add roles to be removed by exclusion to the main rolesToRemove list
-        rolesToRemove.push(...rolesToRemoveByExclusion);
-        rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates
-
-        // Determine roles to add and remove based on selection and current member roles
-        const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
-        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-        const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
-
-        // Roles to add are those selected that the member doesn't currently have and are not being removed by exclusion
-        rolesToAdd = selectedRoleIds.filter(id => !currentMemberRoleIds.includes(id) && !rolesToRemove.includes(id));
-
-        // Roles to remove are those currently held from the menu that are NOT in the new selection
-        // AND those explicitly marked for removal by exclusion
-        const rolesToUnselect = currentMenuRolesHeldByMember.filter(id => !selectedRoleIds.includes(id));
-        rolesToRemove.push(...rolesToUnselect);
-        rolesToRemove = [...new Set(rolesToRemove)]; // Final deduplication
-
-        // Combined list of roles after this interaction (for limit checks)
-        let potentialNewRoleIds = currentMemberRoleIds
-            .filter(id => !rolesToRemove.includes(id)) // Start with current roles, remove those being removed
-            .concat(rolesToAdd); // Add those being added
-        potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
-
-        // Check regional limits
-        const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialNewRoleIds);
-        if (regionalViolations.length > 0) {
-            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, flags: MessageFlags.Ephemeral });
-            await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
-            return;
-        }
-
-        // Check overall max roles limit
-        if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
-            const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
-            if (currentRelevantRolesCount > menu.maxRolesLimit) {
-                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, flags: MessageFlags.Ephemeral });
-                await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
-                return;
-            }
-        }
-
-        // Add success/remove messages for roles based on final add/remove lists
-        rolesToAdd.forEach(id => {
-            messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
-        });
-        rolesToRemove.forEach(id => {
-            messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
-        });
-
-        try {
-            if (rolesToAdd.length > 0) {
-                await interaction.member.roles.add(rolesToAdd);
-            }
-            if (rolesToRemove.length > 0) {
-                await interaction.member.roles.remove(rolesToRemove);
-            }
-
-            if (messages.length > 0) {
-                await interaction.editReply({ content: messages.join("\n"), flags: MessageFlags.Ephemeral });
-            } else {
-                await interaction.editReply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
-            }
-
-            // Update the original published message components to reflect current selections
-            await updatePublishedMessageComponents(interaction, menu);
-
-        } catch (error) {
-            console.error("Error updating roles:", error);
-            if (error.code === 50013) {
-                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
-            } else {
-                await interaction.editReply({ content: "❌ There was an error updating your roles.", flags: MessageFlags.Ephemeral });
-            }
-        }
+        // Call the refactored handler
+        await handleRoleAssignment(interaction, menuId, selectedRoleIds, false, interaction.isStringSelectMenu());
     }
 
     // Handle Clear All Roles Button (User-facing)
     if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
         const menuId = interaction.customId.split(":")[1];
-        const menu = db.getMenu(menuId);
-        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
-
-        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-        const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
-
-        if (rolesToRemove.length === 0) {
-            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", flags: MessageFlags.Ephemeral });
-        }
-
-        try {
-            await interaction.member.roles.remove(rolesToRemove);
-            await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", flags: MessageFlags.Ephemeral });
-            await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
-        } catch (error) {
-                console.error("Error clearing roles:", error);
-                if (error.code === 50013) {
-                    await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
-                } else {
-                    await interaction.editReply({ content: "❌ There was an error clearing your roles.", flags: MessageFlags.Ephemeral });
-                }
-            }
-        }
+        // Call the refactored handler with isButtonClear = true
+        await handleRoleAssignment(interaction, menuId, [], true);
+    }
 
     } catch (error) {
         console.error("Error handling interaction:", error);
@@ -1939,7 +1875,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Set Role Exclusions")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`rr:set_role_descriptions:${menuId}`)
+      .setCustomId(`rr:show_role_description_select:${menuId}`) // Changed customId for role descriptions
       .setLabel("Set Role Descriptions")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.dropdownRoles.length) // Only applies to dropdown for now
@@ -2044,20 +1980,22 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       ? menu.dropdownRoleOrder.map(roleId => {
         const role = interaction.guild.roles.cache.get(roleId);
         if (!role) return null;
+        const parsedEmoji = parseEmoji(menu.dropdownEmojis[role.id]); // Parse emoji
         return {
           label: role.name,
           value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
+          emoji: parsedEmoji, // Use parsed emoji
           description: menu.dropdownRoleDescriptions[role.id] || undefined,
         };
       }).filter(Boolean)
       : menu.dropdownRoles.map(roleId => {
         const role = interaction.guild.roles.cache.get(roleId);
         if (!role) return null;
+        const parsedEmoji = parseEmoji(menu.dropdownEmojis[role.id]); // Parse emoji
         return {
           label: role.name,
           value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
+          emoji: parsedEmoji, // Use parsed emoji
           description: menu.dropdownRoleDescriptions[role.id] || undefined,
         };
       }).filter(Boolean);
@@ -2102,7 +2040,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
       // Only set emoji if parseEmoji returns a valid result
       const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-      if (parsedEmoji) {
+      if (parsedEmoji) { // Add this check!
         button.setEmoji(parsedEmoji);
       }
 
@@ -2151,7 +2089,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           embeds: [embed],
           components,
           username: menu.webhookName || interaction.guild.me.displayName,
-          avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+          avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(), // Use client.user.displayAvatarURL()
         });
         message = messageToEdit; // Keep the same message reference
       } else {
@@ -2168,7 +2106,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         embeds: [embed],
         components,
         username: menu.webhookName || interaction.guild.me.displayName,
-        avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+        avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(), // Use client.user.displayAvatarURL()
       });
     } else {
       // REGULAR MODE: Standard bot message
