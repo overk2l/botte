@@ -288,7 +288,7 @@ const db = { // This in-memory map will now be synchronized with Firestore
 
 // Helper function to parse emoji strings for Discord components
 function parseEmoji(emoji) {
-  if (!emoji) return null;
+  if (!emoji) return undefined; // Return undefined for no emoji
 
   const customEmojiRegex = /^<a?:([a-zA-Z0-9_]+):(\d+)>$/;
   const match = emoji.match(customEmojiRegex);
@@ -306,8 +306,8 @@ function parseEmoji(emoji) {
     return { name: emoji };
   }
 
-  console.warn(`Invalid emoji format detected: "${emoji}". Returning null.`);
-  return null;
+  console.warn(`Invalid emoji format detected: "${emoji}". Returning undefined.`);
+  return undefined; // Return undefined for invalid emoji
 }
 
 // Helper function to check regional limits
@@ -379,7 +379,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
                 return {
                     label: role.name,
                     value: role.id,
-                    emoji: parseEmoji(menu.dropdownEmojis[role.id]) || undefined,
+                    emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
                     description: menu.dropdownRoleDescriptions[role.id] || undefined,
                     default: isSelected // Set default based on current roles
                 };
@@ -421,7 +421,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
                     .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
                     .setLabel(role.name)
                     .setStyle(member.roles.cache.has(roleId) ? ButtonStyle.Success : ButtonStyle.Secondary) // Highlight if member has role
-                    .setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
+                    .setEmoji(parseEmoji(menu.buttonEmojis[role.id])); // Use parseEmoji directly
 
                 if (currentRow.components.length < 5) {
                     currentRow.addComponents(button);
@@ -636,7 +636,7 @@ client.on("interactionCreate", async (interaction) => {
     // Use followUp since the interaction is now deferred (or was intended to be deferred)
     // For modals, this will be followUp after the modal submit. For other interactions, after initial defer.
     await interaction.followUp({
-      content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
+      content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `FIREBASE_CONFIG` in your environment provides a valid `projectId`.",
       flags: MessageFlags.Ephemeral
     }).catch(e => console.error("Error sending Firebase config warning:", e));
     // If Firebase is not configured, we might want to stop further processing for persistence-related commands
@@ -1922,7 +1922,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         return {
           label: role.name,
           value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+          emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
           description: menu.dropdownRoleDescriptions[role.id] || undefined,
         };
       }).filter(Boolean)
@@ -1932,7 +1932,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         return {
           label: role.name,
           value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+          emoji: parseEmoji(menu.dropdownEmojis[role.id]), // Use parseEmoji directly
           description: menu.dropdownRoleDescriptions[role.id] || undefined,
         };
       }).filter(Boolean);
@@ -1974,7 +1974,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         .setCustomId(`rr-role-button:${menuId}:${role.id}`)
         .setLabel(role.name)
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
+        .setEmoji(parseEmoji(menu.buttonEmojis[role.id])); // Use parseEmoji directly
 
       if (currentRow.components.length < 5) {
         currentRow.addComponents(button);
