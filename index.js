@@ -693,7 +693,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type, newState based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
@@ -751,7 +751,7 @@ client.on("interactionCreate", async (interaction) => {
 
           const confirmButton = new ButtonBuilder()
             .setCustomId(`rr:confirm_delete_published:${menuId}`)
-            .setLabel("Confirm Delete")
+            .setLabel("Confirm Delete Published Message")
             .setStyle(ButtonStyle.Danger);
           const cancelButton = new ButtonBuilder()
             .setCustomId(`rr:cancel_delete_published:${menuId}`)
@@ -802,6 +802,67 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "cancel_delete_published") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
           return interaction.editReply({ content: "Deletion cancelled.", components: [], flags: MessageFlags.Ephemeral });
+        }
+
+        if (action === "delete_menu") {
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+            const confirmButton = new ButtonBuilder()
+                .setCustomId(`rr:confirm_delete_menu:${menuId}`)
+                .setLabel("Confirm Delete Menu")
+                .setStyle(ButtonStyle.Danger);
+            const cancelButton = new ButtonBuilder()
+                .setCustomId(`rr:cancel_delete_menu:${menuId}`)
+                .setLabel("Cancel")
+                .setStyle(ButtonStyle.Secondary);
+            const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+            return interaction.editReply({
+                content: "⚠️ Are you sure you want to delete this entire menu? This will remove all its configurations and cannot be undone.",
+                components: [row],
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
+        if (action === "confirm_delete_menu") {
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
+            const menu = db.getMenu(menuId);
+            if (!menu) {
+                return interaction.editReply({ content: "❌ Menu not found or already deleted.", components: [], flags: MessageFlags.Ephemeral });
+            }
+
+            try {
+                // If there's a published message, attempt to delete it first
+                if (menu.channelId && menu.messageId) {
+                    try {
+                        const channel = interaction.guild.channels.cache.get(menu.channelId);
+                        if (channel) {
+                            const message = await channel.messages.fetch(menu.messageId);
+                            await message.delete();
+                        }
+                    } catch (error) {
+                        console.log("Couldn't delete associated published message, probably already deleted or not found.");
+                    }
+                }
+                await db.deleteMenu(menuId);
+                await interaction.editReply({
+                    content: "✅ Menu and its associated published message (if any) deleted successfully!",
+                    components: [],
+                    flags: MessageFlags.Ephemeral
+                });
+                return showReactionRolesDashboard(interaction); // Go back to the main RR dashboard
+            } catch (error) {
+                console.error("Error deleting menu:", error);
+                return interaction.editReply({
+                    content: `❌ Failed to delete menu: ${error.message}`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+        }
+
+        if (action === "cancel_delete_menu") {
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: "Menu deletion cancelled.", components: [], flags: MessageFlags.Ephemeral });
+            return showMenuConfiguration(interaction, menuId); // Go back to the menu configuration
         }
 
         if (action === "type") {
@@ -1235,7 +1296,8 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           const roles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-          for (const roleId of roles) {
+          for (let i = 0; i < Math.min(roles.length, 5); i++) { // Limit to 5 inputs per modal
+            const roleId = roles[i];
             const emojiInput = interaction.fields.getTextInputValue(roleId);
             if (emojiInput) {
               const parsed = parseEmoji(emojiInput);
@@ -1517,94 +1579,94 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", flags: MessageFlags.Ephemeral });
             await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
         } catch (error) {
-            console.error("Error clearing roles:", error);
-            if (error.code === 50013) {
-                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
-            } else {
-                await interaction.editReply({ content: "❌ There was an error clearing your roles.", flags: MessageFlags.Ephemeral });
+                console.error("Error clearing roles:", error);
+                if (error.code === 50013) {
+                    await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
+                } else {
+                    await interaction.editReply({ content: "❌ There was an error clearing your roles.", flags: MessageFlags.Ephemeral });
+                }
             }
         }
-    }
 
-  } catch (error) {
-    console.error("Error handling interaction:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      // If an error occurs before defer or reply, send a fresh reply
-      await interaction.reply({ content: "❌ Something went wrong.", flags: MessageFlags.Ephemeral });
-    } else if (interaction.deferred) {
-      // If deferred, but an error occurred before editing, edit the reply
-      await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
+    } catch (error) {
+        console.error("Error handling interaction:", error);
+        if (!interaction.replied && !interaction.deferred) {
+            // If an error occurs before defer or reply, send a fresh reply
+            await interaction.reply({ content: "❌ Something went wrong.", flags: MessageFlags.Ephemeral });
+        } else if (interaction.deferred) {
+            // If deferred, but an error occurred before editing, edit the reply
+            await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
+        }
     }
-  }
 });
 
 // --- Dashboard Functions ---
 
 async function sendMainDashboard(interaction) {
-  const embed = new EmbedBuilder()
-    .setTitle("Bot Dashboard")
-    .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
-    .setColor("#5865F2");
+    const embed = new EmbedBuilder()
+        .setTitle("Bot Dashboard")
+        .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
+        .setColor("#5865F2");
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("dash:reaction-roles")
-      .setLabel("Reaction Roles")
-      .setStyle(ButtonStyle.Primary)
-  );
-  // Use editReply now that interaction is deferred
-  await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId("dash:reaction-roles")
+            .setLabel("Reaction Roles")
+            .setStyle(ButtonStyle.Primary)
+    );
+    // Use editReply now that interaction is deferred
+    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 async function showReactionRolesDashboard(interaction) {
-  console.log("[showReactionRolesDashboard] Function called.");
-  const menus = db.getMenus(interaction.guild.id);
-  console.log(`[showReactionRolesDashboard] Found ${menus.length} menus.`);
+    console.log("[showReactionRolesDashboard] Function called.");
+    const menus = db.getMenus(interaction.guild.id);
+    console.log(`[showReactionRolesDashboard] Found ${menus.length} menus.`);
 
-  const embed = new EmbedBuilder()
-    .setTitle("Reaction Role Menus")
-    .setDescription("Manage your reaction role menus here. Create new ones or configure existing.")
-    .setColor("#5865F2");
+    const embed = new EmbedBuilder()
+        .setTitle("Reaction Role Menus")
+        .setDescription("Manage your reaction role menus here. Create new ones or configure existing.")
+        .setColor("#5865F2");
 
-  const components = [];
+    const components = [];
 
-  // Only add the select menu if there are existing menus
-  if (menus.length > 0) {
-    const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
-    console.log(`[showReactionRolesDashboard] Generated ${menuOptions.length} select menu options.`);
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("rr:selectmenu")
-      .setPlaceholder("Select a menu to configure...")
-      .addOptions(menuOptions);
-    components.push(new ActionRowBuilder().addComponents(selectMenu));
-  } else {
-    embed.setDescription("No reaction role menus found. Create a new one!");
-    console.log("[showReactionRolesDashboard] No menus found, omitting select menu.");
-  }
+    // Only add the select menu if there are existing menus
+    if (menus.length > 0) {
+        const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+        console.log(`[showReactionRolesDashboard] Generated ${menuOptions.length} select menu options.`);
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId("rr:selectmenu")
+            .setPlaceholder("Select a menu to configure...")
+            .addOptions(menuOptions);
+        components.push(new ActionRowBuilder().addComponents(selectMenu));
+    } else {
+        embed.setDescription("No reaction role menus found. Create a new one!");
+        console.log("[showReactionRolesDashboard] No menus found, omitting select menu.");
+    }
 
-  const createButton = new ButtonBuilder()
-    .setCustomId("rr:create")
-    .setLabel("Create New Menu")
-    .setStyle(ButtonStyle.Success)
-    .setEmoji("➕"); // Added emoji
+    const createButton = new ButtonBuilder()
+        .setCustomId("rr:create")
+        .setLabel("Create New Menu")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("➕"); // Added emoji
 
-  const backButton = new ButtonBuilder()
-    .setCustomId("dash:back")
-    .setLabel("Back to Dashboard")
-    .setStyle(ButtonStyle.Secondary);
+    const backButton = new ButtonBuilder()
+        .setCustomId("dash:back")
+        .setLabel("Back to Dashboard")
+        .setStyle(ButtonStyle.Secondary);
 
-  components.push(new ActionRowBuilder().addComponents(createButton, backButton));
+    components.push(new ActionRowBuilder().addComponents(createButton, backButton));
 
-  try {
-    console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
-    // Use editReply now that interaction is deferred
-    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
-    console.log("[showReactionRolesDashboard] Interaction updated successfully.");
-  } catch (error) {
-    console.error("[showReactionRolesDashboard] Error updating interaction:", error);
-    // If an error occurs after deferring, use editReply
-    await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
-  }
+    try {
+        console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
+        // Use editReply now that interaction is deferred
+        await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+        console.log("[showReactionRolesDashboard] Interaction updated successfully.");
+    } catch (error) {
+        console.error("[showReactionRolesDashboard] Error updating interaction:", error);
+        // If an error occurs after deferring, use editReply
+        await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
+    }
 }
 
 async function showMenuConfiguration(interaction, menuId) {
@@ -1669,6 +1731,34 @@ async function showMenuConfiguration(interaction, menuId) {
       inline: true
     }
   );
+
+  // --- Buttons for Publishing and Deleting ---
+  const row_publish_delete = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rr:publish:${menuId}`)
+      .setLabel("Publish Menu")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!menu.selectionType.length || (!menu.dropdownRoles.length && !menu.buttonRoles.length)), // Disable if no roles are set
+    new ButtonBuilder()
+      .setCustomId(`rr:edit_published:${menuId}`)
+      .setLabel("Update Published Menu")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId(`rr:delete_published:${menuId}`)
+      .setLabel("Delete Published Message") // Renamed for clarity
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!menu.messageId), // Disable if not already published
+    new ButtonBuilder()
+      .setCustomId(`rr:delete_menu:${menuId}`) // New button to delete the entire menu
+      .setLabel("Delete This Menu")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("dash:reaction-roles")
+      .setLabel("Back to RR Dashboard")
+      .setStyle(ButtonStyle.Secondary)
+  );
+  console.log("[showMenuConfiguration] row_publish_delete created.");
 
 
   const row1_role_types = new ActionRowBuilder().addComponents(
@@ -1772,38 +1862,15 @@ async function showMenuConfiguration(interaction, menuId) {
   console.log("[showMenuConfiguration] row5_clear_buttons_toggles created.");
 
 
-  const row_publish_back = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`rr:publish:${menuId}`)
-      .setLabel("Publish Menu")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(!menu.selectionType.length || (!menu.dropdownRoles.length && !menu.buttonRoles.length)), // Disable if no roles are set
-    new ButtonBuilder()
-      .setCustomId(`rr:edit_published:${menuId}`)
-      .setLabel("Update Published Menu")
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(!menu.messageId), // Disable if not already published
-    new ButtonBuilder()
-      .setCustomId(`rr:delete_published:${menuId}`)
-      .setLabel("Delete Published Menu")
-      .setStyle(ButtonStyle.Danger)
-      .setDisabled(!menu.messageId), // Disable if not already published
-    new ButtonBuilder()
-      .setCustomId("dash:reaction-roles")
-      .setLabel("Back to RR Dashboard")
-      .setStyle(ButtonStyle.Secondary)
-  );
-  console.log("[showMenuConfiguration] row_publish_back created.");
-
-
   // Collect all potential rows and filter out empty ones, then slice to 5
+  // IMPORTANT: Ensure row_publish_delete is always at the beginning
   const allPossibleRows = [
+    row_publish_delete, // This row is now explicitly first
     row1_role_types,
     row2_emojis_reorder,
     row3_limits_exclusions_descriptions,
     row4_customize_messages_webhook,
     row5_clear_buttons_toggles,
-    row_publish_back // This will be the 6th row, so it will be truncated if all others are present
   ];
 
   const finalComponents = allPossibleRows.filter(row => row.components.length > 0).slice(0, 5);
