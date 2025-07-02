@@ -40,7 +40,7 @@ try {
 
 // Ensure projectId is present, even if it's a placeholder for debugging
 if (!firebaseConfig.projectId) {
-  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure FIREBASE_CONFIG is correctly provided by the environment."); // <--- CHANGED: Error message reflects new var
+  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure FIREBASE_CONFIG is correctly provided by the environment."); // <--- CHANGED THIS LINE
   firebaseConfig.projectId = 'missing-project-id';
 }
 
