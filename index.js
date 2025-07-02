@@ -453,8 +453,8 @@ async function updatePublishedMessageComponents(interaction, menu) {
             await webhook.editMessage(originalMessage.id, {
                 embeds: [publishedEmbed],
                 components,
-                username: menu.webhookName || guild.me.displayName,
-                avatarURL: menu.webhookAvatar || guild.me.displayAvatarURL(),
+                username: menu.webhookName || interaction.guild.me.displayName,
+                avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
             });
         } else {
             await originalMessage.edit({ embeds: [publishedEmbed], components });
@@ -1042,7 +1042,6 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
         }
 
-        // Webhook branding configuration handler
         if (action === "config_webhook") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
@@ -1072,7 +1071,6 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
