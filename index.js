@@ -1780,7 +1780,7 @@ client.on("interactionCreate", async (interaction) => {
         const menu = db.getMenu(menuId);
         if (!menu) return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid.", "#FF0000", "Error");
 
-        const selectedRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
+        const selectedInteractionRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
 
         let rolesToAdd = [];
         let rolesToRemove = [];
@@ -1791,13 +1791,24 @@ client.on("interactionCreate", async (interaction) => {
         const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
 
         // Determine roles to add and remove based on selection and current member roles
-        // For select menus, selectedRoleIds are the *desired* final state of roles from the dropdown.
-        // For buttons, selectedRoleIds is just the single role associated with the button.
         if (interaction.isStringSelectMenu()) {
-            rolesToAdd = selectedRoleIds.filter(id => !currentMemberRoleIds.includes(id));
-            rolesToRemove = currentMenuRolesHeldByMember.filter(id => !selectedRoleIds.includes(id));
-        } else { // Button interaction
-            const clickedRoleId = selectedRoleIds[0];
+            // For dropdowns, implement "toggle selected" behavior
+            for (const roleId of selectedInteractionRoleIds) { // Iterate over roles the user *just selected*
+                if (currentMemberRoleIds.includes(roleId)) {
+                    // User already has this role and selected it again -> toggle off (remove)
+                    rolesToRemove.push(roleId);
+                } else {
+                    // User doesn't have this role and selected it -> toggle on (add)
+                    rolesToAdd.push(roleId);
+                }
+            }
+            // IMPORTANT: Roles that were previously held by the member from this menu
+            // but were *not* part of the 'selectedInteractionRoleIds' (i.e., not explicitly re-selected)
+            // are NOT automatically removed in this "toggle selected" model. They remain.
+            // This is the key difference from the "set final state" model.
+
+        } else { // Button interaction (already behaves as a toggle)
+            const clickedRoleId = selectedInteractionRoleIds[0];
             if (currentMemberRoleIds.includes(clickedRoleId)) {
                 rolesToRemove.push(clickedRoleId);
             } else {
@@ -1821,10 +1832,32 @@ client.on("interactionCreate", async (interaction) => {
         rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
 
         // Calculate the potential new set of roles after this interaction for limit checks
-        let potentialNewRoleIds = currentMemberRoleIds
-            .filter(id => !rolesToRemove.includes(id)) // Start with current roles, remove those being removed
-            .concat(rolesToAdd); // Add those being added
+        let potentialNewRoleIds = [...currentMemberRoleIds]; // Start with all roles the member currently has.
+
+        if (interaction.isStringSelectMenu()) {
+            // For dropdowns acting as toggles:
+            // Iterate over the roles the user *just selected* in the dropdown.
+            for (const roleId of selectedInteractionRoleIds) {
+                if (potentialNewRoleIds.includes(roleId)) {
+                    // User had this role and re-selected it -> toggle off (remove)
+                    potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
+                } else {
+                    // User did not have this role and selected it -> toggle on (add)
+                    potentialNewRoleIds.push(roleId);
+                }
+            }
+            // Roles from the menu that the user currently holds but *did not* select in this interaction
+            // are NOT affected by this toggle logic; they remain in potentialNewRoleIds.
+        } else { // Button interaction (already correctly handles toggle)
+            const clickedRoleId = selectedInteractionRoleIds[0];
+            if (potentialNewRoleIds.includes(clickedRoleId)) {
+                potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== clickedRoleId);
+            } else {
+                potentialNewRoleIds.push(clickedRoleId);
+            }
+        }
         potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
+
 
         // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
         const potentialMenuRoleIds = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id));
