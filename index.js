@@ -26,25 +26,28 @@ const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, getDocs
 // Initialize Firebase (using environment variables)
 const appId = process.env.APP_ID || 'default-app-id';
 let firebaseConfig = {};
+let firebaseEnabled = false;
+let firebaseApp;
+let dbFirestore;
+
 try {
   if (process.env.FIREBASE_CONFIG) {
     firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+    if (firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
+      firebaseApp = initializeApp(firebaseConfig);
+      dbFirestore = getFirestore(firebaseApp);
+      firebaseEnabled = true;
+      console.log("[Firebase] Successfully initialized with project:", firebaseConfig.projectId);
+    } else {
+      console.warn("[Firebase] Invalid projectId in FIREBASE_CONFIG. Running without persistence.");
+    }
   } else {
-    console.warn("[Firebase Init Warning] FIREBASE_CONFIG environment variable is not set. Using dummy projectId.");
+    console.warn("[Firebase] FIREBASE_CONFIG environment variable not set. Running without persistence.");
   }
 } catch (e) {
-  console.error("[Firebase Init Error] Could not parse FIREBASE_CONFIG:", e);
-  firebaseConfig = {}; // Fallback to an empty config if parsing fails
+  console.error("[Firebase] Error initializing:", e);
+  console.warn("[Firebase] Running without persistence.");
 }
-
-if (!firebaseConfig.projectId) {
-  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure FIREBASE_CONFIG is correctly provided by the environment.");
-  // Assign a dummy projectId to allow the app to run (without persistence) if config is missing
-  firebaseConfig.projectId = 'missing-project-id';
-}
-
-const firebaseApp = initializeApp(firebaseConfig);
-const dbFirestore = getFirestore(firebaseApp);
 
 /**
  * Helper function to get or create a webhook for a given channel.
@@ -80,9 +83,9 @@ const db = {
    * This should be called once when the bot starts.
    */
   async loadAllMenus() {
-    console.log("[Firestore] Loading all menus...");
-    if (firebaseConfig.projectId === 'missing-project-id') {
-      console.warn("[Firestore] Skipping menu loading: projectId is missing or invalid. Please configure Firebase.");
+    console.log("[Database] Loading all menus...");
+    if (!firebaseEnabled) {
+      console.warn("[Database] Running in memory-only mode. Data will not persist between restarts.");
       return;
     }
     try {
@@ -102,9 +105,9 @@ const db = {
         this.menus.get(guildId).push(menuId);
         this.menuData.set(menuId, menu);
       });
-      console.log(`[Firestore] Loaded ${this.menuData.size} menus.`);
+      console.log(`[Database] Loaded ${this.menuData.size} menus from Firestore.`);
     } catch (error) {
-      console.error("[Firestore] Error loading menus:", error);
+      console.error("[Database] Error loading menus:", error);
     }
   },
 
@@ -138,7 +141,6 @@ const db = {
       dropdownRoleDescriptions: {},
       channelId: null,
       messageId: null,
-      // Removed enableDropdownClearRolesButton and enableButtonClearRolesButton
       useWebhook: false,
       webhookName: null,
       webhookAvatar: null,
@@ -151,31 +153,28 @@ const db = {
       embedFooterIconURL: null,
     };
 
-    if (firebaseConfig.projectId === 'missing-project-id') {
-      console.warn("[Firestore] Skipping menu creation: projectId is missing or invalid. Data will not persist.");
-      if (!this.menus.has(guildId)) {
-        this.menus.set(guildId, []);
+    // Save to in-memory storage
+    if (!this.menus.has(guildId)) {
+      this.menus.set(guildId, []);
+    }
+    this.menus.get(guildId).push(id);
+    this.menuData.set(id, newMenu);
+
+    // Save to Firestore if enabled
+    if (firebaseEnabled) {
+      try {
+        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, id);
+        await setDoc(menuDocRef, newMenu);
+        console.log(`[Database] Created new menu with ID: ${id} (saved to Firestore)`);
+      } catch (error) {
+        console.error("[Database] Error saving menu to Firestore:", error);
+        // Continue with in-memory storage only
       }
-      this.menus.get(guildId).push(id);
-      this.menuData.set(id, newMenu);
-      return id;
+    } else {
+      console.log(`[Database] Created new menu with ID: ${id} (memory only)`);
     }
 
-    try {
-      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, id);
-      await setDoc(menuDocRef, newMenu); // Save to Firestore
-
-      if (!this.menus.has(guildId)) {
-        this.menus.set(guildId, []);
-      }
-      this.menus.get(guildId).push(id);
-      this.menuData.set(id, newMenu); // Save to in-memory map
-      console.log(`[Firestore] Created new menu with ID: ${id}`);
-      return id;
-    } catch (error) {
-      console.error("[Firestore] Error creating menu:", error);
-      throw new Error("Failed to create menu in Firestore. Check permissions.");
-    }
+    return id;
   },
 
   /**
@@ -195,23 +194,20 @@ const db = {
   async updateMenu(menuId, data) {
     const menu = this.menuData.get(menuId);
     if (!menu) {
-      console.warn(`[Firestore] Attempted to update non-existent menu: ${menuId}`);
+      console.warn(`[Database] Attempted to update non-existent menu: ${menuId}`);
       return;
     }
     Object.assign(menu, data); // Update in-memory map
 
-    if (firebaseConfig.projectId === 'missing-project-id') {
-      console.warn("[Firestore] Skipping menu update: projectId is missing or invalid. Data will not persist.");
-      return;
-    }
-
-    try {
-      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
-      await setDoc(menuDocRef, menu); // Overwrite with updated data in Firestore
-      console.log(`[Firestore] Updated menu with ID: ${menuId}`);
-    } catch (error) {
-      console.error(`[Firestore] Error updating menu ${menuId}:`, error);
-      throw new Error("Failed to update menu in Firestore. Check permissions.");
+    if (firebaseEnabled) {
+      try {
+        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
+        await setDoc(menuDocRef, menu); // Overwrite with updated data in Firestore
+        console.log(`[Database] Updated menu with ID: ${menuId}`);
+      } catch (error) {
+        console.error(`[Database] Error updating menu ${menuId} in Firestore:`, error);
+        // Continue with in-memory update only
+      }
     }
   },
 
@@ -378,19 +374,18 @@ const db = {
     }
     this.menuData.delete(menuId);
 
-    if (firebaseConfig.projectId === 'missing-project-id') {
-      console.warn("[Firestore] Skipping menu deletion: projectId is missing or invalid. Data will not persist.");
-      return;
-    }
-
-    try {
-      // Delete from Firestore
-      const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
-      await deleteDoc(menuDocRef);
-      console.log(`[Firestore] Deleted menu with ID: ${menuId}`);
-    } catch (error) {
-      console.error(`[Firestore] Error deleting menu ${menuId}:`, error);
-      throw new Error("Failed to delete menu from Firestore. Check permissions.");
+    if (firebaseEnabled) {
+      try {
+        // Delete from Firestore
+        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
+        await deleteDoc(menuDocRef);
+        console.log(`[Database] Deleted menu with ID: ${menuId} from Firestore`);
+      } catch (error) {
+        console.error(`[Database] Error deleting menu ${menuId} from Firestore:`, error);
+        // Continue with in-memory deletion only
+      }
+    } else {
+      console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`);
     }
   },
 };
@@ -414,15 +409,10 @@ function parseEmoji(emoji) {
       animated: emoji.startsWith("<a:"),
     };
   }
-  // Basic check for unicode emoji (not exhaustive but covers common cases)
-  // This regex matches a wide range of Unicode emoji blocks
-  const unicodeEmojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
-  if (emoji.match(unicodeEmojiRegex)) {
-    return { name: emoji };
-  }
-
-  console.warn(`Invalid emoji format detected: "${emoji}". Returning undefined.`);
-  return undefined;
+  
+  // For unicode emojis, just return the emoji as the name
+  // Discord.js will handle unicode emojis correctly when passed as { name: "🔥" }
+  return { name: emoji };
 }
 
 /**
@@ -491,11 +481,21 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
         .setDescription(description)
         .setColor(color);
     
-    // Check if interaction has already been replied/deferred
-    if (interaction.replied || interaction.deferred) {
-        await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] }).catch(e => console.error("Error editing ephemeral reply with embed:", e));
-    } else {
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral }).catch(e => console.error("Error sending ephemeral reply with embed:", e));
+    try {
+        // Check if interaction has already been replied/deferred
+        if (interaction.replied || interaction.deferred) {
+            await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
+        } else {
+            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
+    } catch (error) {
+        console.error("Error sending ephemeral embed:", error);
+        // Try followUp as last resort
+        try {
+            await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        } catch (followUpError) {
+            console.error("Error sending follow-up:", followUpError);
+        }
     }
 }
 
@@ -515,13 +515,17 @@ async function updatePublishedMessageComponents(interaction, menu) {
 
     try {
         const originalChannel = await guild.channels.fetch(menu.channelId);
+        if (!originalChannel) {
+            console.error(`Channel ${menu.channelId} not found for menu ${menu.id}`);
+            return;
+        }
+
         const originalMessage = await originalChannel.messages.fetch(menu.messageId);
 
         const components = [];
 
         // Rebuild Dropdown Select Menu
         if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
-            // Removed currentDropdownRolesHeldByMember as we no longer want default selected state
             const dropdownOptions = (menu.dropdownRoleOrder.length > 0
                 ? menu.dropdownRoleOrder
                 : menu.dropdownRoles
@@ -548,7 +552,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
             }
         }
 
-        // Rebuild Buttons (no default state for buttons, they are stateless, but we can highlight them)
+        // Rebuild Buttons
         if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
             const buttonRows = [];
             let currentRow = new ActionRowBuilder();
@@ -602,7 +606,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
     } catch (error) {
         console.error("Error updating published message components:", error);
         // If the message or channel is gone, clear the message ID from the menu
-        if (error.code === 10003 || error.code === 50001) { // Unknown Channel or Missing Access
+        if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
             console.log(`Clearing message ID for menu ${menu.id} due to channel/message access error.`);
             await db.clearMessageId(menu.id);
         }
@@ -615,9 +619,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildWebhooks,
-    GatewayIntentBits.MessageContent, // Required for some message-related operations if needed, though not directly used for RR logic here.
   ],
-  partials: [Partials.Channel, Partials.Message, Partials.GuildMember], // Ensure partials are enabled for caching
+  partials: [Partials.Channel, Partials.Message, Partials.GuildMember],
 });
 
 client.once("ready", async () => {
@@ -626,17 +629,36 @@ client.once("ready", async () => {
   await db.loadAllMenus();
 
   const rest = new REST().setToken(process.env.TOKEN);
-  const cmd = new SlashCommandBuilder().setName("dashboard").setDescription("Open the guild dashboard").toJSON();
+  const cmd = new SlashCommandBuilder()
+    .setName("dashboard")
+    .setDescription("Open the guild dashboard")
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator) // Add this to make it admin-only by default
+    .toJSON();
+  
   try {
-    // Deploying guild commands for a specific guild for faster updates during development
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [cmd] });
-    console.log(" /dashboard command deployed to guild.");
+    if (process.env.GUILD_ID) {
+      // Deploy to specific guild for development
+      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [cmd] });
+      console.log("✅ /dashboard command deployed to guild.");
+    } else {
+      // Deploy globally
+      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [cmd] });
+      console.log("✅ /dashboard command deployed globally.");
+    }
   } catch (error) {
     console.error("Error deploying slash command:", error);
   }
 });
 
 client.on("interactionCreate", async (interaction) => {
+  // Early return for DMs
+  if (!interaction.guild) {
+    if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu()) {
+      return interaction.reply({ content: "This bot can only be used in servers.", ephemeral: true });
+    }
+    return;
+  }
+
   // Defer reply for most interactions to prevent timeout,
   // EXCEPT for interactions that immediately show a modal.
   const isModalTrigger = (
@@ -647,39 +669,35 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_footer:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) || // ADDED for reorder modal
-    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) || // ADDED for reorder modal
+    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
   );
 
-  // Defer non-modal-trigger interactions
-  if (!interaction.replied && !interaction.deferred && !isModalTrigger) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply:", e));
-  }
-  // For modal submissions, deferUpdate is called inside the modal submit block itself
-  // to ensure it acknowledges the modal interaction.
+  // Check if it's a modal submission - these need deferUpdate
+  const isModalSubmission = interaction.isModalSubmit();
 
-  // Check Firebase configuration at the start of every interaction that might involve persistence
-  if (firebaseConfig.projectId === 'missing-project-id' &&
-      (interaction.isChatInputCommand() || interaction.customId?.startsWith("rr:"))) { // Only show warning for relevant interactions
-    // Use followUp since the interaction is now deferred (or was intended to be deferred)
-    // For modals, this will be followUp after the modal submit. For other interactions, after initial defer.
-    // Ensure we don't send multiple follow-ups if already replied.
-    if (!interaction.replied) {
-      await interaction.followUp({
-        content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `FIREBASE_CONFIG` in your environment provides a valid `projectId`.",
-        flags: MessageFlags.Ephemeral
-      }).catch(e => console.error("Error sending Firebase config warning:", e));
-    }
-    // If Firebase is not configured, prevent further processing for persistence-related commands
-    // This prevents errors from trying to access Firestore when it's not set up.
-    if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") return;
-    if (interaction.isButton() && interaction.customId.startsWith("rr:")) return;
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("rr:modal:")) return;
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:")) return;
+  // Defer non-modal-trigger interactions
+  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply:", e));
   }
 
   try {
+    // Show Firebase warning only once per interaction for admin commands
+    if (!firebaseEnabled && interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      const relevantInteraction = (
+        (interaction.isChatInputCommand() && interaction.commandName === "dashboard") ||
+        (interaction.customId?.startsWith("rr:") && !interaction.customId.startsWith("rr-role-"))
+      );
+      
+      if (relevantInteraction && !interaction.replied) {
+        await interaction.followUp({
+          content: "⚠️ **Warning: Firebase is not configured.** Your bot's data will not persist between restarts. To enable persistence, set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration.",
+          flags: MessageFlags.Ephemeral
+        }).catch(e => console.error("Error sending Firebase warning:", e));
+      }
+    }
+
     // Slash Command Handling
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "dashboard") {
@@ -698,7 +716,6 @@ client.on("interactionCreate", async (interaction) => {
 
       let menuId;
       let type;
-      let newStateBoolean; // This variable is no longer used for clear buttons
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -711,15 +728,15 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", flags: MessageFlags.Ephemeral });
         }
 
-        // Assign menuId, type, newState based on action within the rr context
+        // Assign menuId, type based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
         } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
-        } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) { // Added manage_roles and toggle_type
+        } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button'
           menuId = parts[3]; // For these actions, menuId is parts[3]
-        } else if (["reorder_dropdown", "reorder_button"].includes(action)) { // ADDED for reorder modal
+        } else if (["reorder_dropdown", "reorder_button"].includes(action)) {
           type = action.split("_")[1]; // 'dropdown' or 'button'
           menuId = parts[2];
         }
@@ -730,10 +747,10 @@ client.on("interactionCreate", async (interaction) => {
             .setTitle("New Reaction Role Menu")
             .addComponents(
               new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short).setRequired(true)
+                new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)
               ),
               new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true)
+                new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000)
               )
             );
           return interaction.showModal(modal);
@@ -945,69 +962,48 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "reorder_dropdown" || action === "reorder_button") {
-          try {
-            // No deferReply here, as showModal doesn't require it and handles its own response.
-            // The isModalTrigger check at the top of interactionCreate ensures the initial defer is skipped.
-            
-            type = action.split("_")[1]; // 'dropdown' or 'button'
-            menuId = parts[2];
-            
-            const menu = db.getMenu(menuId);
-            if (!menu) {
-              return interaction.reply({ // Use reply since no prior defer
-                content: "Menu not found.", 
-                ephemeral: true 
-              });
-            }
-
-            // Use the actual roles array, not the order array for counting
-            const actualRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-            const currentOrder = type === "dropdown" 
-              ? (menu.dropdownRoleOrder || menu.dropdownRoles || []) 
-              : (menu.buttonRoleOrder || menu.buttonRoles || []);
-            
-            // Check if there are roles to reorder - use actualRoles for the count
-            if (actualRoles.length <= 1) {
-              return interaction.reply({ // Use reply since no prior defer
-                content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
-                ephemeral: true 
-              });
-            }
-
-            const modal = new ModalBuilder()
-              .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
-              .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
-
-            modal.addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("role_ids_order")
-                  .setLabel("Enter Role IDs in desired order (comma-separated)")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("roleId1, roleId2, roleId3")
-                  .setValue(currentOrder.join(", "))
-              )
-            );
-            
-            // No deleteReply here, as there was no initial deferReply.
-            return interaction.showModal(modal);
-            
-          } catch (error) {
-            console.error("Error in reorder button handler:", error);
-            // Fallback reply if an error occurs before showing the modal
-            if (!interaction.replied && !interaction.deferred) {
-              return interaction.reply({ 
-                content: "An error occurred while preparing the reorder modal.", 
-                ephemeral: true 
-              });
-            } else {
-              // If somehow already replied/deferred (shouldn't happen with isModalTrigger logic), edit the existing reply.
-              return interaction.editReply({ 
-                content: "An error occurred while preparing the reorder modal." 
-              });
-            }
+          type = action.split("_")[1]; // 'dropdown' or 'button'
+          menuId = parts[2];
+          
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+            return interaction.reply({ 
+              content: "Menu not found.", 
+              ephemeral: true 
+            });
           }
+
+          // Use the actual roles array, not the order array for counting
+          const actualRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+          const currentOrder = type === "dropdown" 
+            ? (menu.dropdownRoleOrder || menu.dropdownRoles || []) 
+            : (menu.buttonRoleOrder || menu.buttonRoles || []);
+          
+          // Check if there are roles to reorder - use actualRoles for the count
+          if (actualRoles.length <= 1) {
+            return interaction.reply({ 
+              content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
+              ephemeral: true 
+            });
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
+            .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("role_ids_order")
+                .setLabel("Enter Role IDs in desired order (comma-separated)")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setPlaceholder("roleId1, roleId2, roleId3")
+                .setValue(currentOrder.join(", "))
+            )
+          );
+          
+          return interaction.showModal(modal);
         }
 
         if (action === "setlimits") {
@@ -1055,7 +1051,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setRequired(false)
                   .setValue(JSON.stringify(Object.fromEntries(
                     Object.entries(menu.regionalLimits || {}).map(([region, data]) => [region, data.roleIds || []])
-                  )) || "")
+                  )) || "{}")
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -1078,12 +1074,15 @@ client.on("interactionCreate", async (interaction) => {
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           if (!allRoles.size) return interaction.editReply({ content: "No roles available to set exclusions.", flags: MessageFlags.Ephemeral });
 
+          // Limit to 25 options (Discord limitation)
+          const roleOptions = Array.from(allRoles.values()).slice(0, 25).map((r) => ({ label: r.name, value: r.id }));
+
           const selectTriggerRole = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_trigger_role:${menuId}`)
             .setPlaceholder("Select a role to set its exclusions...")
             .setMinValues(1)
             .setMaxValues(1)
-            .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
+            .addOptions(roleOptions);
 
           return interaction.editReply({
             content: "Please select the role that, when picked, should remove other roles:",
@@ -1277,7 +1276,7 @@ client.on("interactionCreate", async (interaction) => {
                 return interaction.editReply({ content: "No dropdown roles configured for this menu. Please add dropdown roles first to set their descriptions.", flags: MessageFlags.Ephemeral });
             }
 
-            const roleOptions = dropdownRoles.map(roleId => {
+            const roleOptions = dropdownRoles.slice(0, 25).map(roleId => {
                 const role = interaction.guild.roles.cache.get(roleId);
                 return {
                     label: role ? role.name : `Unknown Role (${roleId})`,
@@ -1310,12 +1309,6 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
-      // Note: parts[2] and parts[3] can vary based on the customId structure
-      // For 'selectmenu', parts[2] is the menuId.
-      // For 'save_managed_roles', parts[2] is the type, parts[3] is the menuId.
-      // For 'select_trigger_role', parts[2] is the menuId.
-      // For 'select_exclusion_roles', parts[2] is triggerRoleId, parts[3] is menuId.
-      // For 'select_role_for_description', parts[2] is menuId.
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -1357,16 +1350,19 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "No other roles available to set as exclusions.", "#FF0000", "No Roles Found");
           }
 
+          // Limit to 25 options (Discord limitation)
+          const roleOptions = Array.from(allRoles.values()).slice(0, 25).map((r) => ({
+            label: r.name,
+            value: r.id,
+            default: (menu.exclusionMap[triggerRoleId] || []).includes(r.id)
+          }));
+
           const selectExclusionRoles = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_exclusion_roles:${triggerRoleId}:${menuId}`)
             .setPlaceholder(`Select roles to exclude when ${interaction.guild.roles.cache.get(triggerRoleId).name} is picked...`)
             .setMinValues(0)
             .setMaxValues(Math.min(allRoles.size, 25))
-            .addOptions(allRoles.map((r) => ({
-              label: r.name,
-              value: r.id,
-              default: (menu.exclusionMap[triggerRoleId] || []).includes(r.id)
-            })));
+            .addOptions(roleOptions);
 
           return interaction.editReply({
             content: `Now select roles to be **removed** when <@&${triggerRoleId}> is added:`,
@@ -1436,8 +1432,9 @@ client.on("interactionCreate", async (interaction) => {
       if (modalType === "create") {
           currentMenuId = null; // No menuId yet for creation modal
       } else if (modalType === "addemoji" || modalType === "role_description") {
-          currentMenuId = parts[3];
-      } else if (modalType === "reorder_roles") { // ADDED for reorder modal
+          type = parts[3];
+          currentMenuId = parts[4];
+      } else if (modalType === "reorder_roles") {
           currentMenuId = parts[3];
           type = parts[4]; // 'dropdown' or 'button'
       } else {
@@ -1446,7 +1443,6 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            // Use followUp here as the interaction has already been deferred by deferUpdate above.
             return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied");
         }
 
@@ -1454,14 +1450,12 @@ client.on("interactionCreate", async (interaction) => {
           const name = interaction.fields.getTextInputValue("name");
           const desc = interaction.fields.getTextInputValue("desc");
           const newMenuId = await db.createMenu(interaction.guild.id, name, desc);
-          // No need for deferUpdate here anymore, it's done at the top of modal submit block
           return showMenuConfiguration(interaction, newMenuId);
         }
 
         if (modalType === "addemoji") {
           if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const emojis = {};
-          const type = parts[3];
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
               return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
@@ -1479,8 +1473,8 @@ client.on("interactionCreate", async (interaction) => {
                 console.warn(`Invalid emoji for role ${roleId}: ${emojiInput}. Not saving.`);
               }
             } else {
-              if (type === "dropdown") delete menu.dropdownEmojis[roleId];
-              else delete menu.buttonEmojis[roleId];
+              // Clear the emoji if empty input
+              emojis[roleId] = null;
             }
           }
           await db.saveEmojis(currentMenuId, emojis, type);
@@ -1489,9 +1483,6 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "reorder_roles") {
           try {
-            // Defer the modal submission
-            await interaction.deferReply({ ephemeral: true });
-            
             if (!currentMenuId || !type) {
               return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
             }
@@ -1548,21 +1539,11 @@ client.on("interactionCreate", async (interaction) => {
 
             await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
             
-            // No deleteReply here, as showMenuConfiguration will edit the deferred reply.
             return showMenuConfiguration(interaction, currentMenuId);
             
           } catch (error) {
             console.error("Error in reorder modal submission:", error);
-            
-            // Check if we can still respond
-            if (!interaction.replied && !interaction.deferred) {
-              return interaction.reply({ 
-                content: "An error occurred while reordering roles.", 
-                ephemeral: true 
-              });
-            } else {
-              return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
-            }
+            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
           }
         }
 
@@ -1628,6 +1609,11 @@ client.on("interactionCreate", async (interaction) => {
           const embedImage = interaction.fields.getTextInputValue("image_url") || null;
           const embedAuthorName = interaction.fields.getTextInputValue("author_name") || null;
           const embedAuthorIconURL = interaction.fields.getTextInputValue("author_icon_url") || null;
+
+          // Validate color format
+          if (embedColor && !/^#[0-9A-F]{6}$/i.test(embedColor)) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid color format. Please use hex format like #FF0000", "#FF0000", "Input Error");
+          }
 
           await db.saveEmbedCustomization(currentMenuId, {
             embedColor,
@@ -1710,7 +1696,7 @@ client.on("interactionCreate", async (interaction) => {
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
 
-        // Ensure interaction is deferred if it wasn't already (e.g., for direct button clicks)
+        // Ensure interaction is deferred if it wasn't already
         if (!interaction.replied && !interaction.deferred) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
         }
@@ -1735,7 +1721,7 @@ client.on("interactionCreate", async (interaction) => {
         // Determine roles to add and remove based on selection and current member roles
         if (interaction.isStringSelectMenu()) {
             // For dropdowns, implement "toggle selected" behavior
-            for (const roleId of selectedInteractionRoleIds) { // Iterate over roles the user *just selected*
+            for (const roleId of selectedInteractionRoleIds) {
                 if (currentMemberRoleIds.includes(roleId)) {
                     // User already has this role and selected it again -> toggle off (remove)
                     rolesToRemove.push(roleId);
@@ -1744,11 +1730,6 @@ client.on("interactionCreate", async (interaction) => {
                     rolesToAdd.push(roleId);
                 }
             }
-            // IMPORTANT: Roles that were previously held by the member from this menu
-            // but were *not* part of the 'selectedInteractionRoleIds' (i.e., not explicitly re-selected)
-            // are NOT automatically removed in this "toggle selected" model. They remain.
-            // This is the key difference from the "set final state" model.
-
         } else { // Button interaction (already behaves as a toggle)
             const clickedRoleId = selectedInteractionRoleIds[0];
             if (currentMemberRoleIds.includes(clickedRoleId)) {
@@ -1774,11 +1755,10 @@ client.on("interactionCreate", async (interaction) => {
         rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
 
         // Calculate the potential new set of roles after this interaction for limit checks
-        let potentialNewRoleIds = [...currentMemberRoleIds]; // Start with all roles the member currently has.
+        let potentialNewRoleIds = [...currentMemberRoleIds];
 
         if (interaction.isStringSelectMenu()) {
             // For dropdowns acting as toggles:
-            // Iterate over the roles the user *just selected* in the dropdown.
             for (const roleId of selectedInteractionRoleIds) {
                 if (potentialNewRoleIds.includes(roleId)) {
                     // User had this role and re-selected it -> toggle off (remove)
@@ -1788,9 +1768,7 @@ client.on("interactionCreate", async (interaction) => {
                     potentialNewRoleIds.push(roleId);
                 }
             }
-            // Roles from the menu that the user currently holds but *did not* select in this interaction
-            // are NOT affected by this toggle logic; they remain in potentialNewRoleIds.
-        } else { // Button interaction (already correctly handles toggle)
+        } else { // Button interaction
             const clickedRoleId = selectedInteractionRoleIds[0];
             if (potentialNewRoleIds.includes(clickedRoleId)) {
                 potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== clickedRoleId);
@@ -1798,8 +1776,15 @@ client.on("interactionCreate", async (interaction) => {
                 potentialNewRoleIds.push(clickedRoleId);
             }
         }
+        
+        // Handle exclusions for potential new roles
+        for (const roleId of rolesToAdd) {
+            if (menu.exclusionMap && menu.exclusionMap[roleId]) {
+                potentialNewRoleIds = potentialNewRoleIds.filter(id => !menu.exclusionMap[roleId].includes(id));
+            }
+        }
+        
         potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
-
 
         // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
         const potentialMenuRoleIds = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id));
@@ -1827,7 +1812,6 @@ client.on("interactionCreate", async (interaction) => {
         });
         rolesToRemove.forEach(id => {
             // Only add a remove message if the role was actually removed by the user's action or exclusion
-            // and not if it was just not selected in a multi-select but the user didn't have it anyway.
             if (currentMemberRoleIds.includes(id)) { // Only if the member actually had the role
                 messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
             }
@@ -1855,7 +1839,7 @@ client.on("interactionCreate", async (interaction) => {
             if (error.code === 50013) { // Missing Permissions
                 await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
             } else {
-                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles.", "#FF0000", "Error");
+                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error");
             }
         }
     }
@@ -1864,9 +1848,13 @@ client.on("interactionCreate", async (interaction) => {
         console.error("Unhandled error during interaction:", error);
         // Fallback error reply if no other reply has been sent
         if (!interaction.replied && !interaction.deferred) {
+            try {
+                await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
+            } catch (replyError) {
+                console.error("Error sending error reply:", replyError);
+            }
+        } else {
             await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error");
-        } else if (interaction.deferred) {
-            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred after deferring. Please try again.", "#FF0000", "Error");
         }
     }
 });
@@ -1890,16 +1878,19 @@ async function promptManageRoles(interaction, menuId, type) {
 
   const currentRolesForType = (menu[type + "Roles"] || []);
 
+  // Limit to 25 options (Discord limitation)
+  const roleOptions = Array.from(allRoles.values()).slice(0, 25).map((r) => ({
+      label: r.name,
+      value: r.id,
+      default: currentRolesForType.includes(r.id) // Pre-select current roles
+  }));
+
   const select = new StringSelectMenuBuilder()
     .setCustomId(`rr:save_managed_roles:${type}:${menuId}`)
     .setPlaceholder(`Select/Deselect your ${type} roles...`)
     .setMinValues(0)
     .setMaxValues(Math.min(allRoles.size, 25))
-    .addOptions(allRoles.map((r) => ({
-        label: r.name,
-        value: r.id,
-        default: currentRolesForType.includes(r.id) // Pre-select current roles
-    })));
+    .addOptions(roleOptions);
 
   await interaction.editReply({
     content: `Please select all roles you want for the **${type}** menu (select/deselect to add/remove):`,
@@ -1926,6 +1917,7 @@ async function sendMainDashboard(interaction) {
             .setCustomId("dash:reaction-roles")
             .setLabel("Reaction Roles")
             .setStyle(ButtonStyle.Primary)
+            .setEmoji("🎭")
     );
     await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
@@ -1945,7 +1937,11 @@ async function showReactionRolesDashboard(interaction) {
     const components = [];
 
     if (menus.length > 0) {
-        const menuOptions = menus.map((menu) => ({ label: menu.name, value: menu.id }));
+        const menuOptions = menus.slice(0, 25).map((menu) => ({ 
+            label: menu.name.substring(0, 100), 
+            value: menu.id,
+            description: menu.desc ? menu.desc.substring(0, 100) : undefined
+        }));
         const selectMenu = new StringSelectMenuBuilder()
             .setCustomId("rr:selectmenu")
             .setPlaceholder("Select a menu to configure...")
@@ -1996,15 +1992,18 @@ async function showMenuConfiguration(interaction, menuId) {
     return interaction.editReply({ content: "Menu not found. It might have been deleted.", flags: MessageFlags.Ephemeral });
   }
 
+  // Fixed the invalid property reference
+  const menuIdValue = menuId; // Use menuId directly instead of menu.id
+
   const embed = new EmbedBuilder()
     .setTitle(`Configuring: ${menu.name}`)
     .setDescription(menu.desc)
     .addFields(
-      { name: "Menu ID", value: `\`${menu.id}\``, inline: true },
+      { name: "Menu ID", value: `\`${menuIdValue}\``, inline: true },
       { name: "Selection Type", value: menu.selectionType.join(" & ") || "Not set", inline: true },
       { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
-      { name: "Dropdown Roles", value: menu.dropdownRoles.length > 0 ? menu.dropdownRoles.map((r) => `<@&${r}>`).join(", ") : "None", inline: false },
-      { name: "Button Roles", value: menu.buttonRoles.length > 0 ? menu.buttonRoles.map((r) => `<@&${r}>`).join(", ") : "None", inline: false },
+      { name: "Dropdown Roles", value: menu.dropdownRoles.length > 0 ? menu.dropdownRoles.slice(0, 10).map((r) => `<@&${r}>`).join(", ") + (menu.dropdownRoles.length > 10 ? ` (+${menu.dropdownRoles.length - 10} more)` : "") : "None", inline: false },
+      { name: "Button Roles", value: menu.buttonRoles.length > 0 ? menu.buttonRoles.slice(0, 10).map((r) => `<@&${r}>`).join(", ") + (menu.buttonRoles.length > 10 ? ` (+${menu.buttonRoles.length - 10} more)` : "") : "None", inline: false },
     )
     .setColor(menu.embedColor || "#5865F2");
 
@@ -2068,11 +2067,11 @@ async function showMenuConfiguration(interaction, menuId) {
 
   const row1_role_types = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`rr:toggle_type:dropdown:${menuId}`) // New custom ID and action
+      .setCustomId(`rr:toggle_type:dropdown:${menuId}`)
       .setLabel(menu.selectionType.includes("dropdown") ? "Disable Dropdown Roles" : "Enable Dropdown Roles")
       .setStyle(menu.selectionType.includes("dropdown") ? ButtonStyle.Danger : ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`rr:toggle_type:button:${menuId}`) // New custom ID and action
+      .setCustomId(`rr:toggle_type:button:${menuId}`)
       .setLabel(menu.selectionType.includes("button") ? "Disable Button Roles" : "Enable Button Roles")
       .setStyle(menu.selectionType.includes("button") ? ButtonStyle.Danger : ButtonStyle.Primary),
   );
@@ -2156,7 +2155,7 @@ async function showMenuConfiguration(interaction, menuId) {
   const allPossibleRows = [
     row_publish_delete,
     row1_role_types,
-    row_manage_roles, // ADDED
+    row_manage_roles,
     row2_emojis_reorder,
     row3_limits_exclusions_descriptions,
     row4_customize_messages_webhook,
@@ -2200,10 +2199,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       const role = interaction.guild.roles.cache.get(roleId);
       if (!role) return null;
       return {
-        label: role.name,
+        label: role.name.substring(0, 100),
         value: role.id,
         emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-        description: menu.dropdownRoleDescriptions[role.id] || undefined,
+        description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
         default: false // Always set default to false so roles are not pre-selected
       };
     }).filter(Boolean); // Filter out any nulls from roles not found
@@ -2211,7 +2210,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     if (dropdownOptions.length > 0) {
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId(`rr-role-select:${menuId}`)
-        .setPlaceholder("Select a role...")
+        .setPlaceholder("Select your roles...")
         .setMinValues(0)
         .setMaxValues(dropdownOptions.length)
         .addOptions(dropdownOptions);
@@ -2233,7 +2232,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
       const button = new ButtonBuilder()
         .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-        .setLabel(role.name)
+        .setLabel(role.name.substring(0, 80))
         .setStyle(ButtonStyle.Secondary);
 
       const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
@@ -2246,9 +2245,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       } else {
         buttonRows.push(currentRow);
         currentRow = new ActionRowBuilder().addComponents(button);
+        if (buttonRows.length >= 4) break; // Max 5 rows total, leave 1 for dropdown
       }
     }
-    if (currentRow.components.length > 0) {
+    if (currentRow.components.length > 0 && buttonRows.length < 4) {
       buttonRows.push(currentRow);
     }
     components.push(...buttonRows);
@@ -2317,14 +2317,20 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
     if (error.code === 50013) { // Missing Permissions
       errorMsg += "Bot lacks permissions. Required: 'Manage Webhooks' and 'Send Messages' in the channel, and 'Manage Roles' in the guild.";
-    } else if (error.message.includes("ENOENT") || error.message.includes("Invalid Form Body")) {
-      errorMsg += "Invalid image URL or resource not found, or invalid component data. Please check your embed/webhook settings and role configurations.";
+    } else if (error.code === 50035) { // Invalid Form Body
+      errorMsg += "Invalid component data. Please check your role configurations and emoji formats.";
+    } else if (error.message?.includes("ENOENT") || error.message?.includes("Invalid Form Body")) {
+      errorMsg += "Invalid image URL or resource not found. Please check your embed/webhook settings.";
     } else {
-      errorMsg += error.message;
+      errorMsg += error.message || "Unknown error occurred.";
     }
 
     await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
   }
 }
 
-client.login(process.env.TOKEN);
+// Bot login
+client.login(process.env.TOKEN).catch(error => {
+  console.error("Failed to login:", error);
+  process.exit(1);
+});
