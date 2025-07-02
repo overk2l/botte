@@ -1046,9 +1046,8 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
-        }
-
-        if (action === "confirm_delete_published") {
+        
+         if (action === "confirm_delete_published") {
             if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
             const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
