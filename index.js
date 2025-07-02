@@ -671,6 +671,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:raw_embed_json:")) || // Added for raw JSON embed
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
   );
 
@@ -731,7 +732,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select", "raw_embed_json"].includes(action)) { // Added raw_embed_json
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button'
@@ -1302,6 +1303,24 @@ client.on("interactionCreate", async (interaction) => {
           if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", flags: MessageFlags.Ephemeral });
           return promptManageRoles(interaction, menuId, type); // Call the new helper function
         }
+
+        if (action === "raw_embed_json") { // New action for raw JSON embed input
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:raw_embed_json:${menuId}`)
+            .setTitle("Input Raw Embed JSON")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("raw_json_input")
+                  .setLabel("Paste Embed JSON Here")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('{"color": 16711680, "thumbnail": {"url": "https://example.com/thumb.png"}, ...}')
+              )
+            );
+          return interaction.showModal(modal);
+        }
       }
     }
 
@@ -1437,7 +1456,10 @@ client.on("interactionCreate", async (interaction) => {
       } else if (modalType === "reorder_roles") {
           currentMenuId = parts[3];
           type = parts[4]; // 'dropdown' or 'button'
-      } else {
+      } else if (modalType === "raw_embed_json") { // Added for raw JSON embed
+          currentMenuId = parts[3];
+      }
+      else {
           currentMenuId = parts[3]; // Default for other modals like setlimits, customize_embed, webhook_branding, etc.
       }
 
@@ -1688,6 +1710,44 @@ client.on("interactionCreate", async (interaction) => {
             webhookAvatar: avatar || null
           });
           return showMenuConfiguration(interaction, currentMenuId);
+        }
+
+        if (modalType === "raw_embed_json") {
+            if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+            const menu = db.getMenu(currentMenuId);
+            if (!menu) {
+                return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+            }
+
+            const jsonString = interaction.fields.getTextInputValue("raw_json_input");
+            let parsedJson;
+            try {
+                parsedJson = JSON.parse(jsonString);
+            } catch (e) {
+                return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "Input Error");
+            }
+
+            const updateData = {};
+
+            // Map JSON fields to menu properties
+            if (typeof parsedJson.color === 'number') {
+                // Convert integer color to hex string
+                updateData.embedColor = '#' + (parsedJson.color >>> 0).toString(16).padStart(6, '0');
+            } else if (typeof parsedJson.color === 'string' && /^#[0-9A-F]{6}$/i.test(parsedJson.color)) {
+                updateData.embedColor = parsedJson.color;
+            } else {
+                updateData.embedColor = null;
+            }
+            
+            updateData.embedThumbnail = parsedJson.thumbnail?.url || null;
+            updateData.embedImage = parsedJson.image?.url || null;
+            updateData.embedAuthorName = parsedJson.author?.name || null;
+            updateData.embedAuthorIconURL = parsedJson.author?.icon_url || null;
+            updateData.embedFooterText = parsedJson.footer?.text || null;
+            updateData.embedFooterIconURL = parsedJson.footer?.icon_url || null;
+
+            await db.saveEmbedCustomization(currentMenuId, updateData);
+            return showMenuConfiguration(interaction, currentMenuId);
         }
       }
     }
@@ -2145,7 +2205,11 @@ async function showMenuConfiguration(interaction, menuId) {
     new ButtonBuilder()
       .setCustomId(`rr:custom_messages:${menuId}`)
       .setLabel("Custom Messages")
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder() // New button for raw JSON embed
+      .setCustomId(`rr:raw_embed_json:${menuId}`)
+      .setLabel("Input Raw Embed JSON")
+      .setStyle(ButtonStyle.Secondary)
   );
 
   if (menu.useWebhook) {
