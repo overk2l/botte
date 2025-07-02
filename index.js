@@ -450,13 +450,21 @@ client.on("interactionCreate", async (interaction) => {
             try {
                 const message = await channel.messages.fetch(menu.messageId);
                 await message.delete();
-                await db.deleteMenu(targetMenuId); // Use deleteMenu to remove from Firestore and in-memory
-                await interaction.update({ content: "✅ Published reaction role message deleted successfully!", components: [], ephemeral: true });
+                // Only clear message ID, don't delete the entire menu from Firestore
+                await db.clearMessageId(targetMenuId);
+                await interaction.update({
+                    content: "✅ Published message deleted successfully!",
+                    components: [],
+                    ephemeral: true
+                });
                 return showMenuConfiguration(interaction, targetMenuId);
             } catch (error) {
                 console.error("Error deleting message:", error);
                 await db.clearMessageId(targetMenuId);
-                return interaction.update({ content: "❌ Failed to delete published message. It might have been deleted manually or bot lacks permissions. Message ID cleared.", ephemeral: true });
+                return interaction.update({
+                    content: "❌ Failed to delete message. Message ID cleared.",
+                    ephemeral: true
+                });
             }
         }
 
@@ -741,14 +749,14 @@ client.on("interactionCreate", async (interaction) => {
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
           const menuId = targetMenuId; // menuId is at parts[2]
-          const newState = newState === 'true'; // newState is at parts[3]
-          await db.saveEnableDropdownClearRolesButton(menuId, newState);
+          const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
+          await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
         if (action === "toggle_button_clear_button") {
           const menuId = targetMenuId; // menuId is at parts[2]
-          const newState = newState === 'true'; // newState is at parts[3]
-          await db.saveEnableButtonClearRolesButton(menuId, newState);
+          const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
+          await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
       }
@@ -1381,11 +1389,13 @@ async function showMenuConfiguration(interaction, menuId) {
     new ButtonBuilder()
       .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}:${!menu.enableDropdownClearRolesButton}`)
       .setLabel(`Dropdown Clear: ${menu.enableDropdownClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
-      .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger),
+      .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setDisabled(!menu.selectionType.includes("dropdown")), // Disable if not relevant for dropdown
     new ButtonBuilder()
       .setCustomId(`rr:toggle_button_clear_button:${menuId}:${!menu.enableButtonClearRolesButton}`)
       .setLabel(`Button Clear: ${menu.enableButtonClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
       .setStyle(menu.enableButtonClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setDisabled(!menu.selectionType.includes("button")) // Disable if not relevant for button
   );
   console.log("[showMenuConfiguration] row5_clear_buttons_toggles created.");
 
