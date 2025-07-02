@@ -894,10 +894,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "type") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", flags: MessageFlags.Ephemeral });
-          let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
-          await db.saveSelectionType(menuId, selectedTypes);
-
-          // After setting type, prompt user to select roles for the chosen type(s)
+          
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           if (allRoles.size === 0) {
             await interaction.editReply({
@@ -908,27 +905,55 @@ client.on("interactionCreate", async (interaction) => {
             return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
           }
 
-          // If "both" is selected, start with dropdown roles, otherwise proceed with the single type.
-          const nextType = type === "both" ? "dropdown" : type;
-          const currentRoles = (menu[nextType + "Roles"] || []); // Get currently saved roles for this type
+          if (type === "both") {
+            // Save selection type first
+            await db.saveSelectionType(menuId, ["dropdown", "button"]);
 
-          const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
-            .setPlaceholder(`Select your ${nextType} roles...`)
-            .setMinValues(0)
-            .setMaxValues(Math.min(allRoles.size, 25))
-            .addOptions(allRoles.map((r) => ({
-                label: r.name,
-                value: r.id,
-                default: currentRoles.includes(r.id) // Pre-select if already saved
-            })));
+            // Then prompt for dropdown roles
+            const menu = db.getMenu(menuId); // Re-fetch menu after saving type
+            const currentDropdownRoles = (menu.dropdownRoles || []);
 
-          await interaction.editReply({
-            content: `✅ Selection type saved. Now select roles for **${nextType}** (you can select multiple):`,
-            components: [new ActionRowBuilder().addComponents(select)],
-            flags: MessageFlags.Ephemeral
-          });
-          return; // Do not call showMenuConfiguration immediately, wait for role selection
+            const select = new StringSelectMenuBuilder()
+              .setCustomId(`rr:selectroles:dropdown:${menuId}:next_button_roles`) // Indicate next step
+              .setPlaceholder("Select your dropdown roles...")
+              .setMinValues(0)
+              .setMaxValues(Math.min(allRoles.size, 25))
+              .addOptions(allRoles.map((r) => ({
+                  label: r.name,
+                  value: r.id,
+                  default: currentDropdownRoles.includes(r.id)
+              })));
+
+            await interaction.editReply({
+              content: `✅ Selection type saved. Now select roles for **dropdown** (you can select multiple):`,
+              components: [new ActionRowBuilder().addComponents(select)],
+              flags: MessageFlags.Ephemeral
+            });
+            return;
+          } else {
+            // For single type selection (dropdown or button)
+            await db.saveSelectionType(menuId, [type]);
+            const menu = db.getMenu(menuId); // Re-fetch menu after saving type
+            const currentRoles = (menu[type + "Roles"] || []);
+
+            const select = new StringSelectMenuBuilder()
+              .setCustomId(`rr:selectroles:${type}:${menuId}`)
+              .setPlaceholder(`Select your ${type} roles...`)
+              .setMinValues(0)
+              .setMaxValues(Math.min(allRoles.size, 25))
+              .addOptions(allRoles.map((r) => ({
+                  label: r.name,
+                  value: r.id,
+                  default: currentRoles.includes(r.id)
+              })));
+
+            await interaction.editReply({
+              content: `✅ Selection type saved. Now select roles for **${type}** (you can select multiple):`,
+              components: [new ActionRowBuilder().addComponents(select)],
+              flags: MessageFlags.Ephemeral
+            });
+            return;
+          }
         }
 
         if (action === "addemoji") {
@@ -1240,7 +1265,7 @@ client.on("interactionCreate", async (interaction) => {
       const action = parts[1];
       // Note: parts[2] and parts[3] can vary based on the customId structure
       // For 'selectmenu', parts[2] is the menuId.
-      // For 'selectroles', parts[2] is the type, parts[3] is the menuId.
+      // For 'selectroles', parts[2] is the type, parts[3] is the menuId, parts[4] can be 'next_button_roles'.
       // For 'reorder_dropdown'/'reorder_button', parts[2] is the menuId.
       // For 'select_trigger_role', parts[2] is the menuId.
       // For 'select_exclusion_roles', parts[2] is triggerRoleId, parts[3] is menuId.
@@ -1260,6 +1285,7 @@ client.on("interactionCreate", async (interaction) => {
           const selectedRoleIds = interaction.values;
           const type = parts[2]; // 'dropdown' or 'button'
           const menuId = parts[3];
+          const nextStep = parts[4]; // Will be 'next_button_roles' if applicable
           
           const menu = db.getMenu(menuId);
           if (!menu) {
@@ -1268,13 +1294,13 @@ client.on("interactionCreate", async (interaction) => {
 
           if (type === "dropdown") {
             await db.saveRoles(menuId, selectedRoleIds, "dropdown");
-            // If the menu was set to "both", now prompt for button roles
-            if (menu.selectionType.includes("button") && !menu.buttonRolesConfigured) { // Assuming a flag to track completion
+            // If the menu was set to "both" and this was the first step (dropdown roles)
+            if (menu.selectionType.includes("button") && nextStep === "next_button_roles") {
                 const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
                 const currentButtonRoles = (menu.buttonRoles || []);
 
                 const select = new StringSelectMenuBuilder()
-                    .setCustomId(`rr:selectroles:button:${menuId}`)
+                    .setCustomId(`rr:selectroles:button:${menuId}`) // No next step for the final selection
                     .setPlaceholder("Select your button roles...")
                     .setMinValues(0)
                     .setMaxValues(Math.min(allRoles.size, 25))
