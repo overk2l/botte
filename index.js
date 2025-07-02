@@ -22,30 +22,30 @@ const {
 const { initializeApp } = require('firebase/app');
 const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, getDocs } = require('firebase/firestore');
 
-// Initialize Firebase (using global variables provided by Canvas)
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// Initialize Firebase (using environment variables)
+// You can set APP_ID in your .env or PM2 config if needed, otherwise 'default-app-id'
+const appId = process.env.APP_ID || 'default-app-id'; // <--- CHANGED: Now uses process.env.APP_ID
 let firebaseConfig = {};
 try {
-  if (typeof __firebase_config !== 'undefined' && __firebase_config) { // Check if not undefined and not empty string
-    firebaseConfig = JSON.parse(__firebase_config);
+  // Expecting FIREBASE_CONFIG to be a JSON string in process.env
+  if (process.env.FIREBASE_CONFIG) { // <--- CRUCIAL CHANGE: Now uses process.env.FIREBASE_CONFIG
+    firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+  } else {
+    console.warn("[Firebase Init Warning] FIREBASE_CONFIG environment variable is not set. Using dummy projectId.");
   }
 } catch (e) {
-  console.error("[Firebase Init Error] Could not parse __firebase_config:", e);
-  // Fallback to an empty config if parsing fails
-  firebaseConfig = {};
+  console.error("[Firebase Init Error] Could not parse FIREBASE_CONFIG:", e); // <--- CHANGED: Error message reflects new var
+  firebaseConfig = {}; // Fallback to an empty config if parsing fails
 }
 
 // Ensure projectId is present, even if it's a placeholder for debugging
 if (!firebaseConfig.projectId) {
-  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure __firebase_config is correctly provided by the environment.");
-  // Provide a dummy projectId to allow initializeApp to proceed without immediate crash,
-  // but further Firestore operations will fail without a real project.
+  console.error("[Firebase Init Error] 'projectId' is missing from firebaseConfig. Please ensure FIREBASE_CONFIG is correctly provided by the environment."); // <--- CHANGED: Error message reflects new var
   firebaseConfig.projectId = 'missing-project-id';
 }
 
 const firebaseApp = initializeApp(firebaseConfig);
 const dbFirestore = getFirestore(firebaseApp);
-
 // Webhook management helper
 async function getOrCreateWebhook(channel, name = "Role Menu Webhook") {
   const webhooks = await channel.fetchWebhooks();
