@@ -671,8 +671,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("rr:raw_embed_json:")) || // Added for raw JSON embed
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
+    (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) || // Updated: now a prompt button
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_menu_for_raw_json:")) // New: for selecting menu for raw JSON
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -732,7 +733,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select", "raw_embed_json"].includes(action)) { // Added raw_embed_json
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button'
@@ -1304,22 +1305,30 @@ client.on("interactionCreate", async (interaction) => {
           return promptManageRoles(interaction, menuId, type); // Call the new helper function
         }
 
-        if (action === "raw_embed_json") { // New action for raw JSON embed input
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:raw_embed_json:${menuId}`)
-            .setTitle("Input Raw Embed JSON")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("raw_json_input")
-                  .setLabel("Paste Embed JSON Here")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder('{"color": 16711680, "thumbnail": {"url": "https://example.com/thumb.png"}, ...}')
-              )
-            );
-          return interaction.showModal(modal);
+        if (action === "prompt_raw_embed_json") { // New action for raw JSON embed input
+          const menus = db.getMenus(interaction.guild.id);
+          if (menus.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No menus found to apply raw JSON to. Please create a menu first.", "#FF0000", "No Menus");
+          }
+
+          const menuOptions = menus.slice(0, 25).map((menu) => ({ 
+            label: menu.name.substring(0, 100), 
+            value: menu.id,
+            description: menu.desc ? menu.desc.substring(0, 100) : undefined
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_menu_for_raw_json`)
+            .setPlaceholder("Select a menu to input raw embed JSON for...")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(menuOptions);
+          
+          return interaction.editReply({
+            content: "Please select the menu you want to apply raw embed JSON to:",
+            components: [new ActionRowBuilder().addComponents(selectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
         }
       }
     }
@@ -1428,6 +1437,26 @@ client.on("interactionCreate", async (interaction) => {
                   .setRequired(false)
                   .setPlaceholder("A short description for this role.")
                   .setValue(currentDescription)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "select_menu_for_raw_json") { // New handler for selecting menu for raw JSON
+          const menuId = interaction.values[0];
+          if (!menuId) return sendEphemeralEmbed(interaction, "No menu selected.", "#FF0000", "Error");
+          
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:raw_embed_json:${menuId}`)
+            .setTitle("Input Raw Embed JSON")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("raw_json_input")
+                  .setLabel("Paste Embed JSON Here")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('{"color": 16711680, "thumbnail": {"url": "https://example.com/thumb.png"}, ...}')
               )
             );
           return interaction.showModal(modal);
@@ -2018,12 +2047,17 @@ async function showReactionRolesDashboard(interaction) {
         .setStyle(ButtonStyle.Success)
         .setEmoji("➕");
 
+    const rawJsonButton = new ButtonBuilder() // New button for raw JSON embed
+        .setCustomId(`rr:prompt_raw_embed_json`) // Changed customId to prompt for selection
+        .setLabel("Input Raw Embed JSON")
+        .setStyle(ButtonStyle.Secondary);
+
     const backButton = new ButtonBuilder()
         .setCustomId("dash:back")
         .setLabel("Back to Dashboard")
         .setStyle(ButtonStyle.Secondary);
 
-    components.push(new ActionRowBuilder().addComponents(createButton, backButton));
+    components.push(new ActionRowBuilder().addComponents(createButton, rawJsonButton, backButton)); // Added rawJsonButton
 
     try {
         await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
@@ -2205,11 +2239,7 @@ async function showMenuConfiguration(interaction, menuId) {
     new ButtonBuilder()
       .setCustomId(`rr:custom_messages:${menuId}`)
       .setLabel("Custom Messages")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder() // New button for raw JSON embed
-      .setCustomId(`rr:raw_embed_json:${menuId}`)
-      .setLabel("Input Raw Embed JSON")
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Primary)
   );
 
   if (menu.useWebhook) {
