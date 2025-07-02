@@ -410,10 +410,15 @@ function parseEmoji(emoji) {
     };
   }
   
-  // For unicode emojis, simply return the emoji as the name.
-  // Discord.js handles most common unicode emojis when passed this way.
-  // Removed the \p{Emoji}/u check for broader Node.js compatibility.
-  return { name: emoji };
+  // For unicode emojis, we'll assume short strings (1-4 characters)
+  // are intended as direct unicode emojis. This is a heuristic to prevent
+  // passing arbitrary long strings as emoji names, which Discord's API might reject.
+  if (emoji.length > 0 && emoji.length <= 4) {
+      return { name: emoji };
+  }
+
+  // If it's not a custom emoji and not a short string (potential unicode emoji), return undefined.
+  return undefined;
 }
 
 /**
@@ -526,7 +531,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
         const components = [];
 
         // Rebuild Dropdown Select Menu
-        if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
+        if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
             const dropdownOptions = (menu.dropdownRoleOrder.length > 0
                 ? menu.dropdownRoleOrder
                 : menu.dropdownRoles
@@ -554,7 +559,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
         }
 
         // Rebuild Buttons
-        if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
+        if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
             const buttonRows = [];
             let currentRow = new ActionRowBuilder();
             const orderedButtonRoles = menu.buttonRoleOrder.length > 0
@@ -674,8 +679,6 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) || // This button directly shows a modal
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
-    // Removed: (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select:menu_for_raw_json"))
-    // Removed: (interaction.isModalSubmit() && interaction.customId.startsWith("rr:modal:raw_embed_json:")) // This was incorrect here
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -695,8 +698,9 @@ client.on("interactionCreate", async (interaction) => {
       );
       
       if (relevantInteraction && !interaction.replied) {
+        // Use a different ephemeral message for the Firebase warning, so it doesn't conflict with other replies
         await interaction.followUp({
-          content: "⚠️ **Warning: Firebase is not configured.** Your bot's data (menus, roles, etc.) will not persist between restarts. To enable persistence, set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration.",
+          content: "⚠️ **WARNING: FIREBASE IS NOT CONFIGURED!** Your bot's data (menus, roles, etc.) will **NOT** persist between restarts. To enable persistence, please set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration. If you're seeing 'menu no longer valid' errors, this is likely the cause.",
           flags: MessageFlags.Ephemeral
         }).catch(e => console.error("Error sending Firebase warning:", e));
       }
@@ -1771,23 +1775,26 @@ client.on("interactionCreate", async (interaction) => {
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
 
+        console.log(`[Interaction] Role interaction: customId=${interaction.customId}`); // Log customId
+        const parts = interaction.customId.split(":");
+        console.log(`[Interaction] Custom ID parts: ${JSON.stringify(parts)}`); // Log parts
+
         // Ensure interaction is deferred if it wasn't already
         if (!interaction.replied && !interaction.deferred) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
         }
 
-        const parts = interaction.customId.split(":");
         const menuId = parts[1];
         
         if (!menuId) {
-            console.error(`No menuId found in customId: ${interaction.customId}`);
+            console.error(`[Error] No menuId found in customId: ${interaction.customId}`);
             return sendEphemeralEmbed(interaction, "❌ Invalid interaction. Please try again.", "#FF0000", "Error");
         }
         
         const menu = db.getMenu(menuId);
         if (!menu) {
-            console.error(`Attempted to access non-existent menu with ID: ${menuId} during user interaction.`);
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
+            console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId} during user interaction. CustomId: ${interaction.customId}`);
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error");
         }
 
         const selectedInteractionRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
@@ -2284,7 +2291,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
   const components = [];
 
   // Dropdown Select Menu
-  if (menu.selectionType.includes("dropdown") && menu.dropdownRoles.length > 0) {
+  if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
     const dropdownOptions = (menu.dropdownRoleOrder.length > 0
       ? menu.dropdownRoleOrder
       : menu.dropdownRoles
@@ -2312,7 +2319,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
   }
 
   // Buttons
-  if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
+  if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
     const buttonRows = [];
     let currentRow = new ActionRowBuilder();
     const orderedButtonRoles = menu.buttonRoleOrder.length > 0
