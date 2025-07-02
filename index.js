@@ -2181,7 +2181,7 @@ async function showMenuConfiguration(interaction, menuId) {
   const row_emojis_reorder = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:addemoji:dropdown:${menuId}`)
-      .setLabel("Add Dropdown Emojis")
+      .setLabel("Add Dropdown Eojis")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.dropdownRoles.length),
     new ButtonBuilder()
