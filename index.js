@@ -2041,7 +2041,7 @@ async function showMenuConfiguration(interaction, menuId) {
     }
   );
 
-  // --- Buttons for Publishing and Deleting ---
+  // --- Buttons for Publishing and Deleting (Row 1) ---
   const row_publish_delete = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:publish:${menuId}`)
@@ -2068,7 +2068,8 @@ async function showMenuConfiguration(interaction, menuId) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  const row1_role_types = new ActionRowBuilder().addComponents(
+  // --- Role Type Toggles & Management (Row 2) ---
+  const row_role_types_and_management = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:toggle_type:dropdown:${menuId}`)
       .setLabel(menu.selectionType.includes("dropdown") ? "Disable Dropdown Roles" : "Enable Dropdown Roles")
@@ -2077,9 +2078,6 @@ async function showMenuConfiguration(interaction, menuId) {
       .setCustomId(`rr:toggle_type:button:${menuId}`)
       .setLabel(menu.selectionType.includes("button") ? "Disable Button Roles" : "Enable Button Roles")
       .setStyle(menu.selectionType.includes("button") ? ButtonStyle.Danger : ButtonStyle.Primary),
-  );
-
-  const row_manage_roles = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:manage_roles:dropdown:${menuId}`)
       .setLabel("Manage Dropdown Roles")
@@ -2092,7 +2090,8 @@ async function showMenuConfiguration(interaction, menuId) {
       .setDisabled(!menu.selectionType.includes("button")) // Only enable if button type is set
   );
 
-  const row2_emojis_reorder = new ActionRowBuilder().addComponents(
+  // --- Emojis & Reordering (Row 3) ---
+  const row_emojis_reorder = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:addemoji:dropdown:${menuId}`)
       .setLabel("Add Dropdown Emojis")
@@ -2115,7 +2114,8 @@ async function showMenuConfiguration(interaction, menuId) {
       .setDisabled(menu.buttonRoles.length <= 1)
   );
 
-  const row3_limits_exclusions_descriptions = new ActionRowBuilder().addComponents(
+  // --- Limits, Exclusions, Descriptions (Row 4) ---
+  const row_limits_exclusions_descriptions = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:setlimits:${menuId}`)
       .setLabel("Set Regional Limits & Max Roles")
@@ -2131,10 +2131,9 @@ async function showMenuConfiguration(interaction, menuId) {
       .setDisabled(!menu.dropdownRoles.length)
   );
 
-  const row4_customize_messages_webhook = new ActionRowBuilder();
-  
-  // Add customize buttons first
-  row4_customize_messages_webhook.addComponents(
+  // --- Customization & Webhook (Row 5) ---
+  const row_customization_webhook = new ActionRowBuilder();
+  row_customization_webhook.addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:customize_embed:${menuId}`)
       .setLabel("Customize Embed")
@@ -2148,11 +2147,9 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Custom Messages")
       .setStyle(ButtonStyle.Primary)
   );
-  
-  // Add webhook buttons based on current state
+
   if (menu.useWebhook) {
-    // Webhook is enabled, show disable button and config button
-    row4_customize_messages_webhook.addComponents(
+    row_customization_webhook.addComponents(
       new ButtonBuilder()
         .setCustomId(`rr:toggle_webhook:${menuId}`)
         .setLabel("Disable Webhook")
@@ -2163,8 +2160,7 @@ async function showMenuConfiguration(interaction, menuId) {
         .setStyle(ButtonStyle.Primary)
     );
   } else {
-    // Webhook is disabled, only show enable button
-    row4_customize_messages_webhook.addComponents(
+    row_customization_webhook.addComponents(
       new ButtonBuilder()
         .setCustomId(`rr:toggle_webhook:${menuId}`)
         .setLabel("Enable Webhook")
@@ -2172,16 +2168,13 @@ async function showMenuConfiguration(interaction, menuId) {
     );
   }
 
-  const allPossibleRows = [
+  const finalComponents = [
     row_publish_delete,
-    row1_role_types,
-    row_manage_roles,
-    row2_emojis_reorder,
-    row3_limits_exclusions_descriptions,
-    row4_customize_messages_webhook,
-  ];
-
-  const finalComponents = allPossibleRows.filter(row => row.components.length > 0).slice(0, 5); // Max 5 action rows
+    row_role_types_and_management,
+    row_emojis_reorder,
+    row_limits_exclusions_descriptions,
+    row_customization_webhook,
+  ].filter(row => row.components.length > 0); // Ensure no empty rows are added
 
   try {
     await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
