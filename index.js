@@ -624,12 +624,15 @@ client.on("interactionCreate", async (interaction) => {
   const isCustomizeFooterModal = interaction.isButton() && interaction.customId.startsWith("rr:customize_footer:");
   const isWebhookBrandingModal = interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:");
   const isCustomMessagesModal = interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:");
+  // Add reorder modals to deferral check
+  const isReorderDropdownModal = interaction.isButton() && interaction.customId.startsWith("rr:reorder_roles:dropdown:");
+  const isReorderButtonModal = interaction.isButton() && interaction.customId.startsWith("rr:reorder_roles:button:");
 
 
   // Only defer if it's not one of the specific interactions that immediately show a modal
   if (!interaction.replied && !interaction.deferred &&
     (interaction.isChatInputCommand() ||
-      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal || isCustomMessagesModal)) ||
+      (interaction.isButton() && !(isCreateModal || isAddEmojiModal || isSetLimitsModal || isCustomizeEmbedModal || isCustomizeFooterModal || isWebhookBrandingModal || isCustomMessagesModal || isReorderDropdownModal || isReorderButtonModal)) ||
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     )) {
@@ -701,8 +704,8 @@ client.on("interactionCreate", async (interaction) => {
           // No menuId needed yet, it's created in the modal submit
         } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
-        } else if (["type", "addemoji"].includes(action)) {
-          type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
+        } else if (["type", "addemoji", "reorder_roles"].includes(action)) { // Added reorder_roles
+          type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji; 'dropdown', 'button' for reorder_roles
           menuId = parts[3]; // For these actions, menuId is parts[3]
         } else if (["toggle_dropdown_clear_button", "toggle_button_clear_button"].includes(action)) {
           menuId = parts[2];
@@ -935,6 +938,48 @@ client.on("interactionCreate", async (interaction) => {
           }
           return interaction.showModal(modal); // showModal does not conflict with deferred reply
         }
+
+        // Handle Reorder Buttons
+        if (action === "reorder_roles") {
+          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing for reorder.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const rolesToReorder = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+          if (rolesToReorder.length <= 1) {
+            return interaction.editReply({ content: `Not enough roles to reorder for ${type} menu. Add more roles first.`, flags: MessageFlags.Ephemeral });
+          }
+
+          const reorderOptions = (type === "dropdown" ? menu.dropdownRoleOrder : menu.buttonRoleOrder)
+            .map(roleId => {
+              const role = interaction.guild.roles.cache.get(roleId);
+              return role ? { label: role.name, value: role.id } : null;
+            })
+            .filter(Boolean);
+
+          // If no specific order is set, use the default roles list
+          if (reorderOptions.length === 0 && rolesToReorder.length > 0) {
+              rolesToReorder.forEach(roleId => {
+                  const role = interaction.guild.roles.cache.get(roleId);
+                  if (role) reorderOptions.push({ label: role.name, value: role.id });
+              });
+          }
+
+
+          const reorderSelectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`rr:reorder_submit:${type}:${menuId}`)
+            .setPlaceholder(`Select roles in your desired order for ${type}...`)
+            .setMinValues(0)
+            .setMaxValues(reorderOptions.length) // Allow selecting all to define order
+            .addOptions(reorderOptions);
+
+          return interaction.editReply({
+            content: `Select the roles for the **${type}** menu in the order you want them to appear:`,
+            components: [new ActionRowBuilder().addComponents(reorderSelectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
 
         if (action === "setlimits") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
@@ -1253,9 +1298,10 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
-        if (action === "reorder_dropdown" || action === "reorder_button") {
+        // Handle Reorder Select Menu Submission
+        if (action === "reorder_submit") {
           const currentOrder = interaction.values;
-          const type = action.split("_")[1]; // "dropdown" or "button"
+          const type = typeOrTriggerId; // 'dropdown' or 'button'
           const targetMenuId = menuId; // menuId is at parts[3]
           await db.saveRoleOrder(targetMenuId, currentOrder, type);
           await interaction.editReply({ content: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, components: [], flags: MessageFlags.Ephemeral });
@@ -1272,7 +1318,7 @@ client.on("interactionCreate", async (interaction) => {
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "No other roles available to set as exclusions.", flags: MessageFlags.Ephemeral });
           }
 
           const selectExclusionRoles = new StringSelectMenuBuilder()
@@ -1871,12 +1917,12 @@ async function showMenuConfiguration(interaction, menuId) {
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.buttonRoles.length),
     new ButtonBuilder()
-      .setCustomId(`rr:reorder_dropdown:${menuId}`)
+      .setCustomId(`rr:reorder_roles:dropdown:${menuId}`) // Changed customId for reorder
       .setLabel("Reorder Dropdown Roles")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(menu.dropdownRoles.length <= 1),
     new ButtonBuilder()
-      .setCustomId(`rr:reorder_button:${menuId}`)
+      .setCustomId(`rr:reorder_roles:button:${menuId}`) // Changed customId for reorder
       .setLabel("Reorder Button Roles")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(menu.buttonRoles.length <= 1)
