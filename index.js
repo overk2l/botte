@@ -258,7 +258,7 @@ const db = { // This in-memory map will now be synchronized with Firestore
     if (guildMenus) {
       const index = guildMenus.indexOf(menuId);
       if (index > -1) {
-        guildMenus.splice(0, 1); // Fix: Use splice(index, 1) to remove the correct element
+        guildMenus.splice(index, 1); // Corrected: Use splice(index, 1) to remove the correct element
       }
     }
     this.menuData.delete(menuId);
@@ -346,22 +346,29 @@ client.once("ready", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  // Defer reply at the beginning for commands and component interactions
+  if (interaction.isChatInputCommand() || interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+    // Only defer if not already replied or deferred to avoid errors
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.deferReply({ ephemeral: true }).catch(e => console.error("Error deferring reply:", e));
+    }
+  }
+
   // Check Firebase configuration at the start of every interaction
   if (firebaseConfig.projectId === 'missing-project-id') {
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) { // Only send if not already replied/deferred
-      await interaction.reply({
-        content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
-        ephemeral: true
-      }).catch(e => console.error("Error sending Firebase config warning:", e));
-    }
-    // Continue processing, but data operations will be in-memory or skipped as per db functions
+    // Use followUp since the interaction is now deferred
+    await interaction.followUp({
+      content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
+      ephemeral: true
+    }).catch(e => console.error("Error sending Firebase config warning:", e));
   }
 
   try {
     // 1. Dashboard Permissions Check
     if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        return interaction.reply({ content: "❌ You need Administrator permissions to use the dashboard.", ephemeral: true });
+        // Use editReply since it's already deferred
+        return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", ephemeral: true });
       }
       return sendMainDashboard(interaction);
     }
@@ -384,7 +391,7 @@ client.on("interactionCreate", async (interaction) => {
       if (ctx === "rr") {
         // All dashboard-related buttons should also have a permission check
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
 
         // Assign menuId, type, newState based on action within the rr context
@@ -413,37 +420,38 @@ client.on("interactionCreate", async (interaction) => {
                 new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true)
               )
             );
+          // Show modal doesn't need editReply as it's a new interaction type
           return interaction.showModal(modal);
         }
 
         if (action === "publish") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", ephemeral: true });
           return publishMenu(interaction, menuId);
         }
 
         if (action === "edit_published") {
-            if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
-                return interaction.reply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
+                return interaction.editReply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
             }
             const channel = interaction.guild.channels.cache.get(menu.channelId);
-            if (!channel) return interaction.reply({ content: "❌ Published channel not found.", ephemeral: true });
+            if (!channel) return interaction.editReply({ content: "❌ Published channel not found.", ephemeral: true });
 
             try {
                 const message = await channel.messages.fetch(menu.messageId);
                 return publishMenu(interaction, menuId, message);
             } catch (error) {
                 console.error("Error fetching message to edit:", error);
-                return interaction.reply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
+                return interaction.editReply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
             }
         }
 
         if (action === "delete_published") {
-            if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
             const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
-                return interaction.reply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
+                return interaction.editReply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
             }
 
             const confirmButton = new ButtonBuilder()
@@ -456,7 +464,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setStyle(ButtonStyle.Secondary);
             const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
-            return interaction.reply({
+            return interaction.editReply({
                 content: "⚠️ Are you sure you want to delete the published reaction role message? This cannot be undone.",
                 components: [row],
                 ephemeral: true
@@ -464,15 +472,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "confirm_delete_published") {
-            if (!menuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
             const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
-                return interaction.update({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
+                return interaction.editReply({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
             }
             const channel = interaction.guild.channels.cache.get(menu.channelId);
             if (!channel) {
                 await db.clearMessageId(menuId);
-                return interaction.update({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
+                return interaction.editReply({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
             }
 
             try {
@@ -480,7 +488,7 @@ client.on("interactionCreate", async (interaction) => {
                 await message.delete();
                 // Only clear message ID, don't delete the entire menu from Firestore
                 await db.clearMessageId(menuId);
-                await interaction.update({
+                await interaction.editReply({
                     content: "✅ Published message deleted successfully!",
                     components: [],
                     ephemeral: true
@@ -489,7 +497,7 @@ client.on("interactionCreate", async (interaction) => {
             } catch (error) {
                 console.error("Error deleting message:", error);
                 await db.clearMessageId(menuId);
-                return interaction.update({
+                return interaction.editReply({
                     content: "❌ Failed to delete message. Message ID cleared.",
                     ephemeral: true
                 });
@@ -497,12 +505,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "cancel_delete_published") {
-            if (!menuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
-            return interaction.update({ content: "Deletion cancelled.", components: [], ephemeral: true });
+            if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
+            return interaction.editReply({ content: "Deletion cancelled.", components: [], ephemeral: true });
         }
 
         if (action === "type") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
           await db.saveSelectionType(menuId, selectedTypes);
 
@@ -514,19 +522,19 @@ client.on("interactionCreate", async (interaction) => {
             .setMaxValues(Math.min(allRoles.size, 25))
             .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
 
-          return interaction.update({
+          return interaction.editReply({
             content: `✅ Selection type saved. Now select roles for **${nextType}**:`,
             components: [new ActionRowBuilder().addComponents(select)],
           });
         }
 
         if (action === "addemoji") {
-          if (!menuId || !type) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
+          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
-          if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
+          if (!roles.length) return interaction.editReply({ content: `No roles found for ${type}.`, ephemeral: true });
 
           const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${menuId}`).setTitle(`Add Emojis for ${type}`);
 
@@ -547,13 +555,13 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
           }
-          return interaction.showModal(modal);
+          return interaction.showModal(modal); // showModal does not conflict with deferred reply
         }
 
         if (action === "setlimits") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:setlimits:${menuId}`)
@@ -611,12 +619,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setexclusions") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
-          if (!allRoles.size) return interaction.reply({ content: "No roles available to set exclusions.", ephemeral: true });
+          if (!allRoles.size) return interaction.editReply({ content: "No roles available to set exclusions.", ephemeral: true });
 
           const selectTriggerRole = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_trigger_role:${menuId}`)
@@ -625,7 +633,7 @@ client.on("interactionCreate", async (interaction) => {
             .setMaxValues(1)
             .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
 
-          return interaction.update({
+          return interaction.editReply({
             content: "Please select the role that, when picked, should remove other roles:",
             components: [new ActionRowBuilder().addComponents(selectTriggerRole)],
             ephemeral: true
@@ -633,9 +641,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_embed") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:customize_embed:${menuId}`)
@@ -691,9 +699,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_footer") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:customize_footer:${menuId}`)
@@ -723,14 +731,14 @@ client.on("interactionCreate", async (interaction) => {
 
         // New webhook toggle button handler
         if (action === "toggle_webhook") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const newStateBoolean = !menu.useWebhook; // Get the actual boolean state
           await db.saveWebhookSettings(menuId, { useWebhook: newStateBoolean });
 
-          await interaction.reply({
+          await interaction.editReply({
             content: `✅ Webhook sending is now ${newStateBoolean ? "ENABLED" : "DISABLED"}`,
             ephemeral: true
           });
@@ -739,9 +747,9 @@ client.on("interactionCreate", async (interaction) => {
 
         // Webhook branding configuration handler
         if (action === "config_webhook") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:webhook_branding:${menuId}`)
@@ -769,12 +777,12 @@ client.on("interactionCreate", async (interaction) => {
 
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
         if (action === "toggle_button_clear_button") {
-          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
           await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
@@ -790,7 +798,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
 
         if (action === "selectmenu") {
@@ -802,7 +810,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "selectroles") {
           const selectedRoleIds = interaction.values;
           await db.saveRoles(menuId, selectedRoleIds, type);
-          await interaction.update({
+          await interaction.editReply({
             content: `✅ Roles saved for ${type}.`,
             components: []
           });
@@ -814,7 +822,7 @@ client.on("interactionCreate", async (interaction) => {
           const type = action.split("_")[1]; // "dropdown" or "button"
           const targetMenuId = menuId; // menuId is at parts[3]
           await db.saveRoleOrder(targetMenuId, currentOrder, type);
-          await interaction.update({ content: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, components: [] });
+          await interaction.editReply({ content: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, components: [] });
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
@@ -823,12 +831,12 @@ client.on("interactionCreate", async (interaction) => {
           const targetMenuId = type; // menuId is at parts[2]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
           }
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return interaction.update({ content: "No other roles available to set as exclusions for this trigger role.", components: [], ephemeral: true });
+            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", components: [], ephemeral: true });
           }
 
           const selectExclusionRoles = new StringSelectMenuBuilder()
@@ -842,7 +850,7 @@ client.on("interactionCreate", async (interaction) => {
               default: (menu.exclusionMap[triggerRoleId] || []).includes(r.id)
             })));
 
-          return interaction.update({
+          return interaction.editReply({
             content: `Now select roles to be **removed** when <@&${triggerRoleId}> is added:`,
             components: [new ActionRowBuilder().addComponents(selectExclusionRoles)],
             ephemeral: true
@@ -856,12 +864,12 @@ client.on("interactionCreate", async (interaction) => {
 
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
           }
           const newExclusionMap = { ...menu.exclusionMap, [triggerRoleId]: exclusionRoleIds };
           await db.saveExclusionMap(targetMenuId, newExclusionMap);
 
-          await interaction.update({ content: "✅ Exclusion roles saved!", components: [], ephemeral: true });
+          await interaction.editReply({ content: "✅ Exclusion roles saved!", components: [], ephemeral: true });
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
@@ -870,7 +878,7 @@ client.on("interactionCreate", async (interaction) => {
           const targetMenuId = menuId; // menuId is at parts[3]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.update({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
           }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
@@ -910,10 +918,11 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
 
-        await interaction.deferUpdate();
+        // Defer update is already handled at the beginning of interactionCreate
+        // await interaction.deferUpdate(); // REMOVED as it's now handled globally
 
         if (action === "modal") {
           if (modalType === "create") { // Use modalType instead of extra
@@ -1081,7 +1090,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:") || interaction.isButton() && interaction.customId.startsWith("rr-role-button:")) {
         const menuId = interaction.customId.split(":")[1];
         const menu = db.getMenu(menuId);
-        if (!menu) return interaction.reply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
 
         const selectedRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
 
@@ -1110,7 +1119,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0 && totalRolesAfterAdd > menu.maxRolesLimit) {
-            return interaction.reply({ content: menu.limitExceededMessage, ephemeral: true });
+            return interaction.editReply({ content: menu.limitExceededMessage, ephemeral: true });
         }
 
         // Check regional limits
@@ -1120,7 +1129,7 @@ client.on("interactionCreate", async (interaction) => {
 
         const regionalViolations = checkRegionalLimits(interaction.member, menu, combinedRolesForLimitCheck);
         if (regionalViolations.length > 0) {
-            return interaction.reply({ content: regionalViolations.join("\n"), ephemeral: true });
+            return interaction.editReply({ content: regionalViolations.join("\n"), ephemeral: true });
         }
 
         for (const roleId of selectedRoleIds) {
@@ -1148,16 +1157,16 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           if (messages.length > 0) {
-            await interaction.reply({ content: messages.join("\n"), ephemeral: true });
+            await interaction.editReply({ content: messages.join("\n"), ephemeral: true });
           } else {
-            await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+            await interaction.editReply({ content: "No changes made to your roles.", ephemeral: true });
           }
         } catch (error) {
           console.error("Error updating roles:", error);
           if (error.code === 50013) {
-              await interaction.reply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+              await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
           } else {
-              await interaction.reply({ content: "❌ There was an error updating your roles.", ephemeral: true });
+              await interaction.editReply({ content: "❌ There was an error updating your roles.", ephemeral: true });
           }
         }
     }
@@ -1165,31 +1174,35 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
       const menuId = interaction.customId.split(":")[1];
       const menu = db.getMenu(menuId);
-      if (!menu) return interaction.reply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+      if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
 
       const allMenuRoleIds = [...menu.dropdownRoles, ...menu.buttonRoles];
       const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
 
       if (rolesToRemove.length === 0) {
-        return interaction.reply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
+        return interaction.editReply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
       }
 
       try {
         await interaction.member.roles.remove(rolesToRemove);
-        await interaction.reply({ content: "✅ All roles from this menu have been cleared.", ephemeral: true });
+        await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", ephemeral: true });
       } catch (error) {
         console.error("Error clearing roles:", error);
         if (error.code === 50013) {
-            await interaction.reply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+            await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
         } else {
-        await interaction.reply({ content: "❌ There was an error clearing your roles.", ephemeral: true });        }
+        await interaction.editReply({ content: "❌ There was an error clearing your roles.", ephemeral: true });        }
       }
     }
 
   } catch (error) {
     console.error("Error handling interaction:", error);
     if (!interaction.replied && !interaction.deferred) {
+      // If an error occurs before defer or reply, send a fresh reply
       await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
+    } else if (interaction.deferred) {
+      // If deferred, but an error occurred before editing, edit the reply
+      await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
     }
   }
 });
@@ -1208,7 +1221,8 @@ async function sendMainDashboard(interaction) {
       .setLabel("Reaction Roles")
       .setStyle(ButtonStyle.Primary)
   );
-  await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+  // Use editReply now that interaction is deferred
+  await interaction.editReply({ embeds: [embed], components: [row], ephemeral: true });
 }
 
 async function showReactionRolesDashboard(interaction) {
@@ -1252,13 +1266,13 @@ async function showReactionRolesDashboard(interaction) {
 
   try {
     console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
-    await interaction.update({ embeds: [embed], components, ephemeral: true });
+    // Use editReply now that interaction is deferred
+    await interaction.editReply({ embeds: [embed], components, ephemeral: true });
     console.log("[showReactionRolesDashboard] Interaction updated successfully.");
   } catch (error) {
     console.error("[showReactionRolesDashboard] Error updating interaction:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", ephemeral: true });
-    }
+    // If an error occurs after deferring, use editReply
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
   }
 }
 
@@ -1266,27 +1280,19 @@ async function showMenuConfiguration(interaction, menuId) {
   // Add validation at the start of the function
   if (!menuId || typeof menuId !== 'string' || menuId.length < 5) {
     console.error(`Invalid menuId: ${menuId}`);
-    if (interaction.replied || interaction.deferred) {
-      return interaction.followUp({
-        content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
-        ephemeral: true
-      }).catch(e => console.error("Error sending followUp for invalid menuId:", e));
-    }
-    return interaction.reply({
+    // Use editReply as interaction is now deferred globally
+    return interaction.editReply({
       content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
       ephemeral: true
-    });
+    }).catch(e => console.error("Error editing deferred reply for invalid menuId:", e));
   }
 
   console.log(`[showMenuConfiguration] Function called for menuId: ${menuId}`);
   const menu = db.getMenu(menuId);
   if (!menu) {
     console.error(`[showMenuConfiguration] Menu not found for ID: ${menuId}`);
-    // If interaction is already replied/deferred, use followUp, otherwise reply.
-    if (interaction.replied || interaction.deferred) {
-        return interaction.followUp({ content: "Menu not found.", ephemeral: true }).catch(e => console.error("Error sending followUp:", e));
-    }
-    return interaction.reply({ content: "Menu not found.", ephemeral: true });
+    // Use editReply as interaction is now deferred globally
+    return interaction.editReply({ content: "Menu not found.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
   }
   console.log(`[showMenuConfiguration] Menu data retrieved for ${menu.name}.`);
 
@@ -1473,37 +1479,19 @@ async function showMenuConfiguration(interaction, menuId) {
   console.log(`[showMenuConfiguration] Total final components to send: ${finalComponents.length}.`);
 
   try {
-    if (interaction.replied || interaction.deferred) {
-      console.log("[showMenuConfiguration] Interaction already replied/deferred, attempting to editReply.");
-      await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
-    } else {
-      console.log("[showMenuConfiguration] Interaction not replied/deferred, attempting to update/reply.");
-      if (interaction.isButton() || interaction.isStringSelectMenu()) {
-          await interaction.update({ embeds: [embed], components: finalComponents, ephemeral: true });
-      } else if (interaction.isChatInputCommand()) {
-          await interaction.reply({ embeds: [embed], components: finalComponents, ephemeral: true });
-      } else {
-          await interaction.deferReply({ ephemeral: true });
-          await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
-      }
-    }
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
     console.log("[showMenuConfiguration] Interaction response sent successfully.");
   } catch (error) {
     console.error("Error during interaction response:", error);
-    if (error.code === 10062) {
-        console.error("This often means the interaction token expired (3 seconds).");
-        await interaction.followUp({ content: "❌ It took too long to respond. Please try again.", ephemeral: true }).catch(e => console.error("Error sending followUp:", e));
-    } else if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true });
-    } else {
-        await interaction.followUp({ content: "❌ An error occurred after initial response. Please check console.", ephemeral: true }).catch(e => console.error("Error sending followUp for error:", e));
-    }
+    // If an error occurs after deferring, use editReply
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
   }
 }
 
 async function publishMenu(interaction, menuId, messageToEdit = null) {
   const menu = db.getMenu(menuId);
-  if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
+  if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
 
   const embed = new EmbedBuilder()
     .setTitle(menu.name)
@@ -1663,7 +1651,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     }
 
     await db.saveMessageId(menuId, interaction.channel.id, message.id);
-    await interaction.reply({
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({
       content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!`,
       ephemeral: true
     });
@@ -1679,7 +1668,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       errorMsg += error.message;
     }
 
-    await interaction.reply({ content: errorMsg, ephemeral: true });
+    // Use editReply now that interaction is deferred globally
+    await interaction.editReply({ content: errorMsg, ephemeral: true });
   }
 }
 
