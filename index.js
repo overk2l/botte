@@ -720,7 +720,7 @@ client.on("interactionCreate", async (interaction) => {
         } else if (["type", "addemoji"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
           menuId = parts[3]; // For these actions, menuId is parts[3]
-        } else if (["reorder_dropdown", "reorder_button"].includes(action)) { // ADDED for reorder button
+        } else if (["reorder_dropdown", "reorder_button"].includes(action)) { // ADDED for reorder modal
           type = action.split("_")[1]; // 'dropdown' or 'button'
           menuId = parts[2];
         }
@@ -918,7 +918,7 @@ client.on("interactionCreate", async (interaction) => {
               })));
 
             await interaction.editReply({
-              content: `✅ Selection type saved. Now select roles for **dropdown** (you can select multiple):`,
+              content: `✅ Selection type saved. Now select roles for **buttons** (you can select multiple):`,
               components: [new ActionRowBuilder().addComponents(select)],
               flags: MessageFlags.Ephemeral
             });
@@ -982,281 +982,70 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-      // --- Code for handling the Reorder Modal Submission in interactionCreate ---
-// Inside client.on("interactionCreate", async (interaction) => { ... }
-// And inside if (interaction.isButton()) { ... }
+        if (action === "reorder_dropdown" || action === "reorder_button") {
+          try {
+            // IMPORTANT: Defer the interaction first
+            await interaction.deferReply({ ephemeral: true });
+            
+            type = action.split("_")[1]; // 'dropdown' or 'button'
+            menuId = parts[2];
+            
+            const menu = db.getMenu(menuId);
+            if (!menu) {
+              return interaction.editReply({ 
+                content: "Menu not found.", 
+                ephemeral: true 
+              });
+            }
 
-// --- Code for handling the Reorder Modal Submission in interactionCreate ---
-// Inside client.on("interactionCreate", async (interaction) => { ... }
-// And inside if (interaction.isButton()) { ... }
+            // Use the actual roles array, not the order array for counting
+            const actualRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+            const currentOrder = type === "dropdown" 
+              ? (menu.dropdownRoleOrder || menu.dropdownRoles || []) 
+              : (menu.buttonRoleOrder || menu.buttonRoles || []);
+            
+            // Check if there are roles to reorder - use actualRoles for the count
+            if (actualRoles.length <= 1) {
+              return interaction.editReply({ 
+                content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
+                ephemeral: true 
+              });
+            }
 
-if (action === "reorder_dropdown" || action === "reorder_button") {
-  try {
-    // IMPORTANT: Defer the interaction first
-    await interaction.deferReply({ ephemeral: true });
-    
-    type = action.split("_")[1]; // 'dropdown' or 'button'
-    menuId = parts[2];
-    
-    const menu = db.getMenu(menuId);
-    if (!menu) {
-      return interaction.editReply({ 
-        content: "Menu not found.", 
-        ephemeral: true 
-      });
-    }
+            const modal = new ModalBuilder()
+              .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
+              .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
 
-    // Use the actual roles array, not the order array for counting
-    const actualRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-    const currentOrder = type === "dropdown" 
-      ? (menu.dropdownRoleOrder || menu.dropdownRoles || []) 
-      : (menu.buttonRoleOrder || menu.buttonRoles || []);
-    
-    // Check if there are roles to reorder - use actualRoles for the count
-    if (actualRoles.length <= 1) {
-      return interaction.editReply({ 
-        content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
-        ephemeral: true 
-      });
-    }
-
-    const modal = new ModalBuilder()
-      .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
-      .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role_ids_order")
-          .setLabel("Enter Role IDs in desired order (comma-separated)")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-          .setPlaceholder("roleId1, roleId2, roleId3")
-          .setValue(currentOrder.join(", "))
-      )
-    );
-    
-    // Delete the deferred reply before showing modal
-    await interaction.deleteReply();
-    return interaction.showModal(modal);
-    
-  } catch (error) {
-    console.error("Error in reorder button handler:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      return interaction.reply({ 
-        content: "An error occurred while preparing the reorder modal.", 
-        ephemeral: true 
-      });
-    } else {
-      return interaction.editReply({ 
-        content: "An error occurred while preparing the reorder modal." 
-      });
-    }
-  }
-}
-
-// --- Modal Submission Handler ---
-// Inside if (interaction.isModalSubmit()) { ... }
-// And inside if (ctx === "rr" && action === "modal") { ... }
-
-if (modalType === "reorder_roles") {
-  try {
-    // Defer the modal submission
-    await interaction.deferReply({ ephemeral: true });
-    
-    if (!currentMenuId || !type) {
-      return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
-    }
-    
-    const menu = db.getMenu(currentMenuId);
-    if (!menu) {
-      return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
-    }
-
-    const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
-    
-    // Validate input
-    if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
-      return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error");
-    }
-    
-    const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
-    
-    if (newOrderRaw.length === 0) {
-      return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error");
-    }
-
-    const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-    
-    if (existingRoles.length === 0) {
-      return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error");
-    }
-    
-    const newOrderValidated = [];
-    const seenRoleIds = new Set();
-
-    for (const roleId of newOrderRaw) {
-      if (existingRoles.includes(roleId) && !seenRoleIds.has(roleId)) {
-        newOrderValidated.push(roleId);
-        seenRoleIds.add(roleId);
-      } else if (!existingRoles.includes(roleId)) {
-        console.warn(`Role ID ${roleId} from reorder input not found in existing ${type} roles for menu ${currentMenuId}. Skipping.`);
-      } else if (seenRoleIds.has(roleId)) {
-        console.warn(`Duplicate role ID ${roleId} found in reorder input for menu ${currentMenuId}. Skipping duplicate.`);
-      }
-    }
-
-    // Ensure all original roles are still present, even if not explicitly reordered (append to end)
-    for (const existingRoleId of existingRoles) {
-      if (!seenRoleIds.has(existingRoleId)) {
-        newOrderValidated.push(existingRoleId);
-      }
-    }
-
-    // Validate that we have the same number of roles
-    if (newOrderValidated.length !== existingRoles.length) {
-      console.warn(`Mismatch in role count for menu ${currentMenuId}. Expected: ${existingRoles.length}, Got: ${newOrderValidated.length}`);
-    }
-
-    await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
-    
-    // Delete the deferred reply before showing the menu configuration
-    await interaction.deleteReply();
-    return showMenuConfiguration(interaction, currentMenuId);
-    
-  } catch (error) {
-    console.error("Error in reorder modal submission:", error);
-    
-    // Check if we can still respond
-    if (!interaction.replied && !interaction.deferred) {
-      return interaction.reply({ 
-        content: "An error occurred while reordering roles.", 
-        ephemeral: true 
-      });
-    } else {
-      return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
-    }
-  }
-}
-
-    const modal = new ModalBuilder()
-      .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
-      .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("role_ids_order")
-          .setLabel("Enter Role IDs in desired order (comma-separated)")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-          .setPlaceholder("roleId1, roleId2, roleId3")
-          .setValue(currentOrder.join(", "))
-      )
-    );
-    
-    // Delete the deferred reply before showing modal
-    await interaction.deleteReply();
-    return interaction.showModal(modal);
-    
-  } catch (error) {
-    console.error("Error in reorder button handler:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      return interaction.reply({ 
-        content: "An error occurred while preparing the reorder modal.", 
-        ephemeral: true 
-      });
-    } else {
-      return interaction.editReply({ 
-        content: "An error occurred while preparing the reorder modal." 
-      });
-    }
-  }
-}
-
-// --- Modal Submission Handler ---
-// Inside if (interaction.isModalSubmit()) { ... }
-// And inside if (ctx === "rr" && action === "modal") { ... }
-
-if (modalType === "reorder_roles") {
-  try {
-    // Defer the modal submission
-    await interaction.deferReply({ ephemeral: true });
-    
-    if (!currentMenuId || !type) {
-      return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
-    }
-    
-    const menu = db.getMenu(currentMenuId);
-    if (!menu) {
-      return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
-    }
-
-    const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
-    
-    // Validate input
-    if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
-      return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error");
-    }
-    
-    const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
-    
-    if (newOrderRaw.length === 0) {
-      return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error");
-    }
-
-    const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-    
-    if (existingRoles.length === 0) {
-      return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error");
-    }
-    
-    const newOrderValidated = [];
-    const seenRoleIds = new Set();
-
-    for (const roleId of newOrderRaw) {
-      if (existingRoles.includes(roleId) && !seenRoleIds.has(roleId)) {
-        newOrderValidated.push(roleId);
-        seenRoleIds.add(roleId);
-      } else if (!existingRoles.includes(roleId)) {
-        console.warn(`Role ID ${roleId} from reorder input not found in existing ${type} roles for menu ${currentMenuId}. Skipping.`);
-      } else if (seenRoleIds.has(roleId)) {
-        console.warn(`Duplicate role ID ${roleId} found in reorder input for menu ${currentMenuId}. Skipping duplicate.`);
-      }
-    }
-
-    // Ensure all original roles are still present, even if not explicitly reordered (append to end)
-    for (const existingRoleId of existingRoles) {
-      if (!seenRoleIds.has(existingRoleId)) {
-        newOrderValidated.push(existingRoleId);
-      }
-    }
-
-    // Validate that we have the same number of roles
-    if (newOrderValidated.length !== existingRoles.length) {
-      console.warn(`Mismatch in role count for menu ${currentMenuId}. Expected: ${existingRoles.length}, Got: ${newOrderValidated.length}`);
-    }
-
-    await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
-    
-    // Delete the deferred reply before showing the menu configuration
-    await interaction.deleteReply();
-    return showMenuConfiguration(interaction, currentMenuId);
-    
-  } catch (error) {
-    console.error("Error in reorder modal submission:", error);
-    
-    // Check if we can still respond
-    if (!interaction.replied && !interaction.deferred) {
-      return interaction.reply({ 
-        content: "An error occurred while reordering roles.", 
-        ephemeral: true 
-      });
-    } else {
-      return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
-    }
-  }
-}
+            modal.addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("role_ids_order")
+                  .setLabel("Enter Role IDs in desired order (comma-separated)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("roleId1, roleId2, roleId3")
+                  .setValue(currentOrder.join(", "))
+              )
+            );
+            
+            // Delete the deferred reply before showing modal
+            await interaction.deleteReply();
+            return interaction.showModal(modal);
+            
+          } catch (error) {
+            console.error("Error in reorder button handler:", error);
+            if (!interaction.replied && !interaction.deferred) {
+              return interaction.reply({ 
+                content: "An error occurred while preparing the reorder modal.", 
+                ephemeral: true 
+              });
+            } else {
+              return interaction.editReply({ 
+                content: "An error occurred while preparing the reorder modal." 
+              });
+            }
+          }
+        }
 
         if (action === "setlimits") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
@@ -1759,40 +1548,84 @@ if (modalType === "reorder_roles") {
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
-        if (modalType === "reorder_roles") { // Handle reorder modal submission
-          if (!currentMenuId || !type) return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
-          const menu = db.getMenu(currentMenuId);
-          if (!menu) {
+        if (modalType === "reorder_roles") {
+          try {
+            // Defer the modal submission
+            await interaction.deferReply({ ephemeral: true });
+            
+            if (!currentMenuId || !type) {
+              return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
+            }
+            
+            const menu = db.getMenu(currentMenuId);
+            if (!menu) {
               return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
-          }
+            }
 
-          const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
-          const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
+            const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
+            
+            // Validate input
+            if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
+              return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error");
+            }
+            
+            const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
+            
+            if (newOrderRaw.length === 0) {
+              return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error");
+            }
 
-          const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
-          const newOrderValidated = [];
-          const seenRoleIds = new Set();
+            const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+            
+            if (existingRoles.length === 0) {
+              return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error");
+            }
+            
+            const newOrderValidated = [];
+            const seenRoleIds = new Set();
 
-          for (const roleId of newOrderRaw) {
-            if (existingRoles.includes(roleId) && !seenRoleIds.has(roleId)) {
-              newOrderValidated.push(roleId);
-              seenRoleIds.add(roleId);
-            } else if (!existingRoles.includes(roleId)) {
-              console.warn(`Role ID ${roleId} from reorder input not found in existing ${type} roles for menu ${currentMenuId}. Skipping.`);
-            } else if (seenRoleIds.has(roleId)) {
-              console.warn(`Duplicate role ID ${roleId} found in reorder input for menu ${currentMenuId}. Skipping duplicate.`);
+            for (const roleId of newOrderRaw) {
+              if (existingRoles.includes(roleId) && !seenRoleIds.has(roleId)) {
+                newOrderValidated.push(roleId);
+                seenRoleIds.add(roleId);
+              } else if (!existingRoles.includes(roleId)) {
+                console.warn(`Role ID ${roleId} from reorder input not found in existing ${type} roles for menu ${currentMenuId}. Skipping.`);
+              } else if (seenRoleIds.has(roleId)) {
+                console.warn(`Duplicate role ID ${roleId} found in reorder input for menu ${currentMenuId}. Skipping duplicate.`);
+              }
+            }
+
+            // Ensure all original roles are still present, even if not explicitly reordered (append to end)
+            for (const existingRoleId of existingRoles) {
+              if (!seenRoleIds.has(existingRoleId)) {
+                newOrderValidated.push(existingRoleId);
+              }
+            }
+
+            // Validate that we have the same number of roles
+            if (newOrderValidated.length !== existingRoles.length) {
+              console.warn(`Mismatch in role count for menu ${currentMenuId}. Expected: ${existingRoles.length}, Got: ${newOrderValidated.length}`);
+            }
+
+            await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
+            
+            // Delete the deferred reply before showing the menu configuration
+            await interaction.deleteReply();
+            return showMenuConfiguration(interaction, currentMenuId);
+            
+          } catch (error) {
+            console.error("Error in reorder modal submission:", error);
+            
+            // Check if we can still respond
+            if (!interaction.replied && !interaction.deferred) {
+              return interaction.reply({ 
+                content: "An error occurred while reordering roles.", 
+                ephemeral: true 
+              });
+            } else {
+              return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
             }
           }
-
-          // Ensure all original roles are still present, even if not explicitly reordered (append to end)
-          for (const existingRoleId of existingRoles) {
-            if (!seenRoleIds.has(existingRoleId)) {
-              newOrderValidated.push(existingRoleId);
-            }
-          }
-
-          await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
-          return showMenuConfiguration(interaction, currentMenuId);
         }
 
         if (modalType === "setlimits") {
