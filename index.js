@@ -95,7 +95,8 @@ const db = { // This in-memory map will now be synchronized with Firestore
   },
 
   async createMenu(guildId, name, desc) {
-    const id = Date.now().toString(); // Use timestamp as ID for simplicity
+    // Generate a more unique ID
+    const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
     const newMenu = {
       guildId,
       name,
@@ -345,6 +346,17 @@ client.once("ready", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  // Check Firebase configuration at the start of every interaction
+  if (firebaseConfig.projectId === 'missing-project-id') {
+    if (interaction.isRepliable()) {
+      await interaction.reply({
+        content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
+        ephemeral: true
+      }).catch(e => console.error("Error sending Firebase config warning:", e));
+    }
+    // Continue processing, but data operations will be in-memory or skipped as per db functions
+  }
+
   try {
     // 1. Dashboard Permissions Check
     if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
@@ -358,24 +370,11 @@ client.on("interactionCreate", async (interaction) => {
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
-      // Re-evaluate targetMenuId and type based on action for clarity and correctness
-      let targetMenuId;
+
+      // Declare variables for menuId, type, newState at the top of the rr context
+      let menuId;
       let type;
-      let newState; // For toggle buttons
-
-      if (action === "type") {
-        type = parts[2]; // This is 'dropdown', 'button', or 'both'
-        targetMenuId = parts[3]; // The actual menu ID for 'type' buttons
-      } else if (action === "addemoji") {
-        type = parts[2]; // 'dropdown' or 'button'
-        targetMenuId = parts[3]; // The menu ID for 'addemoji' buttons
-      } else if (action.startsWith("toggle_")) { // For clear button toggles
-        targetMenuId = parts[2]; // The menu ID
-        newState = parts[3]; // The boolean state as a string
-      } else {
-        targetMenuId = parts[2]; // Default for most other buttons where menuId is parts[2]
-      }
-
+      let newStateBoolean; // For toggle buttons
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -387,6 +386,20 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
+
+        // Assign menuId, type, newState based on action within the rr context
+        if (action === "create") {
+          // No menuId needed yet, it's created in the modal submit
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook"].includes(action)) {
+          menuId = parts[2]; // For these actions, menuId is parts[2]
+        } else if (["type", "addemoji"].includes(action)) {
+          type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
+          menuId = parts[3]; // For these actions, menuId is parts[3]
+        } else if (["toggle_dropdown_clear_button", "toggle_button_clear_button"].includes(action)) {
+          menuId = parts[2];
+          newStateBoolean = parts[3] === 'true';
+        }
+
 
         if (action === "create") {
           const modal = new ModalBuilder()
@@ -404,13 +417,13 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "publish") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
-          return publishMenu(interaction, targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing for publish.", ephemeral: true });
+          return publishMenu(interaction, menuId);
         }
 
         if (action === "edit_published") {
-            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-            const menu = db.getMenu(targetMenuId);
+            if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
                 return interaction.reply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
             }
@@ -419,7 +432,7 @@ client.on("interactionCreate", async (interaction) => {
 
             try {
                 const message = await channel.messages.fetch(menu.messageId);
-                return publishMenu(interaction, targetMenuId, message);
+                return publishMenu(interaction, menuId, message);
             } catch (error) {
                 console.error("Error fetching message to edit:", error);
                 return interaction.reply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
@@ -427,18 +440,18 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "delete_published") {
-            if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-            const menu = db.getMenu(targetMenuId);
+            if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+            const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
                 return interaction.reply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
             }
 
             const confirmButton = new ButtonBuilder()
-                .setCustomId(`rr:confirm_delete_published:${targetMenuId}`)
+                .setCustomId(`rr:confirm_delete_published:${menuId}`)
                 .setLabel("Confirm Delete")
                 .setStyle(ButtonStyle.Danger);
             const cancelButton = new ButtonBuilder()
-                .setCustomId(`rr:cancel_delete_published:${targetMenuId}`)
+                .setCustomId(`rr:cancel_delete_published:${menuId}`)
                 .setLabel("Cancel")
                 .setStyle(ButtonStyle.Secondary);
             const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
@@ -451,14 +464,14 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "confirm_delete_published") {
-            if (!targetMenuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
-            const menu = db.getMenu(targetMenuId);
+            if (!menuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
+            const menu = db.getMenu(menuId);
             if (!menu || !menu.channelId || !menu.messageId) {
                 return interaction.update({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
             }
             const channel = interaction.guild.channels.cache.get(menu.channelId);
             if (!channel) {
-                await db.clearMessageId(targetMenuId);
+                await db.clearMessageId(menuId);
                 return interaction.update({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
             }
 
@@ -466,16 +479,16 @@ client.on("interactionCreate", async (interaction) => {
                 const message = await channel.messages.fetch(menu.messageId);
                 await message.delete();
                 // Only clear message ID, don't delete the entire menu from Firestore
-                await db.clearMessageId(targetMenuId);
+                await db.clearMessageId(menuId);
                 await interaction.update({
                     content: "✅ Published message deleted successfully!",
                     components: [],
                     ephemeral: true
                 });
-                return showMenuConfiguration(interaction, targetMenuId);
+                return showMenuConfiguration(interaction, menuId);
             } catch (error) {
                 console.error("Error deleting message:", error);
-                await db.clearMessageId(targetMenuId);
+                await db.clearMessageId(menuId);
                 return interaction.update({
                     content: "❌ Failed to delete message. Message ID cleared.",
                     ephemeral: true
@@ -484,20 +497,19 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "cancel_delete_published") {
-            if (!targetMenuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
+            if (!menuId) return interaction.update({ content: "Menu ID missing.", components: [], ephemeral: true });
             return interaction.update({ content: "Deletion cancelled.", components: [], ephemeral: true });
         }
 
         if (action === "type") {
-          // menuId and type are already correctly derived from parts at the top of the button handler
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          if (!menuId) return interaction.reply({ content: "Menu ID missing for selection type.", ephemeral: true });
           let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
-          await db.saveSelectionType(targetMenuId, selectedTypes);
+          await db.saveSelectionType(menuId, selectedTypes);
 
           const nextType = selectedTypes.includes("dropdown") ? "dropdown" : "button";
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:selectroles:${nextType}:${targetMenuId}`) // Use targetMenuId here
+            .setCustomId(`rr:selectroles:${nextType}:${menuId}`)
             .setMinValues(1)
             .setMaxValues(Math.min(allRoles.size, 25))
             .addOptions(allRoles.map((r) => ({ label: r.name, value: r.id })));
@@ -509,15 +521,14 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "addemoji") {
-          // menuId and type are already correctly derived from parts at the top of the button handler
-          if (!targetMenuId || !type) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId || !type) return interaction.reply({ content: "Menu ID or type missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const roles = type === "dropdown" ? menu.dropdownRoles : menu.buttonRoles;
           if (!roles.length) return interaction.reply({ content: `No roles found for ${type}.`, ephemeral: true });
 
-          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${targetMenuId}`).setTitle(`Add Emojis for ${type}`);
+          const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${menuId}`).setTitle(`Add Emojis for ${type}`);
 
           const maxInputs = Math.min(roles.length, 5);
           for (let i = 0; i < maxInputs; i++) {
@@ -540,12 +551,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setlimits") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:setlimits:${targetMenuId}`)
+            .setCustomId(`rr:modal:setlimits:${menuId}`)
             .setTitle("Set Regional Role Limits & Max Roles")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -600,15 +611,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setexclusions") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
           if (!allRoles.size) return interaction.reply({ content: "No roles available to set exclusions.", ephemeral: true });
 
           const selectTriggerRole = new StringSelectMenuBuilder()
-            .setCustomId(`rr:select_trigger_role:${targetMenuId}`)
+            .setCustomId(`rr:select_trigger_role:${menuId}`)
             .setPlaceholder("Select a role to set its exclusions...")
             .setMinValues(1)
             .setMaxValues(1)
@@ -622,12 +633,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_embed") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:customize_embed:${targetMenuId}`)
+            .setCustomId(`rr:modal:customize_embed:${menuId}`)
             .setTitle("Customize Embed Appearance")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -680,12 +691,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_footer") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:customize_footer:${targetMenuId}`)
+            .setCustomId(`rr:modal:customize_footer:${menuId}`)
             .setTitle("Customize Embed Footer")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -712,28 +723,28 @@ client.on("interactionCreate", async (interaction) => {
 
         // New webhook toggle button handler
         if (action === "toggle_webhook") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const newStateBoolean = !menu.useWebhook; // Get the actual boolean state
-          await db.saveWebhookSettings(targetMenuId, { useWebhook: newStateBoolean });
+          await db.saveWebhookSettings(menuId, { useWebhook: newStateBoolean });
 
           await interaction.reply({
             content: `✅ Webhook sending is now ${newStateBoolean ? "ENABLED" : "DISABLED"}`,
             ephemeral: true
           });
-          return showMenuConfiguration(interaction, targetMenuId); // Refresh the menu config view
+          return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
         }
 
         // Webhook branding configuration handler
         if (action === "config_webhook") {
-          if (!targetMenuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
-          const menu = db.getMenu(targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          const menu = db.getMenu(menuId);
           if (!menu) return interaction.reply({ content: "Menu not found.", ephemeral: true });
 
           const modal = new ModalBuilder()
-            .setCustomId(`rr:modal:webhook_branding:${targetMenuId}`)
+            .setCustomId(`rr:modal:webhook_branding:${menuId}`)
             .setTitle("Webhook Branding Settings")
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -758,16 +769,14 @@ client.on("interactionCreate", async (interaction) => {
 
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
-          // targetMenuId and newState are already correctly derived from parts at the top
-          const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
-          await db.saveEnableDropdownClearRolesButton(targetMenuId, newStateBoolean);
-          return showMenuConfiguration(interaction, targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
+          return showMenuConfiguration(interaction, menuId);
         }
         if (action === "toggle_button_clear_button") {
-          // targetMenuId and newState are already correctly derived from parts at the top
-          const newStateBoolean = newState === 'true'; // Correctly parse boolean from string
-          await db.saveEnableButtonClearRolesButton(targetMenuId, newStateBoolean);
-          return showMenuConfiguration(interaction, targetMenuId);
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", ephemeral: true });
+          await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
+          return showMenuConfiguration(interaction, menuId);
         }
       }
     }
@@ -1231,7 +1240,8 @@ async function showReactionRolesDashboard(interaction) {
   const createButton = new ButtonBuilder()
     .setCustomId("rr:create")
     .setLabel("Create New Menu")
-    .setStyle(ButtonStyle.Success);
+    .setStyle(ButtonStyle.Success)
+    .setEmoji("➕"); // Added emoji
 
   const backButton = new ButtonBuilder()
     .setCustomId("dash:back")
@@ -1253,6 +1263,21 @@ async function showReactionRolesDashboard(interaction) {
 }
 
 async function showMenuConfiguration(interaction, menuId) {
+  // Add validation at the start of the function
+  if (!menuId || typeof menuId !== 'string' || menuId.length < 5) {
+    console.error(`Invalid menuId: ${menuId}`);
+    if (interaction.replied || interaction.deferred) {
+      return interaction.followUp({
+        content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
+        ephemeral: true
+      }).catch(e => console.error("Error sending followUp for invalid menuId:", e));
+    }
+    return interaction.reply({
+      content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
+      ephemeral: true
+    });
+  }
+
   console.log(`[showMenuConfiguration] Function called for menuId: ${menuId}`);
   const menu = db.getMenu(menuId);
   if (!menu) {
