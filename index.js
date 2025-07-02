@@ -995,7 +995,7 @@ client.on("interactionCreate", async (interaction) => {
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
                 .setCustomId("role_ids_order")
-                .setLabel("Enter Role IDs in desired order (comma-separated)")
+                .setLabel("Role IDs (comma-separated)")
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(true)
                 .setPlaceholder("roleId1, roleId2, roleId3")
@@ -1701,7 +1701,14 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
         }
 
-        const menuId = interaction.customId.split(":")[1];
+        const parts = interaction.customId.split(":");
+        const menuId = parts[1];
+        
+        if (!menuId) {
+            console.error(`No menuId found in customId: ${interaction.customId}`);
+            return sendEphemeralEmbed(interaction, "❌ Invalid interaction. Please try again.", "#FF0000", "Error");
+        }
+        
         const menu = db.getMenu(menuId);
         if (!menu) {
             console.error(`Attempted to access non-existent menu with ID: ${menuId} during user interaction.`);
@@ -1720,16 +1727,16 @@ client.on("interactionCreate", async (interaction) => {
 
         // Determine roles to add and remove based on selection and current member roles
         if (interaction.isStringSelectMenu()) {
-            // For dropdowns, implement "toggle selected" behavior
-            for (const roleId of selectedInteractionRoleIds) {
-                if (currentMemberRoleIds.includes(roleId)) {
-                    // User already has this role and selected it again -> toggle off (remove)
-                    rolesToRemove.push(roleId);
-                } else {
-                    // User doesn't have this role and selected it -> toggle on (add)
-                    rolesToAdd.push(roleId);
-                }
-            }
+            // For dropdowns, the selection represents the FINAL STATE the user wants
+            const dropdownRolesFromMenu = menu.dropdownRoles || [];
+            const currentDropdownRolesHeld = currentMemberRoleIds.filter(id => dropdownRolesFromMenu.includes(id));
+            
+            // Roles to add: roles that are selected but not currently held
+            rolesToAdd = selectedInteractionRoleIds.filter(id => !currentMemberRoleIds.includes(id));
+            
+            // Roles to remove: dropdown roles that are currently held but NOT selected
+            rolesToRemove = currentDropdownRolesHeld.filter(id => !selectedInteractionRoleIds.includes(id));
+            
         } else { // Button interaction (already behaves as a toggle)
             const clickedRoleId = selectedInteractionRoleIds[0];
             if (currentMemberRoleIds.includes(clickedRoleId)) {
@@ -1758,16 +1765,10 @@ client.on("interactionCreate", async (interaction) => {
         let potentialNewRoleIds = [...currentMemberRoleIds];
 
         if (interaction.isStringSelectMenu()) {
-            // For dropdowns acting as toggles:
-            for (const roleId of selectedInteractionRoleIds) {
-                if (potentialNewRoleIds.includes(roleId)) {
-                    // User had this role and re-selected it -> toggle off (remove)
-                    potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
-                } else {
-                    // User did not have this role and selected it -> toggle on (add)
-                    potentialNewRoleIds.push(roleId);
-                }
-            }
+            // For dropdowns: Remove all current dropdown roles, then add the selected ones
+            const dropdownRolesFromMenu = menu.dropdownRoles || [];
+            potentialNewRoleIds = potentialNewRoleIds.filter(id => !dropdownRolesFromMenu.includes(id));
+            potentialNewRoleIds.push(...selectedInteractionRoleIds);
         } else { // Button interaction
             const clickedRoleId = selectedInteractionRoleIds[0];
             if (potentialNewRoleIds.includes(clickedRoleId)) {
@@ -2028,15 +2029,19 @@ async function showMenuConfiguration(interaction, menuId) {
       name: "Webhook Sending",
       value: menu.useWebhook ? "✅ Enabled" : "❌ Disabled",
       inline: true
-    },
-    {
+    }
+  );
+  
+  // Only show webhook branding if webhook is enabled
+  if (menu.useWebhook) {
+    embed.addFields({
       name: "Webhook Branding",
       value: menu.webhookName
         ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
         : "Not configured",
       inline: true
-    }
-  );
+    });
+  }
 
   // --- Buttons for Publishing and Deleting ---
   const row_publish_delete = new ActionRowBuilder().addComponents(
@@ -2128,7 +2133,10 @@ async function showMenuConfiguration(interaction, menuId) {
       .setDisabled(!menu.dropdownRoles.length)
   );
 
-  const row4_customize_messages_webhook = new ActionRowBuilder().addComponents(
+  const row4_customize_messages_webhook = new ActionRowBuilder();
+  
+  // Add customize buttons first
+  row4_customize_messages_webhook.addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:customize_embed:${menuId}`)
       .setLabel("Customize Embed")
@@ -2140,17 +2148,31 @@ async function showMenuConfiguration(interaction, menuId) {
     new ButtonBuilder()
       .setCustomId(`rr:custom_messages:${menuId}`)
       .setLabel("Custom Messages")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`rr:toggle_webhook:${menuId}`)
-      .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
-      .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`rr:config_webhook:${menuId}`)
-      .setLabel("Configure Branding")
       .setStyle(ButtonStyle.Primary)
-      .setDisabled(!menu.useWebhook)
   );
+  
+  // Add webhook buttons based on current state
+  if (menu.useWebhook) {
+    // Webhook is enabled, show disable button and config button
+    row4_customize_messages_webhook.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`rr:toggle_webhook:${menuId}`)
+        .setLabel("Disable Webhook")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`rr:config_webhook:${menuId}`)
+        .setLabel("Configure Branding")
+        .setStyle(ButtonStyle.Primary)
+    );
+  } else {
+    // Webhook is disabled, only show enable button
+    row4_customize_messages_webhook.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`rr:toggle_webhook:${menuId}`)
+        .setLabel("Enable Webhook")
+        .setStyle(ButtonStyle.Success)
+    );
+  }
 
   const allPossibleRows = [
     row_publish_delete,
