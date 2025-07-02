@@ -138,8 +138,7 @@ const db = {
       dropdownRoleDescriptions: {},
       channelId: null,
       messageId: null,
-      enableDropdownClearRolesButton: true,
-      enableButtonClearRolesButton: true,
+      // Removed enableDropdownClearRolesButton and enableButtonClearRolesButton
       useWebhook: false,
       webhookName: null,
       webhookAvatar: null,
@@ -326,24 +325,6 @@ const db = {
   },
 
   /**
-   * Toggles the clear roles button for dropdowns.
-   * @param {string} menuId - The ID of the menu.
-   * @param {boolean} enabled - Whether the button should be enabled.
-   */
-  async saveEnableDropdownClearRolesButton(menuId, enabled) {
-    await this.updateMenu(menuId, { enableDropdownClearRolesButton: enabled });
-  },
-
-  /**
-   * Toggles the clear roles button for buttons.
-   * @param {string} menuId - The ID of the menu.
-   * @param {boolean} enabled - Whether the button should be enabled.
-   */
-  async saveEnableButtonClearRolesButton(menuId, enabled) {
-    await this.updateMenu(menuId, { enableButtonClearRolesButton: enabled });
-  },
-
-  /**
    * Retrieves a single menu by its ID.
    * @param {string} menuId - The ID of the menu.
    * @returns {Object|undefined} The menu object, or undefined if not found.
@@ -406,7 +387,7 @@ const db = {
       // Delete from Firestore
       const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
       await deleteDoc(menuDocRef);
-      console.log(`[Firestore] Deleted menu with ID: ${id}`);
+      console.log(`[Firestore] Deleted menu with ID: ${menuId}`);
     } catch (error) {
       console.error(`[Firestore] Error deleting menu ${menuId}:`, error);
       throw new Error("Failed to delete menu from Firestore. Check permissions.");
@@ -568,14 +549,14 @@ async function updatePublishedMessageComponents(interaction, menu) {
             }
         }
 
-        // Rebuild Clear dropdown roles button
-        if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
-            const clearButton = new ButtonBuilder()
-                .setCustomId(`rr-clear-roles:${menu.id}:dropdown`)
-                .setLabel("Clear All Dropdown Roles")
-                .setStyle(ButtonStyle.Secondary);
-            components.push(new ActionRowBuilder().addComponents(clearButton));
-        }
+        // Removed Clear dropdown roles button
+        // if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
+        //     const clearButton = new ButtonBuilder()
+        //         .setCustomId(`rr-clear-roles:${menu.id}:dropdown`)
+        //         .setLabel("Clear All Dropdown Roles")
+        //         .setStyle(ButtonStyle.Secondary);
+        //     components.push(new ActionRowBuilder().addComponents(clearButton));
+        // }
 
         // Rebuild Buttons (no default state for buttons, they are stateless, but we can highlight them)
         if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
@@ -608,14 +589,14 @@ async function updatePublishedMessageComponents(interaction, menu) {
             components.push(...buttonRows);
         }
 
-        // Rebuild Clear button roles button
-        if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
-            const clearButton = new ButtonBuilder()
-                .setCustomId(`rr-clear-roles:${menu.id}:button`)
-                .setLabel("Clear All Button Roles")
-                .setStyle(ButtonStyle.Secondary);
-            components.push(new ActionRowBuilder().addComponents(clearButton));
-        }
+        // Removed Clear button roles button
+        // if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
+        //     const clearButton = new ButtonBuilder()
+        //         .setCustomId(`rr-clear-roles:${menu.id}:button`)
+        //         .setLabel("Clear All Button Roles")
+        //         .setStyle(ButtonStyle.Secondary);
+        //     components.push(new ActionRowBuilder().addComponents(clearButton));
+        // }
 
         const publishedEmbed = await createReactionRoleEmbed(guild, menu);
 
@@ -680,7 +661,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_footer:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:custom_messages:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) // UPDATED: This is the select menu that leads to a modal
+    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) || // ADDED for reorder modal
+    (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) || // ADDED for reorder modal
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
   );
 
   // Defer non-modal-trigger interactions
@@ -729,7 +712,7 @@ client.on("interactionCreate", async (interaction) => {
 
       let menuId;
       let type;
-      let newStateBoolean;
+      let newStateBoolean; // This variable is no longer used for clear buttons
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
@@ -745,14 +728,14 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type, newState based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) { // ADDED prompt_role_description_select
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji
           menuId = parts[3]; // For these actions, menuId is parts[3]
-        } else if (["toggle_dropdown_clear_button", "toggle_button_clear_button"].includes(action)) {
+        } else if (["reorder_dropdown", "reorder_button"].includes(action)) { // ADDED for reorder button
+          type = action.split("_")[1]; // 'dropdown' or 'button'
           menuId = parts[2];
-          newStateBoolean = parts[3] === 'true'; // Convert string 'true'/'false' to boolean
         }
 
         if (action === "create") {
@@ -1009,6 +992,30 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
           }
+          return interaction.showModal(modal);
+        }
+
+        if (action === "reorder_dropdown" || action === "reorder_button") { // Handle reorder button click
+          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const currentOrder = type === "dropdown" ? (menu.dropdownRoleOrder || menu.dropdownRoles || []) : (menu.buttonRoleOrder || menu.buttonRoles || []);
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
+            .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("role_ids_order")
+                .setLabel("Enter Role IDs in desired order (comma-separated)")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setPlaceholder("roleId1, roleId2, roleId3")
+                .setValue(currentOrder.join(", "))
+            )
+          );
           return interaction.showModal(modal);
         }
 
@@ -1269,7 +1276,7 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        if (action === "prompt_role_description_select") { // NEW: Handle button click for role description selection
+        if (action === "prompt_role_description_select") {
             if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
             const menu = db.getMenu(menuId);
             if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
@@ -1288,7 +1295,7 @@ client.on("interactionCreate", async (interaction) => {
             });
 
             const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`rr:select_role_for_description:${menuId}`) // Custom ID for the new select menu
+                .setCustomId(`rr:select_role_for_description:${menuId}`)
                 .setPlaceholder("Select a dropdown role to set its description...")
                 .setMinValues(1)
                 .setMaxValues(1)
@@ -1300,17 +1307,6 @@ client.on("interactionCreate", async (interaction) => {
                 flags: MessageFlags.Ephemeral
             });
         }
-
-        if (action === "toggle_dropdown_clear_button") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
-          return showMenuConfiguration(interaction, menuId);
-        }
-        if (action === "toggle_button_clear_button") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
-          return showMenuConfiguration(interaction, menuId);
-        }
       }
     }
 
@@ -1321,7 +1317,6 @@ client.on("interactionCreate", async (interaction) => {
       // Note: parts[2] and parts[3] can vary based on the customId structure
       // For 'selectmenu', parts[2] is the menuId.
       // For 'selectroles', parts[2] is the type, parts[3] is the menuId, parts[4] can be 'next_button_roles'.
-      // For 'reorder_dropdown'/'reorder_button', parts[2] is the menuId.
       // For 'select_trigger_role', parts[2] is the menuId.
       // For 'select_exclusion_roles', parts[2] is triggerRoleId, parts[3] is menuId.
       // For 'select_role_for_description', parts[2] is menuId.
@@ -1380,14 +1375,7 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId); // Refresh after roles are saved
         }
 
-        if (action === "reorder_dropdown" || action === "reorder_button") {
-          const currentOrder = interaction.values;
-          const type = action.split("_")[1]; // "dropdown" or "button"
-          const menuId = parts[2]; // menuId is at parts[2] for reorder selects
-          await db.saveRoleOrder(menuId, currentOrder, type);
-          await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, "#00FF00", "Success");
-          return showMenuConfiguration(interaction, menuId);
-        }
+        // Reorder dropdown/button select menus are no longer used here. Reordering is via modal now.
 
         if (action === "select_trigger_role") {
           const triggerRoleId = interaction.values[0];
@@ -1436,7 +1424,7 @@ client.on("interactionCreate", async (interaction) => {
           return showMenuConfiguration(interaction, menuId);
         }
 
-        if (action === "select_role_for_description") { // NEW: Handle selection of role for description
+        if (action === "select_role_for_description") {
           const roleId = interaction.values[0];
           const menuId = parts[2]; // menuId is at parts[2] for select_role_for_description
           const menu = db.getMenu(menuId);
@@ -1477,10 +1465,14 @@ client.on("interactionCreate", async (interaction) => {
       const modalType = parts[2];
 
       let currentMenuId;
+      let type; // Used for reorder_roles modal
       if (modalType === "create") {
           currentMenuId = null; // No menuId yet for creation modal
       } else if (modalType === "addemoji" || modalType === "role_description") {
-          currentMenuId = parts[3]; // UPDATED: menuId is now parts[3] for role_description modal
+          currentMenuId = parts[3];
+      } else if (modalType === "reorder_roles") { // ADDED for reorder modal
+          currentMenuId = parts[3];
+          type = parts[4]; // 'dropdown' or 'button'
       } else {
           currentMenuId = parts[3]; // Default for other modals like setlimits, customize_embed, webhook_branding, etc.
       }
@@ -1525,6 +1517,42 @@ client.on("interactionCreate", async (interaction) => {
             }
           }
           await db.saveEmojis(currentMenuId, emojis, type);
+          return showMenuConfiguration(interaction, currentMenuId);
+        }
+
+        if (modalType === "reorder_roles") { // Handle reorder modal submission
+          if (!currentMenuId || !type) return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
+          const menu = db.getMenu(currentMenuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+          }
+
+          const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
+          const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
+
+          const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+          const newOrderValidated = [];
+          const seenRoleIds = new Set();
+
+          for (const roleId of newOrderRaw) {
+            if (existingRoles.includes(roleId) && !seenRoleIds.has(roleId)) {
+              newOrderValidated.push(roleId);
+              seenRoleIds.add(roleId);
+            } else if (!existingRoles.includes(roleId)) {
+              console.warn(`Role ID ${roleId} from reorder input not found in existing ${type} roles for menu ${currentMenuId}. Skipping.`);
+            } else if (seenRoleIds.has(roleId)) {
+              console.warn(`Duplicate role ID ${roleId} found in reorder input for menu ${currentMenuId}. Skipping duplicate.`);
+            }
+          }
+
+          // Ensure all original roles are still present, even if not explicitly reordered (append to end)
+          for (const existingRoleId of existingRoles) {
+            if (!seenRoleIds.has(existingRoleId)) {
+              newOrderValidated.push(existingRoleId);
+            }
+          }
+
+          await db.saveRoleOrder(currentMenuId, newOrderValidated, type);
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1638,7 +1666,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "role_description") {
-          const roleId = parts[4]; // roleId is at parts[4] for role_description modal
+          const roleId = parts[4];
           if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
@@ -1786,37 +1814,37 @@ client.on("interactionCreate", async (interaction) => {
         }
     }
 
-    // Handle Clear All Roles Button (User-facing)
-    if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
-        // Ensure interaction is deferred if it wasn't already
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for clear roles button:", e));
-        }
+    // Removed Clear All Roles Button handler
+    // if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
+    //     // Ensure interaction is deferred if it wasn't already
+    //     if (!interaction.replied && !interaction.deferred) {
+    //         await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for clear roles button:", e));
+    //     }
 
-        const menuId = interaction.customId.split(":")[1];
-        const menu = db.getMenu(menuId);
-        if (!menu) return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid.", "#FF0000", "Error");
+    //     const menuId = interaction.customId.split(":")[1];
+    //     const menu = db.getMenu(menuId);
+    //     if (!menu) return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid.", "#FF0000", "Error");
 
-        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-        const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
+    //     const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+    //     const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
 
-        if (rolesToRemove.length === 0) {
-            return sendEphemeralEmbed(interaction, "You don't have any roles from this menu to clear.", "#FFFF00", "No Roles");
-        }
+    //     if (rolesToRemove.length === 0) {
+    //         return sendEphemeralEmbed(interaction, "You don't have any roles from this menu to clear.", "#FFFF00", "No Roles");
+    //     }
 
-        try {
-            await interaction.member.roles.remove(rolesToRemove);
-            await sendEphemeralEmbed(interaction, "✅ All roles from this menu have been cleared.", "#00FF00", "Roles Cleared");
-            await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
-        } catch (error) {
-                console.error("Error clearing roles:", error);
-                if (error.code === 50013) {
-                    await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
-                } else {
-                    await sendEphemeralEmbed(interaction, "❌ There was an error clearing your roles.", "#FF0000", "Error");
-                }
-            }
-        }
+    //     try {
+    //         await interaction.member.roles.remove(rolesToRemove);
+    //         await sendEphemeralEmbed(interaction, "✅ All roles from this menu have been cleared.", "#00FF00", "Roles Cleared");
+    //         await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
+    //     } catch (error) {
+    //             console.error("Error clearing roles:", error);
+    //             if (error.code === 50013) {
+    //                 await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
+    //             } else {
+    //                 await sendEphemeralEmbed(interaction, "❌ There was an error clearing your roles.", "#FF0000", "Error");
+    //             }
+    //         }
+    //     }
 
     } catch (error) {
         console.error("Unhandled error during interaction:", error);
@@ -2037,7 +2065,7 @@ async function showMenuConfiguration(interaction, menuId) {
       .setLabel("Set Role Exclusions")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`rr:prompt_role_description_select:${menuId}`) // UPDATED: Changed customId for role descriptions
+      .setCustomId(`rr:prompt_role_description_select:${menuId}`)
       .setLabel("Set Role Descriptions")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.dropdownRoles.length)
@@ -2067,18 +2095,19 @@ async function showMenuConfiguration(interaction, menuId) {
       .setDisabled(!menu.useWebhook)
   );
 
-  const row5_clear_buttons_toggles = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}:${!menu.enableDropdownClearRolesButton}`)
-      .setLabel(`Dropdown Clear: ${menu.enableDropdownClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
-      .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
-      .setDisabled(!menu.selectionType.includes("dropdown")),
-    new ButtonBuilder()
-      .setCustomId(`rr:toggle_button_clear_button:${menuId}:${!menu.enableButtonClearRolesButton}`)
-      .setLabel(`Button Clear: ${menu.enableButtonClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
-      .setStyle(menu.enableButtonClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
-      .setDisabled(!menu.selectionType.includes("button"))
-  );
+  // Removed row5_clear_buttons_toggles
+  // const row5_clear_buttons_toggles = new ActionRowBuilder().addComponents(
+  //   new ButtonBuilder()
+  //     .setCustomId(`rr:toggle_dropdown_clear_button:${menuId}:${!menu.enableDropdownClearRolesButton}`)
+  //     .setLabel(`Dropdown Clear: ${menu.enableDropdownClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+  //     .setStyle(menu.enableDropdownClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+  //     .setDisabled(!menu.selectionType.includes("dropdown")),
+  //   new ButtonBuilder()
+  //     .setCustomId(`rr:toggle_button_clear_button:${menuId}:${!menu.enableButtonClearRolesButton}`)
+  //     .setLabel(`Button Clear: ${menu.enableButtonClearRolesButton ? '✅ Enabled' : '❌ Disabled'}`)
+  //     .setStyle(menu.enableButtonClearRolesButton ? ButtonStyle.Success : ButtonStyle.Danger)
+  //     .setDisabled(!menu.selectionType.includes("button"))
+  // );
 
   const allPossibleRows = [
     row_publish_delete,
@@ -2086,7 +2115,7 @@ async function showMenuConfiguration(interaction, menuId) {
     row2_emojis_reorder,
     row3_limits_exclusions_descriptions,
     row4_customize_messages_webhook,
-    row5_clear_buttons_toggles,
+    // Removed row5_clear_buttons_toggles
   ];
 
   const finalComponents = allPossibleRows.filter(row => row.components.length > 0).slice(0, 5); // Max 5 action rows
@@ -2145,14 +2174,14 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     }
   }
 
-  // Clear dropdown roles button
-  if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
-    const clearButton = new ButtonBuilder()
-      .setCustomId(`rr-clear-roles:${menuId}:dropdown`)
-      .setLabel("Clear All Dropdown Roles")
-      .setStyle(ButtonStyle.Secondary);
-    components.push(new ActionRowBuilder().addComponents(clearButton));
-  }
+  // Removed Clear dropdown roles button
+  // if (menu.selectionType.includes("dropdown") && menu.enableDropdownClearRolesButton) {
+  //   const clearButton = new ButtonBuilder()
+  //     .setCustomId(`rr-clear-roles:${menuId}:dropdown`)
+  //     .setLabel("Clear All Dropdown Roles")
+  //     .setStyle(ButtonStyle.Secondary);
+  //   components.push(new ActionRowBuilder().addComponents(clearButton));
+  // }
 
   // Buttons
   if (menu.selectionType.includes("button") && menu.buttonRoles.length > 0) {
@@ -2189,14 +2218,14 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     components.push(...buttonRows);
   }
 
-  // Clear button roles button
-  if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
-    const clearButton = new ButtonBuilder()
-      .setCustomId(`rr-clear-roles:${menuId}:button`)
-      .setLabel("Clear All Button Roles")
-      .setStyle(ButtonStyle.Secondary);
-    components.push(new ActionRowBuilder().addComponents(clearButton));
-  }
+  // Removed Clear button roles button
+  // if (menu.selectionType.includes("button") && menu.enableButtonClearRolesButton) {
+  //   const clearButton = new ButtonBuilder()
+  //     .setCustomId(`rr-clear-roles:${menuId}:button`)
+  //     .setLabel("Clear All Button Roles")
+  //     .setStyle(ButtonStyle.Secondary);
+  //   components.push(new ActionRowBuilder().addComponents(clearButton));
+  // }
 
   try {
     // If it's a fresh publish (not an edit), attempt to delete the old message if it exists
