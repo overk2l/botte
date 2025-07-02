@@ -181,8 +181,16 @@ function parseEmoji(emoji) {
       animated: emoji.startsWith("<a:"),
     };
   }
+  // Validate if it's a single unicode emoji
+  // This regex checks for common unicode emoji patterns
+  const unicodeEmojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+  if (emoji.match(unicodeEmojiRegex)) {
+    return { name: emoji };
+  }
 
-  return { name: emoji };
+  // If it's neither a custom Discord emoji nor a unicode emoji, return null
+  console.warn(`Invalid emoji format detected: "${emoji}". Returning null.`);
+  return null;
 }
 
 // Helper function to check regional limits
@@ -1290,25 +1298,28 @@ async function showMenuConfiguration(interaction, menuId) {
   const row4 = new ActionRowBuilder().addComponents(publishButton, editPublishedButton, deletePublishedButton, backToRRButton);
   console.log("[showMenuConfiguration] row4 created.");
 
-  const components = [row, row2, row3, row3_5_dropdown, row3_5_button, webhookRow, row4];
-  console.log(`[showMenuConfiguration] Total components to send: ${components.length}.`);
+  // Ensure we don't exceed 5 ActionRows
+  const components = [row, row2, row3, row3_5_dropdown, row3_5_button, webhookRow, row4].filter(ar => ar.components.length > 0);
+  // Trim to a maximum of 5 ActionRows if somehow more are generated
+  const finalComponents = components.slice(0, 5);
+  console.log(`[showMenuConfiguration] Total components to send: ${finalComponents.length}.`);
 
   try {
     if (interaction.replied || interaction.deferred) {
       console.log("[showMenuConfiguration] Interaction already replied/deferred, attempting to editReply.");
-      await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+      await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
     } else {
       console.log("[showMenuConfiguration] Interaction not replied/deferred, attempting to update/reply.");
       // For buttons/select menus, use update. For slash commands, use reply.
       // If none of these, defer and then editReply.
       if (interaction.isButton() || interaction.isStringSelectMenu()) {
-          await interaction.update({ embeds: [embed], components, ephemeral: true });
+          await interaction.update({ embeds: [embed], components: finalComponents, ephemeral: true });
       } else if (interaction.isChatInputCommand()) {
-          await interaction.reply({ embeds: [embed], components, ephemeral: true });
+          await interaction.reply({ embeds: [embed], components: finalComponents, ephemeral: true });
       } else {
           // Fallback, should ideally not be hit if interaction flow is managed correctly
           await interaction.deferReply({ ephemeral: true });
-          await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+          await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
       }
     }
     console.log("[showMenuConfiguration] Interaction response sent successfully.");
