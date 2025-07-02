@@ -16,177 +16,13 @@ const {
   TextInputStyle,
   StringSelectMenuBuilder,
   PermissionsBitField,
-  WebhookClient, // Keep WebhookClient import as it's used by SmartMessageSender
+  // Removed: WebhookClient import
 } = require("discord.js");
 
-/**
- * SmartMessageSender class to intelligently send messages via bot or webhook.
- * It prioritizes interactive components to ensure functionality.
- */
-class SmartMessageSender {
-  constructor(client) {
-    this.client = client;
-    // Map to store WebhookClient instances per channel to avoid re-creating them.
-    this.webhooks = new Map(); 
-  }
+// Removed: SmartMessageSender class definition
 
-  /**
-   * Sets up or retrieves a webhook for a given channel.
-   * If a webhook named 'SmartSender' (or custom name) doesn't exist, it creates one.
-   * Requires 'Manage Webhooks' permission.
-   * @param {Discord.TextChannel} channel - The channel to set up the webhook for.
-   * @param {object} [options] - Options for the webhook.
-   * @param {string} [options.name='SmartSender'] - The desired name for the webhook.
-   * @param {string} [options.avatar=null] - The URL for the webhook's avatar.
-   * @returns {Promise<Discord.Webhook | null>} The created or retrieved webhook, or null if failed.
-   */
-  async setupWebhook(channel, options = {}) {
-    try {
-      // Fetch existing webhooks in the channel
-      const webhooks = await channel.fetchWebhooks();
-      // Try to find an existing webhook by name
-      let webhook = webhooks.find(wh => wh.name === (options.name || 'SmartSender'));
-      
-      // If no suitable webhook is found, create a new one
-      if (!webhook) {
-        webhook = await channel.createWebhook({
-          name: options.name || 'SmartSender',
-          avatar: options.avatar || null,
-          reason: 'Created for SmartMessageSender functionality to send custom-branded messages.',
-        });
-      }
-      
-      // Store the WebhookClient instance for this channel for efficient re-use
-      this.webhooks.set(channel.id, new WebhookClient({ id: webhook.id, token: webhook.token }));
-      return webhook;
-    } catch (error) {
-      console.error(`[SmartMessageSender] Failed to setup webhook in channel ${channel.id}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Sends a message, intelligently choosing between webhook and bot based on options.
-   * Prioritizes bot sending if interactive components are present.
-   * @param {Discord.TextChannel} channel - The channel to send the message to.
-   * @param {object} options - Message options.
-   * @param {string} [options.content] - The message content.
-   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-   * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
-   * @param {boolean} [options.useWebhook=false] - Whether to attempt to use a webhook for non-interactive messages.
-   * @param {object} [options.webhookOptions={}] - Options for webhook (username, avatarURL) or embed author.
-   * @returns {Promise<{message: Discord.Message, method: string}>} The sent message and the method used ('webhook' or 'bot').
-   * @throws {Error} If message sending fails.
-   */
-  async sendMessage(channel, options = {}) {
-    const {
-      content,
-      embeds,
-      components,
-      useWebhook = false,
-      webhookOptions = {}
-    } = options;
-
-    // Determine if the message should be sent via webhook.
-    // Webhooks are only used if 'useWebhook' is true AND there are NO interactive components.
-    // If components exist, we MUST send via bot for interactivity.
-    const hasComponents = components && components.length > 0;
-    const shouldUseWebhook = useWebhook && !hasComponents;
-
-    if (shouldUseWebhook) {
-      // Send via webhook for custom branding on non-interactive messages
-      const sentMessage = await this.sendViaWebhook(channel, {
-        content,
-        embeds,
-        webhookOptions
-      });
-      return { message: sentMessage, method: 'webhook' };
-    } else {
-      // Send via bot for interactive messages, or if webhook wasn't requested/possible.
-      // If webhook style was requested but components forced bot send, apply styling to embed author.
-      const sentMessage = await this.sendViaBot(channel, {
-        content,
-        embeds,
-        components,
-        webhookStyle: useWebhook ? webhookOptions : null // Pass webhookOptions if useWebhook was true
-      });
-      return { message: sentMessage, method: 'bot' };
-    }
-  }
-
-  /**
-   * Sends a message using a webhook. This method is for non-interactive messages.
-   * @param {Discord.TextChannel} channel - The channel to send the message to.
-   * @param {object} options - Message options.
-   * @param {string} [options.content] - The message content.
-   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-   * @param {object} [options.webhookOptions] - Options for webhook (username, avatarURL).
-   * @returns {Promise<Discord.Message>} The sent message.
-   * @throws {Error} If webhook sending fails.
-   */
-  async sendViaWebhook(channel, options) {
-    const { content, embeds, webhookOptions } = options;
-    
-    // Get or set up the webhook client for this channel
-    let webhookClient = this.webhooks.get(channel.id);
-    if (!webhookClient) {
-      // Use the provided webhookOptions for the webhook's name and avatar when setting it up
-      await this.setupWebhook(channel, { name: webhookOptions.username, avatar: webhookOptions.avatarURL });
-      webhookClient = this.webhooks.get(channel.id);
-    }
-
-    if (!webhookClient) {
-      throw new Error('Failed to obtain a webhook client for sending.');
-    }
-
-    // Send the message using the webhook, applying custom username and avatar
-    return await webhookClient.send({
-      content,
-      embeds,
-      username: webhookOptions.username, // Custom username for the webhook message
-      avatarURL: webhookOptions.avatarURL, // Custom avatar for the webhook message
-    });
-  }
-
-  /**
-   * Sends a message directly as the bot. This method is for interactive messages.
-   * If 'webhookStyle' is provided, it applies custom branding to the embed's author field.
-   * @param {Discord.TextChannel} channel - The channel to send the message to.
-   * @param {object} options - Message options.
-   * @param {string} [options.content] - The message content.
-   * @param {EmbedBuilder[]} [options.embeds] - An array of EmbedBuilders.
-   * @param {ActionRowBuilder[]} [options.components] - An array of ActionRowBuilders with interactive components.
-   * @param {object} [options.webhookStyle] - Options to mimic webhook style (username, avatarURL) in embed author.
-   * @returns {Promise<Discord.Message>} The sent message.
-   * @throws {Error} If bot message sending fails.
-   */
-  async sendViaBot(channel, options) {
-    const { content, embeds, components, webhookStyle } = options;
-    
-    const messagePayload = {
-      content,
-      embeds: embeds ? [...embeds] : [], // Create a copy of embeds array to avoid mutation issues
-      components
-    };
-
-    // If webhook style was requested (meaning useWebhook was true but components forced bot send),
-    // modify the first embed to include custom author fields to mimic webhook appearance.
-    if (webhookStyle && messagePayload.embeds && messagePayload.embeds.length > 0) {
-      // Ensure the embed is mutable if it came from EmbedBuilder.from() or similar
-      const embedToModify = EmbedBuilder.from(messagePayload.embeds[0]);
-      embedToModify.setAuthor({
-        name: webhookStyle.username || 'Custom User', // Use provided username or default
-        iconURL: webhookStyle.avatarURL || null // Use provided avatarURL or null
-      });
-      messagePayload.embeds[0] = embedToModify; // Replace the original embed with the modified one
-    }
-
-    return await channel.send(messagePayload);
-  }
-}
-
-// Global instance of SmartMessageSender
-let messageSender;
+// Removed: Global instance of SmartMessageSender
+// let messageSender; 
 
 const db = {
   menus: new Map(),
@@ -217,13 +53,13 @@ const db = {
       messageId: null,
       enableDropdownClearRolesButton: true,
       enableButtonClearRolesButton: true,
-      // Removed: sendViaWebhook property as SmartMessageSender handles this logic internally
+      // Removed: sendViaWebhook property
       // Embed Customization Fields
       embedColor: null,
       embedThumbnail: null,
       embedImage: null,
-      embedAuthorName: null, // Used by SmartMessageSender for embed author
-      embedAuthorIconURL: null, // Used by SmartMessageSender for embed author
+      embedAuthorName: null, // Used for embed author
+      embedAuthorIconURL: null, // Used for embed author
       embedFooterText: null,
       embedFooterIconURL: null,
     });
@@ -357,18 +193,18 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildWebhooks, // Added GuildWebhooks intent for SmartMessageSender
+    // Removed: GatewayIntentBits.GuildWebhooks
   ],
   partials: [Partials.Channel],
 });
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-  messageSender = new SmartMessageSender(client); // Initialize messageSender here
+  // Removed: messageSender = new SmartMessageSender(client);
   const rest = new REST().setToken(process.env.TOKEN);
   const cmd = new SlashCommandBuilder().setName("dashboard").setDescription("Open the guild dashboard").toJSON();
   await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [cmd] });
-  console.log("📑 /dashboard command deployed");
+  console.log("� /dashboard command deployed");
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -1294,7 +1130,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (rolesToRemove.size === 0) {
-            return interaction.reply({ content: `You don't have any ${type} roles from this menu to clear.`, ephemeral: ephemeral });
+            return interaction.reply({ content: `You don't have any ${type} roles from this menu to clear.`, ephemeral: true });
         }
 
         for (const roleId of rolesToRemove) {
@@ -1492,6 +1328,14 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     embed.setImage(menu.embedImage);
   }
 
+  // Author customization directly applied to the embed
+  if (menu.embedAuthorName) {
+    embed.setAuthor({ 
+      name: menu.embedAuthorName, 
+      iconURL: menu.embedAuthorIconURL || null 
+    });
+  }
+
   embed.setFooter({ 
       text: menu.embedFooterText || "Select your roles below!", 
       iconURL: menu.embedFooterIconURL || null 
@@ -1592,65 +1436,18 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
   try {
     const channelToSend = interaction.channel;
 
-    // Prepare webhook options for SmartMessageSender using menu's embed author settings
-    const webhookOptionsForSender = {
-        username: menu.embedAuthorName || client.user.username,
-        avatarURL: menu.embedAuthorIconURL || client.user.displayAvatarURL(),
-    };
-
-    let sentMessageResult;
+    let message;
     if (messageToEdit) {
-        // If editing an existing message, we need to fetch it first.
-        // SmartMessageSender's sendMessage doesn't directly support editing a specific message object.
-        // So, we'll edit it outside SmartMessageSender, but apply the embed author style if needed.
-        const messageToUpdate = await channelToSend.messages.fetch(messageToEdit.id);
-        
-        // Apply webhook-style author to embed if configured
-        if (menu.embedAuthorName || menu.embedAuthorIconURL) {
-            const embedToModify = EmbedBuilder.from(embed);
-            embedToModify.setAuthor({
-                name: menu.embedAuthorName || client.user.username,
-                iconURL: menu.embedAuthorIconURL || null
-            });
-            await messageToUpdate.edit({ embeds: [embedToModify], components });
-        } else {
-            await messageToUpdate.edit({ embeds: [embed], components });
-        }
-        sentMessageResult = { message: messageToUpdate, method: 'bot_edit' }; // Simulate result structure
+        message = await messageToEdit.edit({ embeds: [embed], components });
+        await interaction.reply({ content: "✅ Published reaction role menu updated successfully!", ephemeral: true });
     } else {
-        // Use the SmartMessageSender to send a new message
-        sentMessageResult = await messageSender.sendMessage(channelToSend, {
-            embeds: [embed],
-            components,
-            // Since the webhook toggle is removed, we'll always treat this as needing bot send
-            // unless it's a non-component message explicitly handled by SmartMessageSender's internal logic.
-            // For reaction roles, components will always be present, so it will use sendViaBot.
-            useWebhook: false, // Explicitly set to false here as the dashboard toggle is removed
-            webhookOptions: webhookOptionsForSender, // Pass custom identity for embed author
-        });
+        message = await interaction.channel.send({ embeds: [embed], components });
+        await interaction.reply({ content: "🚀 Reaction role menu published successfully!", ephemeral: true });
     }
-
-    const message = sentMessageResult.message;
-    const actualMethodUsed = sentMessageResult.method;
-
     db.saveMessageId(menuId, channelToSend.id, message.id);
-
-    // Provide feedback to the user
-    if (actualMethodUsed === 'webhook') {
-        await interaction.reply({
-            content: "🚀 Reaction role menu published via webhook! (No interactive components).",
-            ephemeral: true
-        });
-    } else { // 'bot' or 'bot_edit' method used
-        await interaction.reply({
-            content: "🚀 Reaction role menu published successfully! (Interactive components are functional).",
-            ephemeral: true
-        });
-    }
-
   } catch (error) {
     console.error("Error publishing/editing menu:", error);
-    return interaction.reply({ content: "❌ Failed to publish/edit menu. Check that emojis are valid or image URLs are accessible, and bot has permissions to send/edit messages/webhooks.", ephemeral: true });
+    return interaction.reply({ content: "❌ Failed to publish/edit menu. Check that emojis are valid or image URLs are accessible, and bot has permissions to send/edit messages.", ephemeral: true });
   }
 }
 
