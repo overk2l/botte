@@ -16,6 +16,7 @@ const {
   TextInputStyle,
   StringSelectMenuBuilder,
   PermissionsBitField,
+  MessageFlags, // Added MessageFlags import
 } = require("discord.js");
 
 // Firebase Imports
@@ -467,7 +468,7 @@ async function updatePublishedMessageComponents(interaction, menu) {
 // Helper function to handle role assignment/removal for users
 async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonClear = false, isSelectMenu = false) {
     const menu = db.getMenu(menuId);
-    if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+    if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
 
     const member = interaction.member;
     const guild = interaction.guild;
@@ -481,7 +482,7 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         rolesToRemove = member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
         if (rolesToRemove.length === 0) {
-            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
+            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", flags: MessageFlags.Ephemeral });
         }
     } else {
         // For regular role assignment (button or select menu)
@@ -527,7 +528,7 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, potentialNewRoleIds);
         if (regionalViolations.length > 0) {
-            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, flags: MessageFlags.Ephemeral });
             // If it was a select menu, re-sync its state
             if (isSelectMenu) {
                 await updatePublishedMessageComponents(interaction, menu);
@@ -537,8 +538,9 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
 
         // Check overall max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
-            if (potentialNewRoleIds.length > menu.maxRolesLimit) {
-                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+            const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
+            if (currentRelevantRolesCount > menu.maxRolesLimit) {
+                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, flags: MessageFlags.Ephemeral });
                 // If it was a select menu, re-sync its state
                 if (isSelectMenu) {
                     await updatePublishedMessageComponents(interaction, menu);
@@ -568,9 +570,9 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
         }
 
         if (messages.length > 0) {
-            await interaction.editReply({ content: messages.join("\n"), ephemeral: true });
+            await interaction.editReply({ content: messages.join("\n"), flags: MessageFlags.Ephemeral });
         } else {
-            await interaction.editReply({ content: "No changes made to your roles.", ephemeral: true });
+            await interaction.editReply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
         }
 
         // Update the original published message components to reflect current selections
@@ -579,9 +581,9 @@ async function handleRoleAssignment(interaction, menuId, roleIdsInput, isButtonC
     } catch (error) {
         console.error("Error managing roles:", error);
         if (error.code === 50013) {
-            await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+            await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
         } else {
-            await interaction.editReply({ content: "❌ An error occurred while updating your roles.", ephemeral: true });
+            await interaction.editReply({ content: "❌ An error occurred while updating your roles.", flags: MessageFlags.Ephemeral });
         }
     }
 }
@@ -625,7 +627,7 @@ client.on("interactionCreate", async (interaction) => {
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     )) {
-    await interaction.deferReply({ ephemeral: true }).catch(e => console.error("Error deferring reply:", e));
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply:", e));
   }
 
 
@@ -635,7 +637,7 @@ client.on("interactionCreate", async (interaction) => {
     // For modals, this will be followUp after the modal submit. For other interactions, after initial defer.
     await interaction.followUp({
       content: "⚠️ **Warning: Firebase is not fully configured.** Your bot's data (menus, roles, etc.) will not be saved or loaded persistently. Please ensure `__firebase_config` in your Canvas environment provides a valid `projectId`.",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     }).catch(e => console.error("Error sending Firebase config warning:", e));
     // If Firebase is not configured, we might want to stop further processing for persistence-related commands
     if (interaction.isChatInputCommand() && interaction.commandName === "dashboard") {
@@ -659,7 +661,7 @@ client.on("interactionCreate", async (interaction) => {
       // 1. Dashboard Permissions Check for the /dashboard command
       if (interaction.commandName === "dashboard") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", ephemeral: true });
+          return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", flags: MessageFlags.Ephemeral });
         }
         return sendMainDashboard(interaction);
       }
@@ -685,7 +687,7 @@ client.on("interactionCreate", async (interaction) => {
       if (ctx === "rr") {
         // All dashboard-related buttons should also have a permission check
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+          return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", flags: MessageFlags.Ephemeral });
         }
 
         // Assign menuId, type, newState based on action within the rr context
@@ -718,33 +720,33 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "publish") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing for publish.", flags: MessageFlags.Ephemeral });
           return publishMenu(interaction, menuId);
         }
 
         if (action === "edit_published") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
           if (!menu || !menu.channelId || !menu.messageId) {
-            return interaction.editReply({ content: "❌ No published message found for this menu to edit.", ephemeral: true });
+            return interaction.editReply({ content: "❌ No published message found for this menu to edit.", flags: MessageFlags.Ephemeral });
           }
           const channel = interaction.guild.channels.cache.get(menu.channelId);
-          if (!channel) return interaction.editReply({ content: "❌ Published channel not found.", ephemeral: true });
+          if (!channel) return interaction.editReply({ content: "❌ Published channel not found.", flags: MessageFlags.Ephemeral });
 
           try {
             const message = await channel.messages.fetch(menu.messageId);
             return publishMenu(interaction, menuId, message);
           } catch (error) {
             console.error("Error fetching message to edit:", error);
-            return interaction.editReply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", ephemeral: true });
+            return interaction.editReply({ content: "❌ Failed to fetch published message. It might have been deleted manually.", flags: MessageFlags.Ephemeral });
           }
         }
 
         if (action === "delete_published") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
           if (!menu || !menu.channelId || !menu.messageId) {
-            return interaction.editReply({ content: "❌ No published message found for this menu to delete.", ephemeral: true });
+            return interaction.editReply({ content: "❌ No published message found for this menu to delete.", flags: MessageFlags.Ephemeral });
           }
 
           const confirmButton = new ButtonBuilder()
@@ -760,20 +762,20 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({
             content: "⚠️ Are you sure you want to delete the published reaction role message? This cannot be undone.",
             components: [row],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
 
         if (action === "confirm_delete_published") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
           if (!menu || !menu.channelId || !menu.messageId) {
-            return interaction.editReply({ content: "❌ No published message found or already deleted.", components: [], ephemeral: true });
+            return interaction.editReply({ content: "❌ No published message found or already deleted.", components: [], flags: MessageFlags.Ephemeral });
           }
           const channel = interaction.guild.channels.cache.get(menu.channelId);
           if (!channel) {
             await db.clearMessageId(menuId);
-            return interaction.editReply({ content: "❌ Published channel not found. Message ID cleared.", components: [], ephemeral: true });
+            return interaction.editReply({ content: "❌ Published channel not found. Message ID cleared.", components: [], flags: MessageFlags.Ephemeral });
           }
 
           try {
@@ -784,7 +786,7 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.editReply({
               content: "✅ Published message deleted successfully!",
               components: [],
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
             return showMenuConfiguration(interaction, menuId);
           } catch (error) {
@@ -792,18 +794,18 @@ client.on("interactionCreate", async (interaction) => {
             await db.clearMessageId(menuId);
             return interaction.editReply({
               content: "❌ Failed to delete message. It might have already been deleted manually. Message ID cleared.",
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
           }
         }
 
         if (action === "cancel_delete_published") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], ephemeral: true });
-          return interaction.editReply({ content: "Deletion cancelled.", components: [], ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ content: "Deletion cancelled.", components: [], flags: MessageFlags.Ephemeral });
         }
 
         if (action === "type") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", flags: MessageFlags.Ephemeral });
           let selectedTypes = type === "both" ? ["dropdown", "button"] : [type];
           await db.saveSelectionType(menuId, selectedTypes);
 
@@ -822,9 +824,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "addemoji") {
-          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", ephemeral: true });
+          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder().setCustomId(`rr:modal:addemoji:${type}:${menuId}`).setTitle(`Add Emojis for ${type}`);
 
@@ -848,15 +850,15 @@ client.on("interactionCreate", async (interaction) => {
           }
           // If no roles, display a warning instead of an empty modal
           if (roles.length === 0) {
-            return interaction.editReply({ content: `No roles configured for ${type} menu. Add roles first.`, ephemeral: true });
+            return interaction.editReply({ content: `No roles configured for ${type} menu. Add roles first.`, flags: MessageFlags.Ephemeral });
           }
           return interaction.showModal(modal); // showModal does not conflict with deferred reply
         }
 
         if (action === "setlimits") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:setlimits:${menuId}`)
@@ -914,12 +916,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "setexclusions") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
-          if (!allRoles.size) return interaction.editReply({ content: "No roles available to set exclusions.", ephemeral: true });
+          if (!allRoles.size) return interaction.editReply({ content: "No roles available to set exclusions.", flags: MessageFlags.Ephemeral });
 
           const selectTriggerRole = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_trigger_role:${menuId}`) // Pass menuId here
@@ -931,14 +933,14 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({
             content: "Please select the role that, when picked, should remove other roles:",
             components: [new ActionRowBuilder().addComponents(selectTriggerRole)],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
 
         if (action === "customize_embed") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:customize_embed:${menuId}`)
@@ -994,9 +996,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "customize_footer") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:customize_footer:${menuId}`)
@@ -1026,25 +1028,25 @@ client.on("interactionCreate", async (interaction) => {
 
         // New webhook toggle button handler
         if (action === "toggle_webhook") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const newStateBoolean = !menu.useWebhook; // Get the actual boolean state
           await db.saveWebhookSettings(menuId, { useWebhook: newStateBoolean });
 
           await interaction.editReply({
             content: `✅ Webhook sending is now ${newStateBoolean ? "ENABLED" : "DISABLED"}`,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
         }
 
         // Webhook branding configuration handler
         if (action === "config_webhook") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:webhook_branding:${menuId}`)
@@ -1072,12 +1074,12 @@ client.on("interactionCreate", async (interaction) => {
 
         // Handle the clear button toggles which are now buttons
         if (action === "toggle_dropdown_clear_button") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           await db.saveEnableDropdownClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
         if (action === "toggle_button_clear_button") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           await db.saveEnableButtonClearRolesButton(menuId, newStateBoolean);
           return showMenuConfiguration(interaction, menuId);
         }
@@ -1093,7 +1095,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", flags: MessageFlags.Ephemeral });
         }
 
         if (action === "selectmenu") {
@@ -1107,7 +1109,8 @@ client.on("interactionCreate", async (interaction) => {
           await db.saveRoles(menuId, selectedRoleIds, type);
           await interaction.editReply({
             content: `✅ Roles saved for ${type}.`,
-            components: []
+            components: [],
+            flags: MessageFlags.Ephemeral
           });
           return showMenuConfiguration(interaction, menuId); // Show menu configuration after saving roles
         }
@@ -1117,7 +1120,7 @@ client.on("interactionCreate", async (interaction) => {
           const type = action.split("_")[1]; // "dropdown" or "button"
           const targetMenuId = menuId; // menuId is at parts[3]
           await db.saveRoleOrder(targetMenuId, currentOrder, type);
-          await interaction.editReply({ content: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, components: [] });
+          await interaction.editReply({ content: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} role order saved!`, components: [], flags: MessageFlags.Ephemeral });
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
@@ -1126,12 +1129,12 @@ client.on("interactionCreate", async (interaction) => {
           const targetMenuId = type; // menuId is at parts[2]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
           }
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", ephemeral: true });
+            return interaction.editReply({ content: "No other roles available to set as exclusions for this trigger role.", flags: MessageFlags.Ephemeral });
           }
 
           const selectExclusionRoles = new StringSelectMenuBuilder()
@@ -1148,7 +1151,7 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({
             content: `Now select roles to be **removed** when <@&${triggerRoleId}> is added:`,
             components: [new ActionRowBuilder().addComponents(selectExclusionRoles)],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
 
@@ -1159,12 +1162,12 @@ client.on("interactionCreate", async (interaction) => {
 
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
           }
           const newExclusionMap = { ...menu.exclusionMap, [triggerRoleId]: exclusionRoleIds };
           await db.saveExclusionMap(targetMenuId, newExclusionMap);
 
-          await interaction.editReply({ content: "✅ Exclusion roles saved!", components: [], ephemeral: true });
+          await interaction.editReply({ content: "✅ Exclusion roles saved!", components: [], flags: MessageFlags.Ephemeral });
           return showMenuConfiguration(interaction, targetMenuId);
         }
 
@@ -1173,7 +1176,7 @@ client.on("interactionCreate", async (interaction) => {
           const targetMenuId = menuId; // menuId is at parts[3]
           const menu = db.getMenu(targetMenuId);
           if (!menu) {
-              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], ephemeral: true });
+              return interaction.editReply({ content: "Menu not found. Please re-select the menu.", components: [], flags: MessageFlags.Ephemeral });
           }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
@@ -1203,33 +1206,34 @@ client.on("interactionCreate", async (interaction) => {
       const action = parts[1];
       const modalType = parts[2]; // This will be "create", "addemoji", "setlimits", etc.
 
-      // Determine menuId based on modal's customId structure
       let currentMenuId;
-      if (modalType === "addemoji" || modalType === "role_description") {
-        currentMenuId = parts[4];
+      if (modalType === "create") {
+          currentMenuId = null; // No menuId yet for creation modal
+      } else if (modalType === "addemoji" || modalType === "role_description") {
+          currentMenuId = parts[4]; // Specific case where type is parts[3] and menuId is parts[4]
       } else {
-        currentMenuId = parts[2]; // For other modals like setlimits, customize_embed, etc.
+          currentMenuId = parts[3]; // Default for other modals like setlimits, customize_embed, webhook_branding, etc.
       }
 
       if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You need Administrator permissions to configure reaction roles.", flags: MessageFlags.Ephemeral });
         }
 
-        if (modalType === "create") { // Use modalType instead of extra
+        if (modalType === "create") {
           const name = interaction.fields.getTextInputValue("name");
           const desc = interaction.fields.getTextInputValue("desc");
-          const newMenuId = await db.createMenu(interaction.guild.id, name, desc); // Await creation
+          const newMenuId = await db.createMenu(interaction.guild.id, name, desc);
           return showMenuConfiguration(interaction, newMenuId);
         }
 
         if (modalType === "addemoji") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const emojis = {};
           const type = parts[3]; // 'dropdown' or 'button'
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const roles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
@@ -1255,10 +1259,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "setlimits") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const auLimit = parseInt(interaction.fields.getTextInputValue("au_limit"));
@@ -1286,7 +1290,7 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           } catch (jsonError) {
-            return interaction.followUp({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", ephemeral: true });
+            return interaction.followUp({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", flags: MessageFlags.Ephemeral });
           }
 
           await db.saveRegionalLimits(currentMenuId, newRegionalLimits);
@@ -1297,7 +1301,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!isNaN(parsedLimit) && parsedLimit >= 0) {
               maxRolesLimit = parsedLimit;
             } else {
-              return interaction.followUp({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", ephemeral: true });
+              return interaction.followUp({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", flags: MessageFlags.Ephemeral });
             }
           }
           await db.saveMaxRolesLimit(currentMenuId, maxRolesLimit);
@@ -1305,10 +1309,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_embed") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const embedColor = interaction.fields.getTextInputValue("embed_color") || null;
@@ -1328,10 +1332,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_footer") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const footerText = interaction.fields.getTextInputValue("footer_text") || null;
@@ -1345,10 +1349,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "custom_messages") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const successAdd = interaction.fields.getTextInputValue("success_add_message") || null;
@@ -1365,10 +1369,10 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "role_description") {
           const roleId = parts[4]; // roleId is at parts[4] for this modal
-          if (!currentMenuId || !roleId) return interaction.editReply({ content: "Menu ID or Role ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
           const description = interaction.fields.getTextInputValue("description_input");
           await db.saveRoleDescriptions(currentMenuId, { [roleId]: description || null });
@@ -1376,10 +1380,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "webhook_branding") {
-          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", ephemeral: true });
+          if (!currentMenuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return interaction.followUp({ content: "Menu not found.", ephemeral: true });
+              return interaction.followUp({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
           }
 
           const name = interaction.fields.getTextInputValue("name");
@@ -1400,7 +1404,7 @@ client.on("interactionCreate", async (interaction) => {
 
         const menuId = interaction.customId.split(":")[1];
         const menu = db.getMenu(menuId);
-        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
 
         const selectedRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
 
@@ -1447,7 +1451,7 @@ client.on("interactionCreate", async (interaction) => {
         // Check regional limits
         const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialNewRoleIds);
         if (regionalViolations.length > 0) {
-            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+            await interaction.editReply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, flags: MessageFlags.Ephemeral });
             await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
             return;
         }
@@ -1456,7 +1460,7 @@ client.on("interactionCreate", async (interaction) => {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             const currentRelevantRolesCount = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id)).length;
             if (currentRelevantRolesCount > menu.maxRolesLimit) {
-                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                await interaction.editReply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, flags: MessageFlags.Ephemeral });
                 await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
                 return;
             }
@@ -1479,9 +1483,9 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             if (messages.length > 0) {
-                await interaction.editReply({ content: messages.join("\n"), ephemeral: true });
+                await interaction.editReply({ content: messages.join("\n"), flags: MessageFlags.Ephemeral });
             } else {
-                await interaction.editReply({ content: "No changes made to your roles.", ephemeral: true });
+                await interaction.editReply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
             }
 
             // Update the original published message components to reflect current selections
@@ -1490,9 +1494,9 @@ client.on("interactionCreate", async (interaction) => {
         } catch (error) {
             console.error("Error updating roles:", error);
             if (error.code === 50013) {
-                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
             } else {
-                await interaction.editReply({ content: "❌ There was an error updating your roles.", ephemeral: true });
+                await interaction.editReply({ content: "❌ There was an error updating your roles.", flags: MessageFlags.Ephemeral });
             }
         }
     }
@@ -1501,25 +1505,25 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith("rr-clear-roles:")) {
         const menuId = interaction.customId.split(":")[1];
         const menu = db.getMenu(menuId);
-        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", ephemeral: true });
+        if (!menu) return interaction.editReply({ content: "❌ This reaction role menu is no longer valid.", flags: MessageFlags.Ephemeral });
 
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const rolesToRemove = interaction.member.roles.cache.filter(role => allMenuRoleIds.includes(role.id)).map(role => role.id);
 
         if (rolesToRemove.length === 0) {
-            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", ephemeral: true });
+            return interaction.editReply({ content: "You don't have any roles from this menu to clear.", flags: MessageFlags.Ephemeral });
         }
 
         try {
             await interaction.member.roles.remove(rolesToRemove);
-            await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", ephemeral: true });
+            await interaction.editReply({ content: "✅ All roles from this menu have been cleared.", flags: MessageFlags.Ephemeral });
             await updatePublishedMessageComponents(interaction, menu); // Update published message after clearing
         } catch (error) {
             console.error("Error clearing roles:", error);
             if (error.code === 50013) {
-                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", ephemeral: true });
+                await interaction.editReply({ content: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", flags: MessageFlags.Ephemeral });
             } else {
-                await interaction.editReply({ content: "❌ There was an error clearing your roles.", ephemeral: true });
+                await interaction.editReply({ content: "❌ There was an error clearing your roles.", flags: MessageFlags.Ephemeral });
             }
         }
     }
@@ -1528,10 +1532,10 @@ client.on("interactionCreate", async (interaction) => {
     console.error("Error handling interaction:", error);
     if (!interaction.replied && !interaction.deferred) {
       // If an error occurs before defer or reply, send a fresh reply
-      await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
+      await interaction.reply({ content: "❌ Something went wrong.", flags: MessageFlags.Ephemeral });
     } else if (interaction.deferred) {
       // If deferred, but an error occurred before editing, edit the reply
-      await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+      await interaction.editReply({ content: "❌ Something went wrong after deferring. Please try again.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
     }
   }
 });
@@ -1551,7 +1555,7 @@ async function sendMainDashboard(interaction) {
       .setStyle(ButtonStyle.Primary)
   );
   // Use editReply now that interaction is deferred
-  await interaction.editReply({ embeds: [embed], components: [row], ephemeral: true });
+  await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 async function showReactionRolesDashboard(interaction) {
@@ -1596,12 +1600,12 @@ async function showReactionRolesDashboard(interaction) {
   try {
     console.log(`[showReactionRolesDashboard] Attempting to update interaction with ${components.length} components.`);
     // Use editReply now that interaction is deferred
-    await interaction.editReply({ embeds: [embed], components, ephemeral: true });
+    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
     console.log("[showReactionRolesDashboard] Interaction updated successfully.");
   } catch (error) {
     console.error("[showReactionRolesDashboard] Error updating interaction:", error);
     // If an error occurs after deferring, use editReply
-    await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
   }
 }
 
@@ -1612,7 +1616,7 @@ async function showMenuConfiguration(interaction, menuId) {
     // Use editReply as interaction is now deferred globally
     return interaction.editReply({
       content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     }).catch(e => console.error("Error editing deferred reply for invalid menuId:", e));
   }
 
@@ -1621,7 +1625,7 @@ async function showMenuConfiguration(interaction, menuId) {
   if (!menu) {
     console.error(`[showMenuConfiguration] Menu not found for ID: ${menuId}`);
     // Use editReply as interaction is now deferred globally
-    return interaction.editReply({ content: "Menu not found.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+    return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
   }
   console.log(`[showMenuConfiguration] Menu data retrieved for ${menu.name}.`);
 
@@ -1809,18 +1813,18 @@ async function showMenuConfiguration(interaction, menuId) {
 
   try {
     // Use editReply now that interaction is deferred globally
-    await interaction.editReply({ embeds: [embed], components: finalComponents, ephemeral: true });
+    await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
     console.log("[showMenuConfiguration] Interaction response sent successfully.");
   } catch (error) {
     console.error("Error during interaction response:", error);
     // If an error occurs after deferring, use editReply
-    await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", ephemeral: true }).catch(e => console.error("Error editing deferred reply:", e));
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", flags: MessageFlags.Ephemeral }).catch(e => console.error("Error editing deferred reply:", e));
   }
 }
 
 async function publishMenu(interaction, menuId, messageToEdit = null) {
   const menu = db.getMenu(menuId);
-  if (!menu) return interaction.editReply({ content: "Menu not found.", ephemeral: true });
+  if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
   const embed = new EmbedBuilder()
     .setTitle(menu.name)
@@ -1983,7 +1987,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     // Use editReply now that interaction is deferred globally
     await interaction.editReply({
       content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
   } catch (error) {
     console.error("Publishing error:", error);
@@ -1998,7 +2002,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     }
 
     // Use editReply now that interaction is deferred globally
-    await interaction.editReply({ content: errorMsg, ephemeral: true });
+    await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
   }
 }
 
