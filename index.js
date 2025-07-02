@@ -1200,6 +1200,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Avatar URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
+                  .setPlaceholder("https://example.com/avatar.png")
                   .setValue(menu.webhookAvatar || "")
               )
             );
@@ -1340,6 +1341,11 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      // Defer the modal submission immediately to prevent timeout
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate().catch(e => console.error("Error deferring modal update:", e));
+      }
+
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
@@ -1356,7 +1362,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            // Use followUp here as showModal doesn't defer, so interaction might not be deferred yet.
+            // Use followUp here as the interaction has already been deferred by deferUpdate above.
             return interaction.followUp({ content: "❌ You need Administrator permissions to configure reaction roles.", ephemeral: true });
         }
 
@@ -1364,8 +1370,7 @@ client.on("interactionCreate", async (interaction) => {
           const name = interaction.fields.getTextInputValue("name");
           const desc = interaction.fields.getTextInputValue("desc");
           const newMenuId = await db.createMenu(interaction.guild.id, name, desc);
-          // After modal submission, we can now defer and then editReply
-          await interaction.deferUpdate(); // Defer the modal submission interaction
+          // No need for deferUpdate here anymore, it's done at the top of modal submit block
           return showMenuConfiguration(interaction, newMenuId);
         }
 
@@ -1387,19 +1392,14 @@ client.on("interactionCreate", async (interaction) => {
               if (parsed) {
                 emojis[roleId] = emojiInput;
               } else {
-                // If invalid emoji, log a warning and don't save it, but don't error out the whole modal.
                 console.warn(`Invalid emoji for role ${roleId}: ${emojiInput}. Not saving.`);
-                // Optionally, inform the user about invalid emojis
-                // messages.push(`⚠️ Invalid emoji for role <@&${roleId}>: "${emojiInput}". It was not saved.`);
               }
             } else {
-              // If input is empty, explicitly remove the emoji for this role
               if (type === "dropdown") delete menu.dropdownEmojis[roleId];
               else delete menu.buttonEmojis[roleId];
             }
           }
           await db.saveEmojis(currentMenuId, emojis, type);
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1435,7 +1435,6 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           } catch (jsonError) {
-            await interaction.deferUpdate(); // Defer before sending followUp
             return interaction.followUp({ content: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", ephemeral: true });
           }
 
@@ -1447,12 +1446,10 @@ client.on("interactionCreate", async (interaction) => {
             if (!isNaN(parsedLimit) && parsedLimit >= 0) {
               maxRolesLimit = parsedLimit;
             } else {
-              await interaction.deferUpdate(); // Defer before sending followUp
               return interaction.followUp({ content: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", ephemeral: true });
             }
           }
           await db.saveMaxRolesLimit(currentMenuId, maxRolesLimit);
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1476,7 +1473,6 @@ client.on("interactionCreate", async (interaction) => {
             embedAuthorName,
             embedAuthorIconURL,
           });
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1494,7 +1490,6 @@ client.on("interactionCreate", async (interaction) => {
             embedFooterText: footerText,
             embedFooterIconURL: footerIconURL,
           });
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1514,7 +1509,6 @@ client.on("interactionCreate", async (interaction) => {
             successMessageRemove: successRemove || "✅ You removed the role <@&{roleId}>!",
             limitExceededMessage: limitExceeded || "❌ You have reached the maximum number of roles for this menu or region.",
           });
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1527,7 +1521,6 @@ client.on("interactionCreate", async (interaction) => {
           }
           const description = interaction.fields.getTextInputValue("description_input");
           await db.saveRoleDescriptions(currentMenuId, { [roleId]: description || null });
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
@@ -1545,7 +1538,6 @@ client.on("interactionCreate", async (interaction) => {
             webhookName: name || null,
             webhookAvatar: avatar || null
           });
-          await interaction.deferUpdate();
           return showMenuConfiguration(interaction, currentMenuId);
         }
       }
