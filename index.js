@@ -671,11 +671,10 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) || // This button now triggers a select menu
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) ||
-    // Updated isModalTrigger for the new raw JSON flow
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select:menu_for_raw_json")) || // This select menu triggers a modal
-    (interaction.isModalSubmit() && interaction.customId.startsWith("rr:modal:raw_embed_json:")) // Direct modal for raw JSON
+    (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) || // This button directly shows a modal
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
+    // Removed: (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select:menu_for_raw_json"))
+    // Removed: (interaction.isModalSubmit() && interaction.customId.startsWith("rr:modal:raw_embed_json:")) // This was incorrect here
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -1438,12 +1437,6 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
-
-        if (selectType === "menu_for_raw_json") { // This handles the selection from the dropdown
-          // This block is now removed as per user's request.
-          // The prompt_raw_embed_json button now directly shows the modal.
-          // This `if` block will effectively be unreachable.
-        }
       }
     }
 
@@ -1468,8 +1461,6 @@ client.on("interactionCreate", async (interaction) => {
       } else if (modalType === "reorder_roles") {
           currentMenuId = parts[3];
           type = parts[4]; // 'dropdown' or 'button'
-      } else if (modalType === "raw_embed_json") { // Old raw_embed_json modal, now removed.
-          currentMenuId = parts[3]; // Menu ID is directly in the custom ID
       } else if (modalType === "create_from_raw_json") { // New modal for creating from raw JSON
           currentMenuId = null; // Menu ID will be generated here
       }
