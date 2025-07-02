@@ -716,8 +716,8 @@ client.on("interactionCreate", async (interaction) => {
           // No menuId needed yet, it's created in the modal submit
         } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
-        } else if (["type", "addemoji", "manage_roles"].includes(action)) { // Added manage_roles
-          type = parts[2]; // 'dropdown', 'button', 'both' for type; 'dropdown', 'button' for addemoji, manage_roles
+        } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) { // Added manage_roles and toggle_type
+          type = parts[2]; // 'dropdown', 'button'
           menuId = parts[3]; // For these actions, menuId is parts[3]
         } else if (["reorder_dropdown", "reorder_button"].includes(action)) { // ADDED for reorder modal
           type = action.split("_")[1]; // 'dropdown' or 'button'
@@ -884,13 +884,31 @@ client.on("interactionCreate", async (interaction) => {
             return showMenuConfiguration(interaction, menuId); // Go back to the menu configuration
         }
 
-        if (action === "type") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing for selection type.", flags: MessageFlags.Ephemeral });
+        if (action === "toggle_type") { // New action for toggling type and prompting role management
+          if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", flags: MessageFlags.Ephemeral });
           
-          const newSelectionType = [type]; // 'dropdown' or 'button'
-          await db.saveSelectionType(menuId, newSelectionType);
-          await sendEphemeralEmbed(interaction, `✅ Selection type set to: ${newSelectionType.join(" & ")}.`, "#00FF00", "Success");
-          return showMenuConfiguration(interaction, menuId); // Refresh the menu config view
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const currentSelectionTypes = new Set(menu.selectionType || []);
+          const typeEnabled = currentSelectionTypes.has(type);
+
+          if (typeEnabled) {
+            // If type is currently enabled, disable it and clear associated roles/emojis/order
+            currentSelectionTypes.delete(type);
+            await db.saveSelectionType(menuId, Array.from(currentSelectionTypes));
+            await db.saveRoles(menuId, [], type); // Clear roles
+            await db.saveEmojis(menuId, {}, type); // Clear emojis
+            await db.saveRoleOrder(menuId, [], type); // Clear order
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles disabled and cleared.`, "#00FF00", "Success");
+            return showMenuConfiguration(interaction, menuId);
+          } else {
+            // If type is currently disabled, enable it and prompt to manage roles
+            currentSelectionTypes.add(type);
+            await db.saveSelectionType(menuId, Array.from(currentSelectionTypes));
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles enabled. Now select roles.`, "#00FF00", "Success");
+            return promptManageRoles(interaction, menuId, type);
+          }
         }
 
         if (action === "addemoji") {
@@ -1281,38 +1299,9 @@ client.on("interactionCreate", async (interaction) => {
             });
         }
 
-        if (action === "manage_roles") { // New handler for "Manage Roles" buttons
+        if (action === "manage_roles") { // Handler for "Manage Roles" buttons
           if (!menuId || !type) return interaction.editReply({ content: "Menu ID or type missing.", flags: MessageFlags.Ephemeral });
-          const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
-
-          const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
-          if (allRoles.size === 0) {
-            return interaction.editReply({
-              content: "❌ No roles available in this guild to manage. Please create some roles first.",
-              flags: MessageFlags.Ephemeral
-            });
-          }
-
-          const currentRolesForType = (menu[type + "Roles"] || []);
-
-          const select = new StringSelectMenuBuilder()
-            .setCustomId(`rr:save_managed_roles:${type}:${menuId}`) // New custom ID for saving
-            .setPlaceholder(`Select/Deselect your ${type} roles...`)
-            .setMinValues(0)
-            .setMaxValues(Math.min(allRoles.size, 25))
-            .addOptions(allRoles.map((r) => ({
-                label: r.name,
-                value: r.id,
-                default: currentRolesForType.includes(r.id) // Pre-select current roles
-            })));
-
-          await interaction.editReply({
-            content: `Please select all roles you want for the **${type}** menu (select/deselect to add/remove):`,
-            components: [new ActionRowBuilder().addComponents(select)],
-            flags: MessageFlags.Ephemeral
-          });
-          return;
+          return promptManageRoles(interaction, menuId, type); // Call the new helper function
         }
       }
     }
@@ -1882,6 +1871,44 @@ client.on("interactionCreate", async (interaction) => {
     }
 });
 
+/**
+ * Helper function to prompt the user to select roles for a given type (dropdown or button).
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} menuId - The ID of the menu being configured.
+ * @param {'dropdown'|'button'} type - The type of roles to manage.
+ */
+async function promptManageRoles(interaction, menuId, type) {
+  const menu = db.getMenu(menuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+  }
+
+  const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
+  if (allRoles.size === 0) {
+    return sendEphemeralEmbed(interaction, "❌ No roles available in this guild to manage. Please create some roles first.", "#FF0000", "No Roles Found");
+  }
+
+  const currentRolesForType = (menu[type + "Roles"] || []);
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`rr:save_managed_roles:${type}:${menuId}`)
+    .setPlaceholder(`Select/Deselect your ${type} roles...`)
+    .setMinValues(0)
+    .setMaxValues(Math.min(allRoles.size, 25))
+    .addOptions(allRoles.map((r) => ({
+        label: r.name,
+        value: r.id,
+        default: currentRolesForType.includes(r.id) // Pre-select current roles
+    })));
+
+  await interaction.editReply({
+    content: `Please select all roles you want for the **${type}** menu (select/deselect to add/remove):`,
+    components: [new ActionRowBuilder().addComponents(select)],
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+
 // --- Dashboard Functions ---
 
 /**
@@ -2041,16 +2068,13 @@ async function showMenuConfiguration(interaction, menuId) {
 
   const row1_role_types = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`rr:type:dropdown:${menuId}`)
-      .setLabel("Configure Dropdown Type") // Renamed
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(menu.selectionType.length > 0 && !menu.selectionType.includes("dropdown")),
+      .setCustomId(`rr:toggle_type:dropdown:${menuId}`) // New custom ID and action
+      .setLabel(menu.selectionType.includes("dropdown") ? "Disable Dropdown Roles" : "Enable Dropdown Roles")
+      .setStyle(menu.selectionType.includes("dropdown") ? ButtonStyle.Danger : ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`rr:type:button:${menuId}`)
-      .setLabel("Configure Button Type") // Renamed
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(menu.selectionType.length > 0 && !menu.selectionType.includes("button")),
-    // Removed the "Set Both Types" button
+      .setCustomId(`rr:toggle_type:button:${menuId}`) // New custom ID and action
+      .setLabel(menu.selectionType.includes("button") ? "Disable Button Roles" : "Enable Button Roles")
+      .setStyle(menu.selectionType.includes("button") ? ButtonStyle.Danger : ButtonStyle.Primary),
   );
 
   const row_manage_roles = new ActionRowBuilder().addComponents(
