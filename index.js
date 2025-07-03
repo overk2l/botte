@@ -32,10 +32,11 @@ let dbFirestore;
 
 try {
   if (process.env.FIREBASE_CONFIG) {
-    firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
     // --- ADDED FOR DEBUGGING ---
-    console.log("[Firebase Debug] Parsed firebaseConfig:", firebaseConfig);
+    console.log("[Firebase Debug] Raw FIREBASE_CONFIG env var:", process.env.FIREBASE_CONFIG);
     // --- END DEBUGGING ADDITION ---
+    firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+    console.log("[Firebase Debug] Parsed firebaseConfig:", firebaseConfig);
     if (firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
       firebaseApp = initializeApp(firebaseConfig);
       dbFirestore = getFirestore(firebaseApp);
