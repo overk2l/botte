@@ -2766,38 +2766,101 @@ client.on("interactionCreate", async (interaction) => {
           // Create embed for the page content
           const embed = new EmbedBuilder();
           
-          if (page.content.title) embed.setTitle(page.content.title);
-          if (page.content.description) embed.setDescription(page.content.description);
-          if (page.content.color || menu.embedColor) embed.setColor(page.content.color || menu.embedColor);
-          if (page.content.thumbnail || menu.embedThumbnail) embed.setThumbnail(page.content.thumbnail || menu.embedThumbnail);
-          if (page.content.image || menu.embedImage) embed.setImage(page.content.image || menu.embedImage);
+          // Helper function to validate URLs
+          const isValidUrl = (url) => {
+            if (!url || typeof url !== 'string' || url.trim() === '') return false;
+            try {
+              new URL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          };
+
+          // Helper function to validate color
+          const isValidColor = (color) => {
+            if (!color || typeof color !== 'string') return false;
+            return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+          };
           
-          if (page.content.author) {
-            embed.setAuthor({
-              name: page.content.author.name || menu.embedAuthorName,
-              iconURL: page.content.author.iconURL || menu.embedAuthorIconURL
-            });
+          if (page.content.title && page.content.title.trim()) {
+            embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
+          }
+          
+          if (page.content.description && page.content.description.trim()) {
+            embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
+          }
+          
+          // Handle color with validation
+          const color = page.content.color || menu.embedColor;
+          if (color && isValidColor(color)) {
+            embed.setColor(color);
+          }
+          
+          // Handle thumbnail with URL validation
+          const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+          if (thumbnail && isValidUrl(thumbnail)) {
+            embed.setThumbnail(thumbnail);
+          }
+          
+          // Handle image with URL validation
+          const image = page.content.image || menu.embedImage;
+          if (image && isValidUrl(image)) {
+            embed.setImage(image);
+          }
+          
+          // Handle author with validation
+          if (page.content.author && page.content.author.name) {
+            const authorData = {
+              name: page.content.author.name.slice(0, 256) // Discord author name limit
+            };
+            if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+              authorData.iconURL = page.content.author.iconURL;
+            }
+            embed.setAuthor(authorData);
           } else if (menu.embedAuthorName) {
-            embed.setAuthor({
-              name: menu.embedAuthorName,
-              iconURL: menu.embedAuthorIconURL
-            });
+            const authorData = {
+              name: menu.embedAuthorName.slice(0, 256)
+            };
+            if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+              authorData.iconURL = menu.embedAuthorIconURL;
+            }
+            embed.setAuthor(authorData);
           }
 
-          if (page.content.footer) {
-            embed.setFooter({
-              text: page.content.footer.text || menu.embedFooterText,
-              iconURL: page.content.footer.iconURL || menu.embedFooterIconURL
-            });
+          // Handle footer with validation
+          if (page.content.footer && page.content.footer.text) {
+            const footerData = {
+              text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+            };
+            if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+              footerData.iconURL = page.content.footer.iconURL;
+            }
+            embed.setFooter(footerData);
           } else if (menu.embedFooterText) {
-            embed.setFooter({
-              text: menu.embedFooterText,
-              iconURL: menu.embedFooterIconURL
-            });
+            const footerData = {
+              text: menu.embedFooterText.slice(0, 2048)
+            };
+            if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+              footerData.iconURL = menu.embedFooterIconURL;
+            }
+            embed.setFooter(footerData);
           }
 
-          if (page.content.fields) {
-            embed.addFields(page.content.fields);
+          // Handle fields with validation
+          if (page.content.fields && Array.isArray(page.content.fields)) {
+            const validFields = page.content.fields
+              .filter(field => field && field.name && field.value)
+              .slice(0, 25) // Discord field limit
+              .map(field => ({
+                name: field.name.slice(0, 256), // Discord field name limit
+                value: field.value.slice(0, 1024), // Discord field value limit
+                inline: Boolean(field.inline)
+              }));
+            
+            if (validFields.length > 0) {
+              embed.addFields(validFields);
+            }
           }
 
           try {
@@ -2808,10 +2871,13 @@ client.on("interactionCreate", async (interaction) => {
             }
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
+            console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
             return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
           }
         } catch (error) {
           console.error("Error displaying info page:", error);
+          console.error("Page data:", JSON.stringify(page, null, 2));
+          console.error("Menu data:", JSON.stringify(menu, null, 2));
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       }
@@ -3024,38 +3090,101 @@ client.on("interactionCreate", async (interaction) => {
           // Create embed for the page content
           const embed = new EmbedBuilder();
           
-          if (page.content.title) embed.setTitle(page.content.title);
-          if (page.content.description) embed.setDescription(page.content.description);
-          if (page.content.color || menu.embedColor) embed.setColor(page.content.color || menu.embedColor);
-          if (page.content.thumbnail || menu.embedThumbnail) embed.setThumbnail(page.content.thumbnail || menu.embedThumbnail);
-          if (page.content.image || menu.embedImage) embed.setImage(page.content.image || menu.embedImage);
+          // Helper function to validate URLs
+          const isValidUrl = (url) => {
+            if (!url || typeof url !== 'string' || url.trim() === '') return false;
+            try {
+              new URL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          };
+
+          // Helper function to validate color
+          const isValidColor = (color) => {
+            if (!color || typeof color !== 'string') return false;
+            return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+          };
           
-          if (page.content.author) {
-            embed.setAuthor({
-              name: page.content.author.name || menu.embedAuthorName,
-              iconURL: page.content.author.iconURL || menu.embedAuthorIconURL
-            });
+          if (page.content.title && page.content.title.trim()) {
+            embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
+          }
+          
+          if (page.content.description && page.content.description.trim()) {
+            embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
+          }
+          
+          // Handle color with validation
+          const color = page.content.color || menu.embedColor;
+          if (color && isValidColor(color)) {
+            embed.setColor(color);
+          }
+          
+          // Handle thumbnail with URL validation
+          const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+          if (thumbnail && isValidUrl(thumbnail)) {
+            embed.setThumbnail(thumbnail);
+          }
+          
+          // Handle image with URL validation
+          const image = page.content.image || menu.embedImage;
+          if (image && isValidUrl(image)) {
+            embed.setImage(image);
+          }
+          
+          // Handle author with validation
+          if (page.content.author && page.content.author.name) {
+            const authorData = {
+              name: page.content.author.name.slice(0, 256) // Discord author name limit
+            };
+            if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+              authorData.iconURL = page.content.author.iconURL;
+            }
+            embed.setAuthor(authorData);
           } else if (menu.embedAuthorName) {
-            embed.setAuthor({
-              name: menu.embedAuthorName,
-              iconURL: menu.embedAuthorIconURL
-            });
+            const authorData = {
+              name: menu.embedAuthorName.slice(0, 256)
+            };
+            if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+              authorData.iconURL = menu.embedAuthorIconURL;
+            }
+            embed.setAuthor(authorData);
           }
 
-          if (page.content.footer) {
-            embed.setFooter({
-              text: page.content.footer.text || menu.embedFooterText,
-              iconURL: page.content.footer.iconURL || menu.embedFooterIconURL
-            });
+          // Handle footer with validation
+          if (page.content.footer && page.content.footer.text) {
+            const footerData = {
+              text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+            };
+            if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+              footerData.iconURL = page.content.footer.iconURL;
+            }
+            embed.setFooter(footerData);
           } else if (menu.embedFooterText) {
-            embed.setFooter({
-              text: menu.embedFooterText,
-              iconURL: menu.embedFooterIconURL
-            });
+            const footerData = {
+              text: menu.embedFooterText.slice(0, 2048)
+            };
+            if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+              footerData.iconURL = menu.embedFooterIconURL;
+            }
+            embed.setFooter(footerData);
           }
 
-          if (page.content.fields) {
-            embed.addFields(page.content.fields);
+          // Handle fields with validation
+          if (page.content.fields && Array.isArray(page.content.fields)) {
+            const validFields = page.content.fields
+              .filter(field => field && field.name && field.value)
+              .slice(0, 25) // Discord field limit
+              .map(field => ({
+                name: field.name.slice(0, 256), // Discord field name limit
+                value: field.value.slice(0, 1024), // Discord field value limit
+                inline: Boolean(field.inline)
+              }));
+            
+            if (validFields.length > 0) {
+              embed.addFields(validFields);
+            }
           }
 
           try {
@@ -3066,10 +3195,13 @@ client.on("interactionCreate", async (interaction) => {
             }
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
+            console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
             return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
           }
         } catch (error) {
           console.error("Error displaying info page from dropdown:", error);
+          console.error("Page data:", JSON.stringify(page, null, 2));
+          console.error("Menu data:", JSON.stringify(menu, null, 2));
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
@@ -3534,11 +3666,67 @@ client.on("interactionCreate", async (interaction) => {
           const pageJsonRaw = interaction.fields.getTextInputValue("page_json");
 
           try {
-            const pageData = JSON.parse(pageJsonRaw);
+            let pageData = JSON.parse(pageJsonRaw);
+            
+            // Auto-detect Discohook format and convert it
+            if (pageData.embeds && Array.isArray(pageData.embeds) && pageData.embeds.length > 0) {
+              const embed = pageData.embeds[0]; // Use first embed
+              
+              // Helper functions for validation
+              const isValidUrl = (url) => {
+                if (!url || typeof url !== 'string' || url.trim() === '') return false;
+                try {
+                  new URL(url);
+                  return true;
+                } catch {
+                  return false;
+                }
+              };
+
+              const normalizeColor = (color) => {
+                if (!color) return null;
+                if (typeof color === 'number') {
+                  return `#${color.toString(16).padStart(6, '0')}`;
+                }
+                if (typeof color === 'string') {
+                  if (/^#[0-9A-F]{6}$/i.test(color)) return color;
+                  if (/^[0-9A-F]{6}$/i.test(color)) return `#${color}`;
+                }
+                return null;
+              };
+              
+              // Convert Discohook format to page format with validation
+              pageData = {
+                id: embed.title ? embed.title.toLowerCase().replace(/[^a-z0-9]/g, '_') : `page_${Date.now()}`,
+                name: embed.title || "Imported Page",
+                content: {
+                  title: embed.title,
+                  description: embed.description,
+                  color: normalizeColor(embed.color),
+                  thumbnail: isValidUrl(embed.thumbnail?.url) ? embed.thumbnail.url : 
+                            isValidUrl(embed.thumbnail) ? embed.thumbnail : null,
+                  image: isValidUrl(embed.image?.url) ? embed.image.url : 
+                         isValidUrl(embed.image) ? embed.image : null,
+                  author: embed.author && embed.author.name ? {
+                    name: embed.author.name,
+                    iconURL: isValidUrl(embed.author.iconURL || embed.author.icon_url) ? 
+                            (embed.author.iconURL || embed.author.icon_url) : null
+                  } : null,
+                  footer: embed.footer && embed.footer.text ? {
+                    text: embed.footer.text,
+                    iconURL: isValidUrl(embed.footer.iconURL || embed.footer.icon_url) ? 
+                            (embed.footer.iconURL || embed.footer.icon_url) : null
+                  } : null,
+                  fields: Array.isArray(embed.fields) ? embed.fields.filter(field => 
+                    field && field.name && field.value
+                  ) : null
+                }
+              };
+            }
             
             // Validate required fields
             if (!pageData.id || !pageData.name || !pageData.content) {
-              return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.", "#FF0000", "JSON Error", false);
+              return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!", "#FF0000", "JSON Error", false);
             }
 
             const pageId = await db.saveInfoMenuPage(infoMenuId, {
@@ -3550,7 +3738,7 @@ client.on("interactionCreate", async (interaction) => {
             return showInfoMenuConfiguration(interaction, infoMenuId);
           } catch (error) {
             console.error("Error parsing page JSON:", error);
-            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.", "#FF0000", "JSON Error", false);
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!", "#FF0000", "JSON Error", false);
           }
         }
 
@@ -3646,25 +3834,60 @@ client.on("interactionCreate", async (interaction) => {
           if (parsedJson.embeds && Array.isArray(parsedJson.embeds) && parsedJson.embeds.length > 0) {
             const embed = parsedJson.embeds[0]; // Use first embed
             
-            // Convert Discohook format to our format
+            // Helper functions for validation
+            const isValidUrl = (url) => {
+              if (!url || typeof url !== 'string' || url.trim() === '') return false;
+              try {
+                new URL(url);
+                return true;
+              } catch {
+                return false;
+              }
+            };
+
+            const normalizeColor = (color) => {
+              if (!color) return "#5865F2";
+              if (typeof color === 'number') {
+                return `#${color.toString(16).padStart(6, '0')}`;
+              }
+              if (typeof color === 'string') {
+                if (/^#[0-9A-F]{6}$/i.test(color)) return color;
+                if (/^[0-9A-F]{6}$/i.test(color)) return `#${color}`;
+              }
+              return "#5865F2";
+            };
+            
+            // Convert Discohook format to our format with validation
             const convertedJson = {
               name: embed.title || "Imported Menu",
               desc: embed.description ? 
                 (embed.description.length > 100 ? embed.description.substring(0, 97) + "..." : embed.description) 
                 : "Imported from Discohook",
-              embedColor: embed.color ? `#${embed.color.toString(16).padStart(6, '0')}` : "#5865F2",
+              embedColor: normalizeColor(embed.color),
               pages: [{
                 id: "main",
                 name: embed.title || "Main Page",
                 content: {
                   title: embed.title,
                   description: embed.description,
-                  color: embed.color,
-                  thumbnail: embed.thumbnail?.url || embed.thumbnail,
-                  image: embed.image?.url || embed.image,
-                  author: embed.author,
-                  footer: embed.footer,
-                  fields: embed.fields
+                  color: normalizeColor(embed.color),
+                  thumbnail: isValidUrl(embed.thumbnail?.url) ? embed.thumbnail.url : 
+                            isValidUrl(embed.thumbnail) ? embed.thumbnail : null,
+                  image: isValidUrl(embed.image?.url) ? embed.image.url : 
+                         isValidUrl(embed.image) ? embed.image : null,
+                  author: embed.author && embed.author.name ? {
+                    name: embed.author.name,
+                    iconURL: isValidUrl(embed.author.iconURL || embed.author.icon_url) ? 
+                            (embed.author.iconURL || embed.author.icon_url) : null
+                  } : null,
+                  footer: embed.footer && embed.footer.text ? {
+                    text: embed.footer.text,
+                    iconURL: isValidUrl(embed.footer.iconURL || embed.footer.icon_url) ? 
+                            (embed.footer.iconURL || embed.footer.icon_url) : null
+                  } : null,
+                  fields: Array.isArray(embed.fields) ? embed.fields.filter(field => 
+                    field && field.name && field.value
+                  ) : null
                 }
               }]
             };
