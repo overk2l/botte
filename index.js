@@ -394,7 +394,7 @@ const db = {
         // Continue with in-memory deletion only
       }
     } else {
-      console.log(`[Database] Deleted menu with ID: ${id} (memory only)`);
+      console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`); // Fixed variable name from 'id' to 'menuId'
     }
   },
 };
@@ -521,8 +521,9 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * This is crucial for keeping the UI in sync with the user's state.
  * @param {import('discord.js').Interaction} interaction - The interaction that triggered the update.
  * @param {Object} menu - The menu object.
+ * @param {string} menuId - The ID of the menu. (Added based on user's new code)
  */
-async function updatePublishedMessageComponents(interaction, menu) {
+async function updatePublishedMessageComponents(interaction, menu, menuId) { // Modified function signature
     if (!menu.channelId || !menu.messageId) return;
 
     const guild = interaction.guild;
@@ -1525,8 +1526,8 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "reorder_roles") {
           try {
-            if (!currentMenuId || !type) {
-              return sendEphemeralEmbed(interaction, "Menu ID or type missing.", "#FF0000", "Error");
+            if (!currentMenuId) { // Removed !type as it's always 'dropdown' or 'button' here
+              return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
             }
             
             const menu = db.getMenu(currentMenuId);
@@ -1844,7 +1845,9 @@ client.on("interactionCreate", async (interaction) => {
 
         // Log menu structure for debugging
         console.log(`[Debug] Menu structure:`, {
-            id: menu.id,
+            id: menu.id || 'NO ID PROPERTY',
+            guildId: menu.guildId,
+            name: menu.name,
             dropdownRoles: menu.dropdownRoles?.length || 0,
             buttonRoles: menu.buttonRoles?.length || 0,
             hasExclusionMap: !!menu.exclusionMap,
@@ -1946,7 +1949,7 @@ client.on("interactionCreate", async (interaction) => {
         if (regionalViolations.length > 0) {
             console.log(`[Debug] Regional limit violations:`, regionalViolations);
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
+            await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
             return;
         }
 
@@ -1955,7 +1958,7 @@ client.on("interactionCreate", async (interaction) => {
             if (potentialMenuRoleIds.length > menu.maxRolesLimit) {
                 console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIds.length} > ${menu.maxRolesLimit}`);
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
+                await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
                 return;
             }
         }
@@ -1989,7 +1992,7 @@ client.on("interactionCreate", async (interaction) => {
 
             console.log(`[Debug] About to update published message components`);
             // Update the original published message components to reflect current selections
-            await updatePublishedMessageComponents(interaction, menu);
+            await updatePublishedMessageComponents(interaction, menu, menuId);
             console.log(`[Debug] Published message components updated successfully`);
 
         } catch (error) {
