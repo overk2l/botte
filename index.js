@@ -137,9 +137,6 @@ const db = {
       successMessageAdd: "✅ You now have the role <@&{roleId}>!",
       successMessageRemove: "✅ You removed the role <@&{roleId}>!",
       limitExceededMessage: "❌ You have reached the maximum number of roles for this menu or region.",
-      successMessageAddJson: null, // New field for JSON message
-      successMessageRemoveJson: null, // New field for JSON message
-      limitExceededMessageJson: null, // New field for JSON message
       dropdownRoleOrder: [],
       buttonRoleOrder: [],
       dropdownRoleDescriptions: {},
@@ -435,32 +432,6 @@ function parseEmoji(emoji) {
 }
 
 /**
- * Recursively applies placeholders to a string or within an object/array.
- * @param {any} input - The string, object, or array to process.
- * @param {Object} data - An object containing key-value pairs for placeholders.
- * @returns {any} The processed input with placeholders replaced.
- */
-function applyPlaceholders(input, data) {
-    if (typeof input === 'string') {
-        let result = input;
-        for (const key in data) {
-            // Use a regex to replace all occurrences of the placeholder
-            result = result.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), data[key]);
-        }
-        return result;
-    } else if (Array.isArray(input)) {
-        return input.map(item => applyPlaceholders(item, data));
-    } else if (typeof input === 'object' && input !== null) {
-        const newObj = {};
-        for (const key in input) {
-            newObj[key] = applyPlaceholders(input[key], data);
-        }
-        return newObj;
-    }
-    return input;
-}
-
-/**
  * Checks if a member's potential new roles violate any regional limits defined in the menu.
  * @param {import('discord.js').GuildMember} member - The member whose roles are being checked.
  * @param {Object} menu - The menu object containing regional limits.
@@ -514,93 +485,147 @@ async function createReactionRoleEmbed(guild, menu) {
 }
 
 /**
- * Sends an ephemeral response to an interaction, supporting plain text, embeds, or full JSON payloads.
+ * Sends an ephemeral embed reply or follow-up to an interaction.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
- * @param {Object} options - Options for the response.
- * @param {string} [options.description] - Description for a simple embed.
- * @param {string} [options.color] - Color for a simple embed.
- * @param {string} [options.title] - Title for a simple embed.
- * @param {string} [options.jsonPayload] - Raw JSON string for a full message payload.
- * @param {Object} [options.placeholderData] - Data for placeholder replacement in JSON payloads.
- * @param {number} [options.timeout] - Number of seconds after which to delete the ephemeral reply. Only applies to the initial reply.
+ * @param {string} description - The description for the embed.
+ * @param {string} [color="#5865F2"] - The color of the embed (hex code).
+ * @param {string} [title="Notification"] - The title of the embed.
  */
-async function sendEphemeralResponse(interaction, options) {
-    const { description, color, title, jsonPayload, placeholderData, timeout } = options;
+async function sendEphemeralEmbed(interaction, description, color = "#5865F2", title = "Notification") {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description)
+        .setColor(color);
     
-    let finalPayload = {};
-
-    if (jsonPayload) {
-        try {
-            let parsed = JSON.parse(jsonPayload);
-            if (placeholderData) {
-                parsed = applyPlaceholders(parsed, placeholderData);
-            }
-            finalPayload = parsed;
-            // Ensure flags.Ephemeral is set for JSON payloads too, unless explicitly overridden
-            if (!finalPayload.flags) {
-                finalPayload.flags = MessageFlags.Ephemeral;
-            }
-        } catch (e) {
-            console.error("Error parsing custom JSON payload:", e);
-            // Fallback to a simple error message if JSON is invalid
-            finalPayload = {
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle("❌ Custom Message Error")
-                        .setDescription("The configured custom message JSON is invalid. Please contact an administrator.")
-                        .setColor("#FF0000")
-                ],
-                flags: MessageFlags.Ephemeral
-            };
+    try {
+        // Check if interaction has already been replied/deferred
+        if (interaction.replied || interaction.deferred) {
+            await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
+        } else {
+            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         }
-    } else {
-        // Original simple embed logic
-        const embed = new EmbedBuilder()
-            .setTitle(title || "Notification")
-            .setDescription(description)
-            .setColor(color || "#5865F2");
-        finalPayload = { embeds: [embed], flags: MessageFlags.Ephemeral };
+    } catch (error) {
+        console.error("Error sending ephemeral embed:", error);
+        // Try followUp as last resort
+        try {
+            await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        } catch (followUpError) {
+            console.error("Error sending follow-up:", followUpError);
+        }
     }
+}
+
+
+/**
+ * Updates the components (dropdowns and buttons) on a published reaction role message
+ * to reflect the current roles held by the interacting member.
+ * This is crucial for keeping the UI in sync with the user's state.
+ * @param {import('discord.js').Interaction} interaction - The interaction that triggered the update.
+ * @param {Object} menu - The menu object.
+ * @param {string} menuId - The ID of the menu. (Added based on user's new code)
+ */
+async function updatePublishedMessageComponents(interaction, menu, menuId) { // Modified function signature
+    if (!menu.channelId || !menu.messageId) return;
+
+    const guild = interaction.guild;
+    const member = interaction.member;
 
     try {
-        // Store the reply promise to await it before setting timeout
-        let replyPromise;
-        if (interaction.replied || interaction.deferred) {
-            replyPromise = interaction.editReply(finalPayload);
-        } else {
-            replyPromise = interaction.reply(finalPayload);
+        const originalChannel = await guild.channels.fetch(menu.channelId);
+        if (!originalChannel) {
+            console.error(`Channel ${menu.channelId} not found for menu ${menu.id}`);
+            return;
         }
-        
-        // Await the reply to ensure it's sent before attempting to delete
-        await replyPromise;
 
-        // If it's an ephemeral message and a timeout is specified, schedule deletion
-        // interaction.deleteReply() only works on the initial reply, not follow-ups.
-        if (finalPayload.flags & MessageFlags.Ephemeral && typeof timeout === 'number' && timeout > 0) {
-            setTimeout(async () => {
-                try {
-                    // Check if the interaction is still valid and the reply hasn't been deleted yet
-                    // The `interaction.ephemeralMessageDeleted` is a custom flag to prevent double deletion attempts
-                    if (interaction.isRepliable() && !(interaction.ephemeralMessageDeleted || false)) {
-                        await interaction.deleteReply();
-                        interaction.ephemeralMessageDeleted = true; // Mark as deleted
-                    }
-                } catch (deleteError) {
-                    // Ignore "Unknown Message" (error code 10008) as it means it already disappeared or was manually deleted
-                    if (deleteError.code !== 10008) { 
-                        console.error("Error deleting ephemeral reply:", deleteError);
-                    }
+        const originalMessage = await originalChannel.messages.fetch(menu.messageId);
+
+        const components = [];
+
+        // Rebuild Dropdown Select Menu
+        if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
+            const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+                ? menu.dropdownRoleOrder
+                : menu.dropdownRoles
+            ).map(roleId => {
+                const role = guild.roles.cache.get(roleId);
+                if (!role) return null;
+                return {
+                    label: role.name,
+                    value: role.id,
+                    emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+                    description: menu.dropdownRoleDescriptions[role.id] || undefined,
+                    default: false // Always set default to false so roles are not pre-selected
+                };
+            }).filter(Boolean);
+
+            if (dropdownOptions.length > 0) {
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`rr-role-select:${menu.id}`)
+                    .setPlaceholder("Select your roles...")
+                    .setMinValues(0)
+                    .setMaxValues(dropdownOptions.length)
+                    .addOptions(dropdownOptions);
+                components.push(new ActionRowBuilder().addComponents(selectMenu));
+            }
+        }
+
+        // Rebuild Buttons
+        if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
+            const buttonRows = [];
+            let currentRow = new ActionRowBuilder();
+            const orderedButtonRoles = menu.buttonRoleOrder.length > 0
+                ? menu.buttonRoleOrder
+                : menu.buttonRoles;
+
+            for (const roleId of orderedButtonRoles) {
+                const role = guild.roles.cache.get(roleId);
+                if (!role) continue;
+
+                const button = new ButtonBuilder()
+                    .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
+                    .setLabel(role.name)
+                    .setStyle(ButtonStyle.Secondary); // Always set to secondary
+
+                // Only set emoji if parseEmoji returns a valid object
+                const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+                if (parsedEmoji) {
+                    button.setEmoji(parsedEmoji);
                 }
-            }, timeout * 1000); // Convert seconds to milliseconds
+
+                if (currentRow.components.length < 5) {
+                    currentRow.addComponents(button);
+                } else {
+                    buttonRows.push(currentRow);
+                    currentRow = new ActionRowBuilder().addComponents(button);
+                }
+            }
+            if (currentRow.components.length > 0) {
+                buttonRows.push(currentRow);
+            }
+            components.push(...buttonRows);
+        }
+
+        const publishedEmbed = await createReactionRoleEmbed(guild, menu);
+
+        // Edit the message
+        if (menu.useWebhook) {
+            const webhook = await getOrCreateWebhook(originalChannel);
+            await webhook.editMessage(originalMessage.id, {
+                embeds: [publishedEmbed],
+                components,
+                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName, // Added fallback
+                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(), // Added fallback
+            });
+        } else {
+            await originalMessage.edit({ embeds: [publishedEmbed], components });
         }
 
     } catch (error) {
-        console.error("Error sending ephemeral response:", error);
-        try {
-            // If initial reply fails, try followUp. Follow-ups are not auto-deleted by this function.
-            await interaction.followUp(finalPayload);
-        } catch (followUpError) {
-            console.error("Error sending follow-up response:", followUpError);
+        console.error("Error updating published message components:", error);
+        // If the message or channel is gone, clear the message ID from the menu
+        if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
+            console.log(`Clearing message ID for menu ${menu.id} due to channel/message access error.`);
+            await db.clearMessageId(menu.id);
         }
     }
 }
@@ -614,9 +639,6 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message, Partials.GuildMember],
 });
-
-// Define the timeout duration for ephemeral role messages (e.g., 3 seconds)
-const ROLE_MESSAGE_TIMEOUT_SECONDS = 3;
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -644,132 +666,6 @@ client.once("ready", async () => {
     console.error("Error deploying slash command:", error);
   }
 });
-
-/**
- * Updates the components (buttons and dropdowns) on the published reaction role message.
- * This is called after a user adds or removes a role to reflect their current selections.
- * @param {import('discord.js').Interaction} interaction - The interaction that triggered the role change.
- * @param {Object} menu - The menu object.
- * @param {string} menuId - The ID of the menu.
- */
-async function updatePublishedMessageComponents(interaction, menu, menuId) {
-  if (!menu.channelId || !menu.messageId) {
-    console.warn(`[updatePublishedMessageComponents] Menu ${menuId} is not published, skipping component update.`);
-    return;
-  }
-
-  const channel = interaction.guild.channels.cache.get(menu.channelId);
-  if (!channel) {
-    console.error(`[updatePublishedMessageComponents] Channel ${menu.channelId} not found for menu ${menuId}.`);
-    return;
-  }
-
-  try {
-    const message = await channel.messages.fetch(menu.messageId);
-
-    const components = [];
-    const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
-
-    // Re-generate dropdown select menu
-    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-      const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-        ? menu.dropdownRoleOrder
-        : menu.dropdownRoles
-      ).map(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) return null;
-        return {
-          label: role.name.substring(0, 100),
-          value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-          description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-          default: currentMemberRoleIds.includes(role.id) // Set default based on member's current roles
-        };
-      }).filter(Boolean);
-
-      if (dropdownOptions.length > 0) {
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId(`rr-role-select:${menuId}`)
-          .setPlaceholder("Select your roles...")
-          .setMinValues(0)
-          .setMaxValues(dropdownOptions.length)
-          .addOptions(dropdownOptions);
-        components.push(new ActionRowBuilder().addComponents(selectMenu));
-      }
-    }
-
-    // Re-generate buttons
-    if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
-      const buttonRows = [];
-      let currentRow = new ActionRowBuilder();
-      const orderedButtonRoles = menu.buttonRoleOrder.length > 0
-        ? menu.buttonRoleOrder
-        : menu.buttonRoles;
-
-      for (const roleId of orderedButtonRoles) {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) continue;
-
-        const button = new ButtonBuilder()
-          .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-          .setLabel(role.name.substring(0, 80));
-
-        // Set button style based on whether the user has the role
-        if (currentMemberRoleIds.includes(role.id)) {
-          button.setStyle(ButtonStyle.Success); // Green if user has the role
-        } else {
-          button.setStyle(ButtonStyle.Secondary); // Grey if user doesn't have the role
-        }
-
-        const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-        if (parsedEmoji) {
-          button.setEmoji(parsedEmoji);
-        }
-
-        if (currentRow.components.length < 5) {
-          currentRow.addComponents(button);
-        } else {
-          buttonRows.push(currentRow);
-          currentRow = new ActionRowBuilder().addComponents(button);
-          if (buttonRows.length >= 4) break; // Max 5 rows total, leave 1 for dropdown
-        }
-      }
-      if (currentRow.components.length > 0 && buttonRows.length < 4) {
-        buttonRows.push(currentRow);
-      }
-      components.push(...buttonRows);
-    }
-
-    // Safely get bot's display name and avatar URL for webhook
-    const botDisplayName = interaction.guild.me?.displayName || client.user.displayName;
-    const botAvatarURL = interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL();
-
-    if (menu.useWebhook) {
-      const webhook = await getOrCreateWebhook(channel);
-      await webhook.editMessage(message.id, {
-        embeds: message.embeds, // Keep existing embeds
-        components,
-        username: menu.webhookName || botDisplayName,
-        avatarURL: menu.webhookAvatar || botAvatarURL,
-      });
-    } else {
-      await message.edit({
-        embeds: message.embeds, // Keep existing embeds
-        components
-      });
-    }
-    console.log(`[updatePublishedMessageComponents] Components updated for menu ${menuId} on message ${message.id}.`);
-
-  } catch (error) {
-    console.error(`[updatePublishedMessageComponents] Error updating components for menu ${menuId}:`, error);
-    // Ignore "Unknown Message" (error code 10008) if message was deleted
-    if (error.code === 10008) {
-      console.warn(`[updatePublishedMessageComponents] Message ${menu.messageId} for menu ${menuId} not found, clearing message ID.`);
-      await db.clearMessageId(menuId); // Clear message ID if it no longer exists
-    }
-  }
-}
-
 
 client.on("interactionCreate", async (interaction) => {
   // Early return for DMs
@@ -1040,13 +936,13 @@ client.on("interactionCreate", async (interaction) => {
             await db.saveRoles(menuId, [], type); // Clear roles
             await db.saveEmojis(menuId, {}, type); // Clear emojis
             await db.saveRoleOrder(menuId, [], type); // Clear order
-            await sendEphemeralResponse(interaction, { description: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles disabled and cleared.`, color: "#00FF00", title: "Success" });
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles disabled and cleared.`, "#00FF00", "Success");
             return showMenuConfiguration(interaction, menuId);
           } else {
             // If type is currently disabled, enable it and prompt to manage roles
             currentSelectionTypes.add(type);
             await db.saveSelectionType(menuId, Array.from(currentSelectionTypes));
-            await sendEphemeralResponse(interaction, { description: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles enabled. Now select roles.`, color: "#00FF00", title: "Success" });
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles enabled. Now select roles.`, "#00FF00", "Success");
             return promptManageRoles(interaction, menuId, type);
           }
         }
@@ -1314,59 +1210,30 @@ client.on("interactionCreate", async (interaction) => {
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("success_add_json")
-                  .setLabel("Success Add Message (JSON)")
+                  .setCustomId("success_add_message")
+                  .setLabel("Success Message (Role Added)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  // Provide example JSON for clarity
-                  .setPlaceholder(JSON.stringify({
-                    embeds: [{
-                      title: "✅ Roles Added",
-                      color: 5793266, // Green color
-                      timestamp: "${nowtimestamp}",
-                      fields: [{ name: "Added:", value: "**${rolesadded}**", inline: false }],
-                      footer: { text: "${usertag}", icon_url: "${useravatarurl}" },
-                      thumbnail: { url: "${useravatarurl}" },
-                      author: { name: "${usertag}", icon_url: "${useravatarurl}" }
-                    }]
-                  }, null, 2))
-                  .setValue(menu.successMessageAddJson ? JSON.stringify(menu.successMessageAddJson, null, 2) : "")
+                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
+                  .setValue(menu.successMessageAdd || "")
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("success_remove_json")
-                  .setLabel("Success Remove Message (JSON)")
+                  .setCustomId("success_remove_message")
+                  .setLabel("Success Message (Role Removed)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  // Provide example JSON for clarity
-                  .setPlaceholder(JSON.stringify({
-                    embeds: [{
-                      title: "🚫 Roles Removed",
-                      color: 16734296, // Red color
-                      timestamp: "${nowtimestamp}",
-                      fields: [{ name: "Removed:", value: "**${rolesremoved}**", inline: false }],
-                      footer: { text: "${usertag}", icon_url: "${useravatarurl}" },
-                      thumbnail: { url: "${useravatarurl}" },
-                      author: { name: "${usertag}", icon_url: "${useravatarurl}" }
-                    }]
-                  }, null, 2))
-                  .setValue(menu.successMessageRemoveJson ? JSON.stringify(menu.successMessageRemoveJson, null, 2) : "")
+                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
+                  .setValue(menu.successMessageRemove || "")
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("limit_exceeded_json")
-                  .setLabel("Limit Exceeded Message (JSON)")
+                  .setCustomId("limit_exceeded_message")
+                  .setLabel("Limit Exceeded Message")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder(JSON.stringify({
-                    content: "You have reached the maximum number of roles for this menu or region.",
-                    embeds: [{
-                      title: "❌ Limit Exceeded",
-                      description: "You can only have a maximum of ${maxRolesLimit} roles from this menu.",
-                      color: 16711680 // Red color
-                    }]
-                  }, null, 2))
-                  .setValue(menu.limitExceededMessageJson ? JSON.stringify(menu.limitExceededMessageJson, null, 2) : "")
+                  .setPlaceholder("❌ You have reached the maximum number of roles for this menu or region.")
+                  .setValue(menu.limitExceededMessage || "")
               )
             );
           return interaction.showModal(modal);
@@ -1486,7 +1353,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralResponse(interaction, { description: "❌ You need Administrator permissions to configure reaction roles.", color: "#FF0000", title: "Permission Denied" });
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied");
         }
 
         if (action === "selectmenu") {
@@ -1501,13 +1368,13 @@ client.on("interactionCreate", async (interaction) => {
           
           const menu = db.getMenu(menuId); // Corrected back to db.getMenu
           if (!menu) {
-            return sendEphemeralResponse(interaction, { description: "Menu not found. Please re-select the menu.", color: "#FF0000", title: "Error" });
+            return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
 
           // This action now always overwrites the roles for the given type
           await db.saveRoles(menuId, selectedRoleIds, type);
 
-          await sendEphemeralResponse(interaction, { description: `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles updated.`, color: "#00FF00", title: "Success" });
+          await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles updated.`, "#00FF00", "Success");
           return showMenuConfiguration(interaction, menuId); // Refresh after roles are saved
         }
 
@@ -1516,12 +1383,12 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = parts[2]; // menuId is at parts[2] for select_trigger_role
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found. Please re-select the menu.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return sendEphemeralResponse(interaction, { description: "No other roles available to set as exclusions.", color: "#FF0000", title: "No Roles Found" });
+            return sendEphemeralEmbed(interaction, "No other roles available to set as exclusions.", "#FF0000", "No Roles Found");
           }
 
           // Limit to 25 options (Discord limitation)
@@ -1552,12 +1419,12 @@ client.on("interactionCreate", async (interaction) => {
 
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found. Please re-select the menu.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
           const newExclusionMap = { ...menu.exclusionMap, [triggerRoleId]: exclusionRoleIds };
           await db.saveExclusionMap(menuId, newExclusionMap);
 
-          await sendEphemeralResponse(interaction, { description: "✅ Exclusion roles saved!", color: "#00FF00", title: "Success" });
+          await sendEphemeralEmbed(interaction, "✅ Exclusion roles saved!", "#00FF00", "Success");
           return showMenuConfiguration(interaction, menuId);
         }
 
@@ -1566,7 +1433,7 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = parts[2]; // menuId is at parts[2] for select_role_for_description
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
@@ -1620,7 +1487,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralResponse(interaction, { description: "❌ You need Administrator permissions to configure reaction roles.", color: "#FF0000", title: "Permission Denied" });
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied");
         }
 
         if (modalType === "create") {
@@ -1631,11 +1498,11 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "addemoji") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const emojis = {};
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
           const roles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
@@ -1661,31 +1528,31 @@ client.on("interactionCreate", async (interaction) => {
         if (modalType === "reorder_roles") {
           try {
             if (!currentMenuId) { // Removed !type as it's always 'dropdown' or 'button' here
-              return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
             }
             
             const menu = db.getMenu(currentMenuId);
             if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
             }
 
             const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
             
             // Validate input
             if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
-              return sendEphemeralResponse(interaction, { description: "No role IDs provided.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error");
             }
             
             const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
             
             if (newOrderRaw.length === 0) {
-              return sendEphemeralResponse(interaction, { description: "No valid role IDs found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error");
             }
 
             const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
             
             if (existingRoles.length === 0) {
-              return sendEphemeralResponse(interaction, { description: `No ${type} roles found in this menu.`, color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error");
             }
             
             const newOrderValidated = [];
@@ -1720,15 +1587,15 @@ client.on("interactionCreate", async (interaction) => {
             
           } catch (error) {
             console.error("Error in reorder modal submission:", error);
-            return sendEphemeralResponse(interaction, { description: "An error occurred while reordering roles.", color: "#FF0000", title: "Error" });
+            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
           }
         }
 
         if (modalType === "setlimits") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
           const auLimit = parseInt(interaction.fields.getTextInputValue("au_limit"));
@@ -1756,7 +1623,7 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           } catch (jsonError) {
-            return sendEphemeralResponse(interaction, { description: "❌ Invalid JSON for Regional Role Assignments. Please check the format.", color: "#FF0000", title: "Input Error" });
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON for Regional Role Assignments. Please check the format.", "#FF0000", "Input Error");
           }
 
           await db.saveRegionalLimits(currentMenuId, newRegionalLimits);
@@ -1767,7 +1634,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!isNaN(parsedLimit) && parsedLimit >= 0) {
               maxRolesLimit = parsedLimit;
             } else {
-              return sendEphemeralResponse(interaction, { description: "❌ Invalid value for Max Roles Per Menu. Please enter a number.", color: "#FF0000", title: "Input Error" });
+              return sendEphemeralEmbed(interaction, "❌ Invalid value for Max Roles Per Menu. Please enter a number.", "#FF0000", "Input Error");
             }
           }
           await db.saveMaxRolesLimit(currentMenuId, maxRolesLimit);
@@ -1775,10 +1642,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_embed") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
           const embedColor = interaction.fields.getTextInputValue("embed_color") || null;
@@ -1789,7 +1656,7 @@ client.on("interactionCreate", async (interaction) => {
 
           // Validate color format
           if (embedColor && !/^#[0-9A-F]{6}$/i.test(embedColor)) {
-            return sendEphemeralResponse(interaction, { description: "❌ Invalid color format. Please use hex format like #FF0000", color: "#FF0000", title: "Input Error" });
+            return sendEphemeralEmbed(interaction, "❌ Invalid color format. Please use hex format like #FF0000", "#FF0000", "Input Error");
           }
 
           await db.saveEmbedCustomization(currentMenuId, {
@@ -1803,10 +1670,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_footer") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
           const footerText = interaction.fields.getTextInputValue("footer_text") || null;
@@ -1820,55 +1687,30 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "custom_messages") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
-          // Removed plain text fields. Only process JSON fields.
-          const successAddJsonRaw = interaction.fields.getTextInputValue("success_add_json");
-          const successRemoveJsonRaw = interaction.fields.getTextInputValue("success_remove_json");
-          const limitExceededJsonRaw = interaction.fields.getTextInputValue("limit_exceeded_json");
-
-          let successAddJson = null;
-          let successRemoveJson = null;
-          let limitExceededJson = null;
-
-          try {
-            if (successAddJsonRaw) successAddJson = JSON.parse(successAddJsonRaw);
-          } catch (e) {
-            return sendEphemeralResponse(interaction, { description: "❌ Invalid JSON for 'Success Message (Role Added)'. Please check the format.", color: "#FF0000", title: "Input Error" });
-          }
-          try {
-            if (successRemoveJsonRaw) successRemoveJson = JSON.parse(successRemoveJsonRaw);
-          } catch (e) {
-            return sendEphemeralResponse(interaction, { description: "❌ Invalid JSON for 'Success Message (Role Removed)'. Please check the format.", color: "#FF0000", title: "Input Error" });
-          }
-          try {
-            if (limitExceededJsonRaw) limitExceededJson = JSON.parse(limitExceededJsonRaw);
-          } catch (e) {
-            return sendEphemeralResponse(interaction, { description: "❌ Invalid JSON for 'Limit Exceeded Message'. Please check the format.", color: "#FF0000", title: "Input Error" });
-          }
+          const successAdd = interaction.fields.getTextInputValue("success_add_message") || null;
+          const successRemove = interaction.fields.getTextInputValue("success_remove_message") || null;
+          const limitExceeded = interaction.fields.getTextInputValue("limit_exceeded_message") || null;
 
           await db.saveCustomMessages(currentMenuId, {
-            // Default plain text messages remain in the DB schema but are not editable via this modal
-            successMessageAdd: menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!",
-            successMessageRemove: menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!",
-            limitExceededMessage: menu.limitExceededMessage || "❌ You have reached the maximum number of roles for this menu or region.",
-            successMessageAddJson: successAddJson,
-            successMessageRemoveJson: successRemoveJson,
-            limitExceededMessageJson: limitExceededJson,
+            successMessageAdd: successAdd || "✅ You now have the role <@&{roleId}>!",
+            successMessageRemove: successRemove || "✅ You removed the role <@&{roleId}>!",
+            limitExceededMessage: limitExceeded || "❌ You have reached the maximum number of roles for this menu or region.",
           });
           return showMenuConfiguration(interaction, currentMenuId);
         }
 
         if (modalType === "role_description") {
           const roleId = parts[4];
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
           const description = interaction.fields.getTextInputValue("description_input");
           await db.saveRoleDescriptions(currentMenuId, { [roleId]: description || null });
@@ -1876,10 +1718,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "webhook_branding") {
-          if (!currentMenuId) return sendEphemeralResponse(interaction, { description: "Menu ID missing.", color: "#FF0000", title: "Error" });
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
           }
 
           const name = interaction.fields.getTextInputValue("name");
@@ -1900,7 +1742,7 @@ client.on("interactionCreate", async (interaction) => {
             try {
                 parsedJson = JSON.parse(jsonString);
             } catch (e) {
-                return sendEphemeralResponse(interaction, { description: "❌ Invalid JSON format. Please ensure it's valid JSON.", color: "#FF0000", title: "Input Error" });
+                return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "Input Error");
             }
 
             // Extract embed data from the first embed in the 'embeds' array if it exists
@@ -1984,16 +1826,16 @@ client.on("interactionCreate", async (interaction) => {
                 }
                 
                 if (foundMenuId) {
-                    await sendEphemeralResponse(interaction, { 
-                        description: "⚠️ This reaction role message has an invalid configuration. Please ask an administrator to use '/dashboard' and republish this menu to fix it.", 
-                        color: "#FFA500", 
-                        title: "Configuration Error" 
-                    });
+                    await sendEphemeralEmbed(interaction, 
+                        "⚠️ This reaction role message has an invalid configuration. Please ask an administrator to use '/dashboard' and republish this menu to fix it.", 
+                        "#FFA500", 
+                        "Configuration Error"
+                    );
                     return;
                 }
             }
             
-            return sendEphemeralResponse(interaction, { description: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", color: "#FF0000", title: "Error" });
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
         }
         
         // Enhanced debugging for menu lookup
@@ -2027,7 +1869,7 @@ client.on("interactionCreate", async (interaction) => {
             console.error(`  - Interaction channel: ${interaction.channel.id}`);
             console.error(`  - Interaction message: ${interaction.message?.id}`);
             
-            return sendEphemeralResponse(interaction, { description: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", color: "#FF0000", title: "Error" });
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error");
         }
 
         // Log menu structure for debugging
@@ -2046,7 +1888,7 @@ client.on("interactionCreate", async (interaction) => {
 
         let rolesToAdd = [];
         let rolesToRemove = [];
-        let messages = []; // Used for plain text messages if no JSON is configured
+        let messages = [];
 
         const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
@@ -2088,11 +1930,8 @@ client.on("interactionCreate", async (interaction) => {
                 const excludedRolesForThisAdd = menu.exclusionMap[roleIdBeingAdded].filter(id => currentMemberRoleIds.includes(id));
                 if (excludedRolesForThisAdd.length > 0) {
                     rolesToRemoveByExclusion.push(...excludedRolesForThisAdd);
-                    // Add exclusion message only if using plain text messages
-                    if (!menu.successMessageAddJson) {
-                      const removedRoleNames = excludedRolesForThisAdd.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
-                      messages.push(`Removed conflicting roles: ${removedRoleNames}`);
-                    }
+                    const removedRoleNames = excludedRolesForThisAdd.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
+                    messages.push(`Removed conflicting roles: ${removedRoleNames}`);
                     console.log(`[Debug] Exclusions triggered - removing:`, excludedRolesForThisAdd);
                 }
             }
@@ -2132,25 +1971,11 @@ client.on("interactionCreate", async (interaction) => {
 
         console.log(`[Debug] Potential menu roles after change:`, potentialMenuRoleIds);
 
-        // Prepare placeholder data for custom messages
-        const placeholderData = {
-            rolesadded: rolesToAdd.map(id => `<@&${id}>`).join(', ') || 'None',
-            rolesremoved: rolesToRemove.map(id => `<@&${id}>`).join(', ') || 'None',
-            usertag: interaction.user.tag,
-            useravatarurl: interaction.user.displayAvatarURL(),
-            userid: interaction.user.id,
-            nowtimestamp: new Date().toISOString(), // ISO 8601 timestamp for Discord embeds
-        };
-
         // Check regional limits
         const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialMenuRoleIds);
         if (regionalViolations.length > 0) {
             console.log(`[Debug] Regional limit violations:`, regionalViolations);
-            if (menu.limitExceededMessageJson) {
-                await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-            } else {
-                await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, color: "#FF0000", title: "Limit Exceeded", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-            }
+            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
             await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
             return;
         }
@@ -2159,15 +1984,22 @@ client.on("interactionCreate", async (interaction) => {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (potentialMenuRoleIds.length > menu.maxRolesLimit) {
                 console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIds.length} > ${menu.maxRolesLimit}`);
-                if (menu.limitExceededMessageJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else {
-                    await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, color: "#FF0000", title: "Limit Exceeded", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                }
+                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
                 await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
                 return;
             }
         }
+
+        // Add success/remove messages for roles based on final add/remove lists
+        rolesToAdd.forEach(id => {
+            messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
+        });
+        rolesToRemove.forEach(id => {
+            // Only add a remove message if the role was actually removed by the user's action or exclusion
+            if (currentMemberRoleIds.includes(id)) { // Only if the member actually had the role
+                messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
+            }
+        });
 
         try {
             if (rolesToAdd.length > 0) {
@@ -2179,40 +2011,10 @@ client.on("interactionCreate", async (interaction) => {
                 await interaction.member.roles.remove(rolesToRemove);
             }
 
-            // Send success messages based on JSON or plain text
-            if (rolesToAdd.length > 0 && rolesToRemove.length === 0) { // Only roles added
-                if (menu.successMessageAddJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else { // Fallback to plain text if no JSON
-                    messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Added", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                }
-            } else if (rolesToRemove.length > 0 && rolesToAdd.length === 0) { // Only roles removed
-                if (menu.successMessageRemoveJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else { // Fallback to plain text if no JSON
-                    messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Removed", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                }
-            } else if (rolesToAdd.length > 0 && rolesToRemove.length > 0) { // Both added and removed
-                // For simplicity, if both are present, we'll send two separate ephemeral messages.
-                // This avoids complex logic for combining two distinct JSON structures.
-                if (menu.successMessageAddJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else {
-                    messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Added", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                }
-                
-                if (menu.successMessageRemoveJson) {
-                    // Use followUp for the second message
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else {
-                    messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Removed", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                }
+            if (messages.length > 0) {
+                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
             } else {
-                await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
             }
 
             console.log(`[Debug] About to update published message components`);
@@ -2225,9 +2027,9 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error stack:", error.stack);
             
             if (error.code === 50013) { // Missing Permissions
-                await sendEphemeralResponse(interaction, { description: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", color: "#FF0000", title: "Permission Error", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
             } else {
-                await sendEphemeralResponse(interaction, { description: "❌ There was an error updating your roles. Please try again later.", color: "#FF0000", title: "Error", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error");
             }
         }
     }
@@ -2242,7 +2044,7 @@ client.on("interactionCreate", async (interaction) => {
                 console.error("Error sending error reply:", replyError);
             }
         } else {
-            await sendEphemeralResponse(interaction, { description: "❌ An unexpected error occurred. Please try again.", color: "#FF0000", title: "Error" });
+            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error");
         }
     }
 });
@@ -2256,12 +2058,12 @@ client.on("interactionCreate", async (interaction) => {
 async function promptManageRoles(interaction, menuId, type) {
   const menu = db.getMenu(menuId);
   if (!menu) {
-    return sendEphemeralResponse(interaction, { description: "Menu not found. Please re-select the menu.", color: "#FF0000", title: "Error" });
+    return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
   }
 
   const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
   if (allRoles.size === 0) {
-    return sendEphemeralResponse(interaction, { description: "❌ No roles available in this guild to manage. Please create some roles first.", color: "#FF0000", title: "No Roles Found" });
+    return sendEphemeralEmbed(interaction, "❌ No roles available in this guild to manage. Please create some roles first.", "#FF0000", "No Roles Found");
   }
 
   const currentRolesForType = (menu[type + "Roles"] || []);
@@ -2639,6 +2441,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         .setCustomId(`rr-role-button:${menuId}:${role.id}`)
         .setLabel(role.name.substring(0, 80))
         .setStyle(ButtonStyle.Secondary); // Always set to secondary
+
       const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
       if (parsedEmoji) {
         button.setEmoji(parsedEmoji);
