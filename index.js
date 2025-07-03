@@ -3936,18 +3936,37 @@ client.on("interactionCreate", async (interaction) => {
             
             // Validate required fields
             if (!pageData.id || !pageData.name || !pageData.content) {
-              return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!", "#FF0000", "JSON Error", false);
+              return interaction.reply({
+                content: "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!",
+                flags: MessageFlags.Ephemeral
+              });
             }
 
             // Ensure the page ID matches
             pageData.id = pageId;
 
             await db.saveInfoMenuPage(infoMenuId, pageData);
-            await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" updated successfully!`, "#00FF00", "Success", false);
-            return showInfoMenuPageManagement(interaction, infoMenuId);
+            
+            // Reply with success message and a button to go back to page management
+            const backButton = new ButtonBuilder()
+              .setCustomId(`info:manage_pages:${infoMenuId}`)
+              .setLabel("Back to Page Management")
+              .setStyle(ButtonStyle.Secondary)
+              .setEmoji("⬅️");
+            
+            const row = new ActionRowBuilder().addComponents(backButton);
+            
+            return interaction.reply({
+              content: `✅ Page "${pageData.name}" updated successfully!`,
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
           } catch (error) {
             console.error("Error parsing/updating page JSON:", error);
-            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!", "#FF0000", "JSON Error", false);
+            return interaction.reply({
+              content: "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!",
+              flags: MessageFlags.Ephemeral
+            });
           }
         }
 
