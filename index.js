@@ -595,7 +595,11 @@ const db = {
       });
       console.log(`[Database] Loaded ${this.infoMenuData.size} info menus from Firestore.`);
     } catch (error) {
-      console.error("[Database] Error loading info menus:", error);
+      if (error.code === 'permission-denied') {
+        console.warn("[Database] Firebase permissions not configured for info menus. Running in memory-only mode.");
+      } else {
+        console.error("[Database] Error loading info menus:", error);
+      }
     }
   },
 
@@ -1394,7 +1398,15 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:clone_menu:")) ||
     (interaction.isButton() && interaction.customId === "rr:prompt_raw_embed_json") ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_template"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_template")) ||
+    // Information menu modal triggers
+    (interaction.isButton() && interaction.customId === "info:create") ||
+    (interaction.isButton() && interaction.customId === "info:create_from_json") ||
+    (interaction.isButton() && interaction.customId.startsWith("info:add_page:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:customize_embed:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:customize_footer:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:save_as_template:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -2320,7 +2332,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("JSON Configuration")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"embedColor": "#5865F2", "pages": [{"name": "Page 1", "content": {"title": "Hello", "description": "World"}}]}')
+                  .setPlaceholder('{"embedColor": "#5865F2", "pages": [{"name": "Rules", "content": {"title": "Rules"}}]}')
                   .setMaxLength(4000)
               )
             );
