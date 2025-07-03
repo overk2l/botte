@@ -612,8 +612,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) { // 
             await webhook.editMessage(originalMessage.id, {
                 embeds: [publishedEmbed],
                 components,
-                username: menu.webhookName || interaction.guild.me.displayName,
-                avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName, // Added fallback
+                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(), // Added fallback
             });
         } else {
             await originalMessage.edit({ embeds: [publishedEmbed], components });
@@ -1365,7 +1365,7 @@ client.on("interactionCreate", async (interaction) => {
           const type = parts[2]; // 'dropdown' or 'button'
           const menuId = parts[3];
           
-          const menu = db.get(menuId); // Changed from db.getMenu to db.get
+          const menu = db.getMenu(menuId); // Corrected back to db.getMenu
           if (!menu) {
             return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
@@ -2478,6 +2478,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
     }
 
     let message;
+    // Safely get bot's display name and avatar URL
+    const botDisplayName = interaction.guild.me?.displayName || client.user.displayName;
+    const botAvatarURL = interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL();
+
     if (messageToEdit) {
       // Edit existing message
       if (menu.useWebhook) {
@@ -2485,8 +2489,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         await webhook.editMessage(messageToEdit.id, {
           embeds: [embed],
           components,
-          username: menu.webhookName || interaction.guild.me.displayName,
-          avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+          username: menu.webhookName || botDisplayName,
+          avatarURL: menu.webhookAvatar || botAvatarURL,
         });
         message = messageToEdit; // Keep the same message reference
       } else {
@@ -2501,8 +2505,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       message = await webhook.send({
         embeds: [embed],
         components,
-        username: menu.webhookName || interaction.guild.me.displayName,
-        avatarURL: menu.webhookAvatar || interaction.guild.me.displayAvatarURL(),
+        username: menu.webhookName || botDisplayName,
+        avatarURL: menu.webhookAvatar || botAvatarURL,
       });
     } else {
       // REGULAR MODE: Send new standard bot message
