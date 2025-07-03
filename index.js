@@ -122,6 +122,7 @@ const db = {
     // Generate a unique ID for the new menu
     const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
     const newMenu = {
+      id: id, // <--- ADDED THIS LINE
       guildId,
       name,
       desc,
