@@ -517,13 +517,14 @@ async function createReactionRoleEmbed(guild, menu) {
 
 /**
  * Sends an ephemeral embed reply or follow-up to an interaction.
- * The message will be automatically deleted after 6 seconds.
+ * The message will be automatically deleted after 6 seconds if autoDelete is true.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  * @param {string} description - The description for the embed.
  * @param {string} [color="#5865F2"] - The color of the embed (hex code).
  * @param {string} [title="Notification"] - The title of the embed.
+ * @param {boolean} [autoDelete=true] - Whether the message should be auto-deleted after 6 seconds.
  */
-async function sendEphemeralEmbed(interaction, description, color = "#5865F2", title = "Notification") {
+async function sendEphemeralEmbed(interaction, description, color = "#5865F2", title = "Notification", autoDelete = true) {
     const embed = new EmbedBuilder()
         .setTitle(title)
         .setDescription(description)
@@ -548,8 +549,8 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
         }
     }
 
-    // Auto-delete the ephemeral message after 6 seconds
-    if (message) {
+    // Auto-delete the ephemeral message after 6 seconds if autoDelete is true
+    if (message && autoDelete) {
         setTimeout(async () => {
             try {
                 // If it was an initial reply, use deleteReply() on the interaction
@@ -777,7 +778,8 @@ client.on("interactionCreate", async (interaction) => {
           interaction,
           "⚠️ **WARNING: FIREBASE IS NOT CONFIGURED!** Your bot's data (menus, roles, etc.) will **NOT** persist between restarts. To enable persistence, please set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration. If you're seeing 'menu no longer valid' errors, this is likely the cause.",
           "#FFA500", // Orange color for warning
-          "Firebase Configuration Warning"
+          "Firebase Configuration Warning",
+          false // Do not auto-delete this admin warning
         );
       }
     }
@@ -1004,13 +1006,13 @@ client.on("interactionCreate", async (interaction) => {
             await db.saveRoles(menuId, [], type); // Clear roles
             await db.saveEmojis(menuId, {}, type); // Clear emojis
             await db.saveRoleOrder(menuId, [], type); // Clear order
-            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles disabled and cleared.`, "#00FF00", "Success");
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles disabled and cleared.`, "#00FF00", "Success", false); // Admin message, no auto-delete
             return showMenuConfiguration(interaction, menuId);
           } else {
             // If type is currently disabled, enable it and prompt to manage roles
             currentSelectionTypes.add(type);
             await db.saveSelectionType(menuId, Array.from(currentSelectionTypes));
-            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles enabled. Now select roles.`, "#00FF00", "Success");
+            await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles enabled. Now select roles.`, "#00FF00", "Success", false); // Admin message, no auto-delete
             return promptManageRoles(interaction, menuId, type);
           }
         }
@@ -1054,10 +1056,7 @@ client.on("interactionCreate", async (interaction) => {
           
           const menu = db.getMenu(menuId);
           if (!menu) {
-            return interaction.reply({ 
-              content: "Menu not found.", 
-              ephemeral: true 
-            });
+            return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           // Use the actual roles array, not the order array for counting
@@ -1068,10 +1067,7 @@ client.on("interactionCreate", async (interaction) => {
           
           // Check if there are roles to reorder - use actualRoles for the count
           if (actualRoles.length <= 1) {
-            return interaction.reply({ 
-              content: `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, 
-              ephemeral: true 
-            });
+            return sendEphemeralEmbed(interaction, `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const modal = new ModalBuilder()
@@ -1421,7 +1417,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied");
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied", false); // Admin message, no auto-delete
         }
 
         if (action === "selectmenu") {
@@ -1436,13 +1432,13 @@ client.on("interactionCreate", async (interaction) => {
           
           const menu = db.getMenu(menuId); // Corrected back to db.getMenu
           if (!menu) {
-            return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+            return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           // This action now always overwrites the roles for the given type
           await db.saveRoles(menuId, selectedRoleIds, type);
 
-          await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles updated.`, "#00FF00", "Success");
+          await sendEphemeralEmbed(interaction, `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} roles updated.`, "#00FF00", "Success", false); // Admin message, no auto-delete
           return showMenuConfiguration(interaction, menuId); // Refresh after roles are saved
         }
 
@@ -1451,12 +1447,12 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = parts[2]; // menuId is at parts[2] for select_trigger_role
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
           const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id && r.id !== triggerRoleId);
 
           if (!allRoles.size) {
-            return sendEphemeralEmbed(interaction, "No other roles available to set as exclusions.", "#FF0000", "No Roles Found");
+            return sendEphemeralEmbed(interaction, "No other roles available to set as exclusions.", "#FF0000", "No Roles Found", false); // Admin message, no auto-delete
           }
 
           // Limit to 25 options (Discord limitation)
@@ -1487,12 +1483,12 @@ client.on("interactionCreate", async (interaction) => {
 
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
           const newExclusionMap = { ...menu.exclusionMap, [triggerRoleId]: exclusionRoleIds };
           await db.saveExclusionMap(menuId, newExclusionMap);
 
-          await sendEphemeralEmbed(interaction, "✅ Exclusion roles saved!", "#00FF00", "Success");
+          await sendEphemeralEmbed(interaction, "✅ Exclusion roles saved!", "#00FF00", "Success", false); // Admin message, no auto-delete
           return showMenuConfiguration(interaction, menuId);
         }
 
@@ -1501,7 +1497,7 @@ client.on("interactionCreate", async (interaction) => {
           const menuId = parts[2]; // menuId is at parts[2] for select_role_for_description
           const menu = db.getMenu(menuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
           const currentDescription = menu.dropdownRoleDescriptions[roleId] || "";
           const roleName = interaction.guild.roles.cache.get(roleId)?.name || "Unknown Role";
@@ -1555,7 +1551,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied");
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied", false); // Admin message, no auto-delete
         }
 
         if (modalType === "create") {
@@ -1566,11 +1562,11 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "addemoji") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const emojis = {};
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const roles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
@@ -1596,31 +1592,31 @@ client.on("interactionCreate", async (interaction) => {
         if (modalType === "reorder_roles") {
           try {
             if (!currentMenuId) {
-              return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
             }
             
             const menu = db.getMenu(currentMenuId);
             if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
             }
 
             const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
             
             // Validate input
             if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
-              return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error", false); // Admin message, no auto-delete
             }
             
             const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
             
             if (newOrderRaw.length === 0) {
-              return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error", false); // Admin message, no auto-delete
             }
 
             const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
             
             if (existingRoles.length === 0) {
-              return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error", false); // Admin message, no auto-delete
             }
             
             const newOrderValidated = [];
@@ -1655,15 +1651,15 @@ client.on("interactionCreate", async (interaction) => {
             
           } catch (error) {
             console.error("Error in reorder modal submission:", error);
-            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error");
+            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
         }
 
         if (modalType === "setlimits") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const auLimit = parseInt(interaction.fields.getTextInputValue("au_limit"));
@@ -1691,7 +1687,7 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           } catch (jsonError) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid JSON for Regional Role Assignments. Please check the format.", "#FF0000", "Input Error");
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON for Regional Role Assignments. Please check the format.", "#FF0000", "Input Error", false); // Admin message, no auto-delete
           }
 
           await db.saveRegionalLimits(currentMenuId, newRegionalLimits);
@@ -1702,7 +1698,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!isNaN(parsedLimit) && parsedLimit >= 0) {
               maxRolesLimit = parsedLimit;
             } else {
-              return sendEphemeralEmbed(interaction, "❌ Invalid value for Max Roles Per Menu. Please enter a number.", "#FF0000", "Input Error");
+              return sendEphemeralEmbed(interaction, "❌ Invalid value for Max Roles Per Menu. Please enter a number.", "#FF0000", "Input Error", false); // Admin message, no auto-delete
             }
           }
           await db.saveMaxRolesLimit(currentMenuId, maxRolesLimit);
@@ -1710,10 +1706,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_embed") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const embedColor = interaction.fields.getTextInputValue("embed_color") || null;
@@ -1724,7 +1720,7 @@ client.on("interactionCreate", async (interaction) => {
 
           // Validate color format
           if (embedColor && !/^#[0-9A-F]{6}$/i.test(embedColor)) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid color format. Please use hex format like #FF0000", "#FF0000", "Input Error");
+            return sendEphemeralEmbed(interaction, "❌ Invalid color format. Please use hex format like #FF0000", "#FF0000", "Input Error", false); // Admin message, no auto-delete
           }
 
           await db.saveEmbedCustomization(currentMenuId, {
@@ -1738,10 +1734,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "customize_footer") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const footerText = interaction.fields.getTextInputValue("footer_text") || null;
@@ -1755,10 +1751,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "custom_messages") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const successAdd = interaction.fields.getTextInputValue("success_add_message") || null;
@@ -1775,10 +1771,10 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "role_description") {
           const roleId = parts[4];
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
           const description = interaction.fields.getTextInputValue("description_input");
           await db.saveRoleDescriptions(currentMenuId, { [roleId]: description || null });
@@ -1786,10 +1782,10 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "webhook_branding") {
-          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
+          if (!currentMenuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false); // Admin message, no auto-delete
           const menu = db.getMenu(currentMenuId);
           if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error");
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false); // Admin message, no auto-delete
           }
 
           const name = interaction.fields.getTextInputValue("name");
@@ -1810,7 +1806,7 @@ client.on("interactionCreate", async (interaction) => {
             try {
                 parsedJson = JSON.parse(jsonString);
             } catch (e) {
-                return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "Input Error");
+                return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "Input Error", false); // Admin message, no auto-delete
             }
 
             // Extract embed data from the first embed in the 'embeds' array if it exists
@@ -1898,12 +1894,12 @@ client.on("interactionCreate", async (interaction) => {
                         "⚠️ This reaction role message has an invalid configuration. Please ask an administrator to use '/dashboard' and republish this menu to fix it.", 
                         "#FFA500", 
                         "Configuration Error"
-                    );
+                    ); // Auto-delete is default true
                     return;
                 }
             }
             
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error"); // Auto-delete is default true
         }
         
         // Enhanced debugging for menu lookup
@@ -1937,7 +1933,7 @@ client.on("interactionCreate", async (interaction) => {
             console.error(`  - Interaction channel: ${interaction.channel.id}`);
             console.error(`  - Interaction message: ${interaction.message?.id}`);
             
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error");
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error"); // Auto-delete is default true
         }
 
         // Fetch the member again to ensure we have the absolute latest role cache
@@ -1961,26 +1957,29 @@ client.on("interactionCreate", async (interaction) => {
         let rolesToRemove = [];
         let messages = [];
 
-        const currentMemberRoleIds = member.roles.cache.map(r => r.id); // Use the freshly fetched member's roles
-        const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-        const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
+        const currentMemberRoleIds = member.roles.cache.map(r => r.id); // All roles the member currently has
 
-        console.log(`[Debug] Current member roles (fresh fetch):`, currentMemberRoleIds); // Log full array
-        console.log(`[Debug] All menu roles:`, allMenuRoleIds); // Log full array
-        console.log(`[Debug] Current menu roles held by member from this menu:`, currentMenuRolesHeldByMember); // Log full array
+        // Determine which set of roles from the menu are relevant to this specific interaction
+        let rolesManagedByThisComponent;
+        if (interaction.isStringSelectMenu()) {
+            rolesManagedByThisComponent = menu.dropdownRoles || [];
+        } else { // Button interaction
+            rolesManagedByThisComponent = menu.buttonRoles || [];
+        }
+
+        // Filter the member's current roles to only include those that are managed by THIS specific component type
+        const currentRolesHeldByMemberForThisComponent = currentMemberRoleIds.filter(id => rolesManagedByThisComponent.includes(id));
+
+        console.log(`[Debug] Current roles held by member for THIS component type (${interaction.isStringSelectMenu() ? 'dropdown' : 'button'}):`, currentRolesHeldByMemberForThisComponent);
 
         if (interaction.isStringSelectMenu()) {
-            // For dropdowns, calculate the difference between current roles and selected roles
-            // Roles to add are those in selectedInteractionRoleIds but not in currentMenuRolesHeldByMember
-            rolesToAdd = selectedInteractionRoleIds.filter(roleId => !currentMenuRolesHeldByMember.includes(roleId));
-            // Roles to remove are those in currentMenuRolesHeldByMember but not in selectedInteractionRoleIds
-            rolesToRemove = currentMenuRolesHeldByMember.filter(roleId => !selectedInteractionRoleIds.includes(roleId));
+            // For dropdowns, calculate the difference between current roles (relevant to dropdown) and selected roles
+            rolesToAdd = selectedInteractionRoleIds.filter(roleId => !currentRolesHeldByMemberForThisComponent.includes(roleId));
+            rolesToRemove = currentRolesHeldByMemberForThisComponent.filter(roleId => !selectedInteractionRoleIds.includes(roleId));
 
         } else { // Button interaction (already behaves as a toggle)
-            const clickedRoleId = selectedInteractionRoleIds[0]; // For buttons, there's only one clicked role
-            console.log(`[Debug] Button clicked - Role ID: ${clickedRoleId}`);
-            
-            if (currentMemberRoleIds.includes(clickedRoleId)) {
+            const clickedRoleId = selectedInteractionRoleIds[0];
+            if (currentMemberRoleIds.includes(clickedRoleId)) { // Check against ALL current member roles
                 rolesToRemove.push(clickedRoleId);
                 console.log(`[Debug] Role will be removed (user has it)`);
             } else {
@@ -1992,11 +1991,26 @@ client.on("interactionCreate", async (interaction) => {
         console.log(`[Debug] Roles identified for initial add:`, rolesToAdd);
         console.log(`[Debug] Roles identified for initial remove:`, rolesToRemove);
 
+        // Calculate the potential new set of roles after this interaction for limit checks
+        let potentialNewRoleIds = [...currentMemberRoleIds]; // Start with all roles the user currently has
+
+        // Apply roles determined for addition
+        rolesToAdd.forEach(roleId => {
+            if (!potentialNewRoleIds.includes(roleId)) { // Avoid duplicates if already present
+                potentialNewRoleIds.push(roleId);
+            }
+        });
+
+        // Apply roles determined for removal
+        rolesToRemove.forEach(roleId => {
+            potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
+        });
+        
         // Handle exclusions: if a role is being added, check if it excludes any existing roles
         let rolesToRemoveByExclusion = [];
-        for (const roleIdBeingAdded of rolesToAdd) {
+        for (const roleIdBeingAdded of rolesToAdd) { // Exclusions only happen when a role is added
             if (menu.exclusionMap && menu.exclusionMap[roleIdBeingAdded]) {
-                const excludedRolesForThisAdd = menu.exclusionMap[roleIdBeingAdded].filter(id => currentMemberRoleIds.includes(id));
+                const excludedRolesForThisAdd = menu.exclusionMap[roleIdBeingAdded].filter(id => potentialNewRoleIds.includes(id)); // Check against potential roles
                 if (excludedRolesForThisAdd.length > 0) {
                     rolesToRemoveByExclusion.push(...excludedRolesForThisAdd);
                     const removedRoleNames = excludedRolesForThisAdd.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
@@ -2005,55 +2019,38 @@ client.on("interactionCreate", async (interaction) => {
                 }
             }
         }
-        rolesToRemove.push(...rolesToRemoveByExclusion);
-        rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
-
-        console.log(`[Debug] Final roles to add (after exclusions check):`, rolesToAdd);
-        console.log(`[Debug] Final roles to remove (after exclusions check):`, rolesToRemove);
-
-        // Calculate the potential new set of roles after this interaction for limit checks
-        let potentialNewRoleIds = [...currentMemberRoleIds];
-
-        // Apply determined rolesToAdd
-        rolesToAdd.forEach(roleId => {
-            if (!potentialNewRoleIds.includes(roleId)) { // Avoid duplicates if already present
-                potentialNewRoleIds.push(roleId);
-            }
-        });
-
-        // Apply determined rolesToRemove
-        rolesToRemove.forEach(roleId => {
+        // Apply exclusion removals to potentialNewRoleIds
+        rolesToRemoveByExclusion.forEach(roleId => {
             potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
         });
-        
-        // Handle exclusions for potential new roles (this part remains the same logic)
-        for (const roleId of rolesToAdd) { // Exclusions only happen when a role is added
-            if (menu.exclusionMap && menu.exclusionMap[roleId]) {
-                potentialNewRoleIds = potentialNewRoleIds.filter(id => !menu.exclusionMap[roleId].includes(id));
-            }
-        }
-        
+        rolesToRemove.push(...rolesToRemoveByExclusion); // Add these to the final rolesToRemove list for messages/logging
+        rolesToRemove = [...new Set(rolesToRemove)]; // Deduplicate
+
         potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
 
         // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
-        const potentialMenuRoleIds = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id));
+        // Limits apply to roles *from this menu*, regardless of component type.
+        const allMenuRoleIdsForLimitCheck = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        const potentialMenuRoleIdsForLimitCheck = potentialNewRoleIds.filter(id => allMenuRoleIdsForLimitCheck.includes(id));
 
-        console.log(`[Debug] Potential menu roles after change (for limit checks):`, potentialMenuRoleIds);
+        console.log(`[Debug] Final roles to add (after exclusions check):`, rolesToAdd);
+        console.log(`[Debug] Final roles to remove (after exclusions check):`, rolesToRemove);
+        console.log(`[Debug] Potential menu roles after change (for limit checks):`, potentialMenuRoleIdsForLimitCheck);
 
         // Check regional limits
-        const regionalViolations = checkRegionalLimits(member, menu, potentialMenuRoleIds);
+        const regionalViolations = checkRegionalLimits(member, menu, potentialMenuRoleIdsForLimitCheck);
         if (regionalViolations.length > 0) {
             console.log(`[Debug] Regional limit violations:`, regionalViolations);
-            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
+            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded"); // Auto-delete is default true
             await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
             return;
         }
 
         // Check overall max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
-            if (potentialMenuRoleIds.length > menu.maxRolesLimit) {
-                console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIds.length} > ${menu.maxRolesLimit}`);
-                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
+            if (potentialMenuRoleIdsForLimitCheck.length > menu.maxRolesLimit) {
+                console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIdsForLimitCheck.length} > ${menu.maxRolesLimit}`);
+                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded"); // Auto-delete is default true
                 await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
                 return;
             }
@@ -2081,9 +2078,9 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             if (messages.length > 0) {
-                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
+                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update"); // Auto-delete is default true
             } else {
-                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
+                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change"); // Auto-delete is default true
             }
 
             console.log(`[Debug] About to update published message components`);
@@ -2096,9 +2093,9 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error stack:", error.stack);
             
             if (error.code === 50013) { // Missing Permissions
-                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
+                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error"); // Auto-delete is default true
             } else {
-                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error");
+                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error"); // Auto-delete is default true
             }
         }
     }
@@ -2113,7 +2110,7 @@ client.on("interactionCreate", async (interaction) => {
                 console.error("Error sending error reply:", replyError);
             }
         } else {
-            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error");
+            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error"); // Auto-delete is default true
         }
     }
 });
@@ -2127,12 +2124,12 @@ client.on("interactionCreate", async (interaction) => {
 async function promptManageRoles(interaction, menuId, type) {
   const menu = db.getMenu(menuId);
   if (!menu) {
-    return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
+    return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error", false); // Admin message, no auto-delete
   }
 
   const allRoles = interaction.guild.roles.cache.filter((r) => !r.managed && r.id !== interaction.guild.id);
   if (allRoles.size === 0) {
-    return sendEphemeralEmbed(interaction, "❌ No roles available in this guild to manage. Please create some roles first.", "#FF0000", "No Roles Found");
+    return sendEphemeralEmbed(interaction, "❌ No roles available in this guild to manage. Please create some roles first.", "#FF0000", "No Roles Found", false); // Admin message, no auto-delete
   }
 
   const currentRolesForType = (menu[type + "Roles"] || []);
