@@ -32,21 +32,45 @@ let dbFirestore;
 
 try {
   if (process.env.FIREBASE_CONFIG) {
-    // --- ADDED FOR DEBUGGING ---
+    // Enhanced debugging for Firebase config
     console.log("[Firebase Debug] Raw FIREBASE_CONFIG env var:", process.env.FIREBASE_CONFIG);
-    // --- END DEBUGGING ADDITION ---
+    console.log("[Firebase Debug] Type of FIREBASE_CONFIG:", typeof process.env.FIREBASE_CONFIG);
+    console.log("[Firebase Debug] Length:", process.env.FIREBASE_CONFIG?.length);
+    console.log("[Firebase Debug] First 100 chars:", process.env.FIREBASE_CONFIG?.substring(0, 100));
+    console.log("[Firebase Debug] Raw value with quotes:", JSON.stringify(process.env.FIREBASE_CONFIG));
+    
+    // Check for hidden characters at the beginning
+    if (process.env.FIREBASE_CONFIG) {
+      console.log("[Firebase Debug] First 5 characters (char codes):");
+      for (let i = 0; i < Math.min(5, process.env.FIREBASE_CONFIG.length); i++) {
+        const char = process.env.FIREBASE_CONFIG[i];
+        console.log(`  [${i}]: '${char}' (code: ${char.charCodeAt(0)})`);
+      }
+    }
+    
     // Trim any leading/trailing whitespace or invisible characters that might cause JSON parsing errors
     const rawConfig = process.env.FIREBASE_CONFIG.trim();
-    firebaseConfig = JSON.parse(rawConfig);
-    console.log("[Firebase Debug] Parsed firebaseConfig:", firebaseConfig);
-    // Ensure projectId exists and is a non-empty string
-    if (typeof firebaseConfig.projectId === 'string' && firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
-      firebaseApp = initializeApp(firebaseConfig);
-      dbFirestore = getFirestore(firebaseApp);
-      firebaseEnabled = true;
-      console.log("[Firebase] Successfully initialized with project:", firebaseConfig.projectId);
-    } else {
-      console.warn("[Firebase] Invalid FIREBASE_CONFIG.projectId. Running without persistence.");
+    
+    // Additional cleaning: remove any potential BOM or zero-width characters
+    const cleanedConfig = rawConfig.replace(/^\uFEFF/, '').replace(/^[\u200B-\u200D\uFEFF]/g, '');
+    
+    try {
+      firebaseConfig = JSON.parse(cleanedConfig);
+      console.log("[Firebase Debug] Successfully parsed firebaseConfig:", firebaseConfig);
+      
+      // Ensure projectId exists and is a non-empty string
+      if (typeof firebaseConfig.projectId === 'string' && firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
+        firebaseApp = initializeApp(firebaseConfig);
+        dbFirestore = getFirestore(firebaseApp);
+        firebaseEnabled = true;
+        console.log("[Firebase] Successfully initialized with project:", firebaseConfig.projectId);
+      } else {
+        console.warn("[Firebase] Invalid FIREBASE_CONFIG.projectId. Running without persistence.");
+      }
+    } catch (parseError) {
+      console.error("[Firebase] JSON Parse Error:", parseError.message);
+      console.error("[Firebase] Failed to parse config string:", cleanedConfig.substring(0, 200), "...");
+      console.warn("[Firebase] Running without persistence due to JSON parse error.");
     }
   } else {
     console.warn("[Firebase] FIREBASE_CONFIG environment variable not set. Running without persistence.");
@@ -129,7 +153,7 @@ const db = {
     // Generate a unique ID for the new menu
     const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
     const newMenu = {
-      id: id, // <--- ADDED THIS LINE
+      id: id,
       guildId,
       name,
       desc,
@@ -402,7 +426,7 @@ const db = {
         // Continue with in-memory deletion only
       }
     } else {
-      console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`); // Fixed variable name from 'id' to 'menuId'
+      console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`);
     }
   },
 };
@@ -529,9 +553,9 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * This is crucial for keeping the UI in sync with the user's state.
  * @param {import('discord.js').Interaction} interaction - The interaction that triggered the update.
  * @param {Object} menu - The menu object.
- * @param {string} menuId - The ID of the menu. (Added based on user's new code)
+ * @param {string} menuId - The ID of the menu.
  */
-async function updatePublishedMessageComponents(interaction, menu, menuId) { // Modified function signature
+async function updatePublishedMessageComponents(interaction, menu, menuId) {
     if (!menu.channelId || !menu.messageId) return;
 
     const guild = interaction.guild;
@@ -620,8 +644,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) { // 
             await webhook.editMessage(originalMessage.id, {
                 embeds: [publishedEmbed],
                 components,
-                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName, // Added fallback
-                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(), // Added fallback
+                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName,
+                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(),
             });
         } else {
             await originalMessage.edit({ embeds: [publishedEmbed], components });
@@ -695,7 +719,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) || // This button directly shows a modal
+    (interaction.isButton() && interaction.customId.startsWith("rr:prompt_raw_embed_json")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
   );
 
@@ -704,7 +728,11 @@ client.on("interactionCreate", async (interaction) => {
 
   // Defer non-modal-trigger interactions
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply:", e));
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error("Error deferring reply:", e);
+    }
   }
 
   try {
@@ -776,12 +804,12 @@ client.on("interactionCreate", async (interaction) => {
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId("name").setLabel("Menu Name").setStyle(TextInputStyle.Short).setRequired(true)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'name' in create modal:", val, typeof val); return val; })("Enter menu name (e.g., 'Game Roles')"))
+                  .setPlaceholder("Enter menu name (e.g., 'Game Roles')")
                   .setMaxLength(100)
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId("desc").setLabel("Embed Description").setStyle(TextInputStyle.Paragraph).setRequired(true)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'desc' in create modal:", val, typeof val); return val; })("Describe your menu here."))
+                  .setPlaceholder("Describe your menu here.")
                   .setMaxLength(4000)
               )
             );
@@ -984,7 +1012,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel(`Emoji for ${role ? role.name : "Unknown Role"}`)
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log(`Setting placeholder for emoji for role ${roleId}:`, val, typeof val); return val; })("Enter emoji (🔥 or <:name:id>)"))
+                  .setPlaceholder("Enter emoji (🔥 or <:name:id>)")
                   .setValue(String(currentEmoji)) // Coerce to string
               )
             );
@@ -1029,7 +1057,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setLabel("Role IDs (comma-separated)")
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(true)
-                .setPlaceholder( (val => { console.log("Setting placeholder for 'role_ids_order' in reorder modal:", val, typeof val); return val; })("roleId1, roleId2, roleId3"))
+                .setPlaceholder("roleId1, roleId2, roleId3")
                 .setValue(String(currentOrder.join(", "))) // Coerce to string
             )
           );
@@ -1052,7 +1080,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Limit For AU Roles (Number, 0 for no limit)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'au_limit' in setlimits modal:", val, typeof val); return val; })("1"))
+                  .setPlaceholder("1")
                   .setValue(String(menu.regionalLimits?.AU?.limit?.toString() || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1061,7 +1089,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Limit For EU Roles (Number, 0 for no limit)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'eu_limit' in setlimits modal:", val, typeof val); return val; })("1"))
+                  .setPlaceholder("1")
                   .setValue(String(menu.regionalLimits?.EU?.limit?.toString() || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1070,7 +1098,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Limit For NA Roles (Number, 0 for no limit)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'na_limit' in setlimits modal:", val, typeof val); return val; })("1"))
+                  .setPlaceholder("1")
                   .setValue(String(menu.regionalLimits?.NA?.limit?.toString() || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1079,7 +1107,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Regional Role Assignments (JSON Array of IDs)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'regional_role_assignments' in setlimits modal:", val, typeof val); return val; })('{"AU": ["roleId1", "roleId2"], "EU": ["roleId3"]}'))
+                  .setPlaceholder('{"AU": ["roleId1", "roleId2"], "EU": ["roleId3"]}')
                   .setValue(String(JSON.stringify(Object.fromEntries(
                     Object.entries(menu.regionalLimits || {}).map(([region, data]) => [region, data.roleIds || []])
                   )) || "{}")) // Coerce to string
@@ -1090,7 +1118,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Max Roles Per Menu (Number, 0 for no limit)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'max_roles_limit' in setlimits modal:", val, typeof val); return val; })("0"))
+                  .setPlaceholder("0")
                   .setValue(String(menu.maxRolesLimit !== null && menu.maxRolesLimit !== undefined ? menu.maxRolesLimit.toString() : "")) // Coerce to string
               )
             );
@@ -1137,7 +1165,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Embed Color (Hex Code, e.g., #FF0000)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'embed_color' in customize_embed modal:", val, typeof val); return val; })("#5865F2"))
+                  .setPlaceholder("#5865F2")
                   .setValue(String(menu.embedColor || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1146,7 +1174,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Thumbnail Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'thumbnail_url' in customize_embed modal:", val, typeof val); return val; })("https://example.com/thumbnail.png"))
+                  .setPlaceholder("https://example.com/thumbnail.png")
                   .setValue(String(menu.embedThumbnail || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1155,7 +1183,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Main Image URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'image_url' in customize_embed modal:", val, typeof val); return val; })("https://example.com/image.png"))
+                  .setPlaceholder("https://example.com/image.png")
                   .setValue(String(menu.embedImage || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1164,7 +1192,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Author Name (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'author_name' in customize_embed modal:", val, typeof val); return val; })("My Awesome Bot"))
+                  .setPlaceholder("My Awesome Bot")
                   .setValue(String(menu.embedAuthorName || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1173,7 +1201,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Author Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'author_icon_url' in customize_embed modal:", val, typeof val); return val; })("https://example.com/author_icon.png"))
+                  .setPlaceholder("https://example.com/author_icon.png")
                   .setValue(String(menu.embedAuthorIconURL || "")) // Coerce to string
               )
             );
@@ -1195,7 +1223,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Footer Text")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'footer_text' in customize_footer modal:", val, typeof val); return val; })("Select your roles below!"))
+                  .setPlaceholder("Select your roles below!")
                   .setValue(String(menu.embedFooterText || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1204,7 +1232,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Footer Icon URL (Optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'footer_icon_url' in customize_footer modal:", val, typeof val); return val; })("https://example.com/footer_icon.png"))
+                  .setPlaceholder("https://example.com/footer_icon.png")
                   .setValue(String(menu.embedFooterIconURL || "")) // Coerce to string
               )
             );
@@ -1226,7 +1254,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Success Message (Role Added)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'success_add_message' in custom_messages modal:", val, typeof val); return val; })("✅ You now have the role <@&{roleId}>!"))
+                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
                   .setValue(String(menu.successMessageAdd || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1235,7 +1263,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Success Message (Role Removed)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'success_remove_message' in custom_messages modal:", val, typeof val); return val; })("✅ You removed the role <@&{roleId}>!"))
+                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
                   .setValue(String(menu.successMessageRemove || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1244,7 +1272,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Limit Exceeded Message")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'limit_exceeded_message' in custom_messages modal:", val, typeof val); return val; })("❌ You have reached the maximum number of roles for this menu or region."))
+                  .setPlaceholder("❌ You have reached the maximum number of roles for this menu or region.")
                   .setValue(String(menu.limitExceededMessage || "")) // Coerce to string
               )
             );
@@ -1282,7 +1310,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Display Name")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'name' in webhook_branding modal:", val, typeof val); return val; })("My Bot Name"))
+                  .setPlaceholder("My Bot Name")
                   .setValue(String(menu.webhookName || "")) // Coerce to string
               ),
               new ActionRowBuilder().addComponents(
@@ -1291,7 +1319,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Avatar URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'avatar' in webhook_branding modal:", val, typeof val); return val; })("https://example.com/avatar.png"))
+                  .setPlaceholder("https://example.com/avatar.png")
                   .setValue(String(menu.webhookAvatar || "")) // Coerce to string
               )
             );
@@ -1348,8 +1376,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setLabel("Paste Embed JSON Here")
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(true)
-                // Updated placeholder to be shorter
-                .setPlaceholder( (val => { console.log("Setting placeholder for 'raw_json_input' in create_from_raw_json modal:", val, typeof val); return val; })("e.g., {\"title\": \"My Embed\", \"description\": \"Hello!\"}"))
+                .setPlaceholder(JSON.stringify({title: "My Embed", description: "Hello!"}))
                 .setMaxLength(4000)
             )
           );
@@ -1461,7 +1488,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Role Description")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder( (val => { console.log("Setting placeholder for 'description_input' in role_description modal:", val, typeof val); return val; })("A short description for this role."))
+                  .setPlaceholder("A short description for this role.")
                   .setValue(String(currentDescription)) // Coerce to string
               )
             );
@@ -2091,7 +2118,7 @@ async function promptManageRoles(interaction, menuId, type) {
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(`rr:save_managed_roles:${type}:${menuId}`)
-    .setPlaceholder( (val => { console.log("Setting placeholder for 'select_roles' in promptManageRoles:", val, typeof val); return val; })("Select/Deselect your " + type + " roles...")) // Coerce to string
+    .setPlaceholder("Select/Deselect your " + type + " roles...")
     .setMinValues(0)
     .setMaxValues(Math.min(allRoles.size, 25))
     .addOptions(roleOptions);
@@ -2302,7 +2329,7 @@ async function showMenuConfiguration(interaction, menuId) {
   const row_emojis_reorder = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rr:addemoji:dropdown:${menuId}`)
-      .setLabel("Add Dropdown Eojis")
+      .setLabel("Add Dropdown Emojis")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!menu.dropdownRoles.length),
     new ButtonBuilder()
