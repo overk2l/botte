@@ -19,6 +19,10 @@ const {
   MessageFlags,
 } = require("discord.js");
 
+// Node.js File System Imports
+const fs = require('fs').promises;
+const path = require('path');
+
 // Firebase Imports
 const { initializeApp } = require('firebase/app');
 const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, getDocs } = require('firebase/firestore');
@@ -596,9 +600,16 @@ const db = {
       console.log(`[Database] Loaded ${this.infoMenuData.size} info menus from Firestore.`);
     } catch (error) {
       if (error.code === 'permission-denied') {
-        console.warn("[Database] Firebase permissions not configured for info menus. Running in memory-only mode.");
+        console.warn("[Database] Firebase permissions not configured for info menus. Trying local backup...");
       } else {
         console.error("[Database] Error loading info menus:", error);
+        console.log("[Database] Trying local backup...");
+      }
+      
+      // Try to load from local backup file
+      const loadedFromBackup = await loadInfoMenusFromLocalFile();
+      if (!loadedFromBackup) {
+        console.warn("[Database] No local backup found. Running in memory-only mode.");
       }
     }
   },
@@ -646,18 +657,29 @@ const db = {
 
     if (firebaseEnabled) {
       try {
+        // Filter out undefined values for Firestore
+        const cleanedMenu = Object.fromEntries(
+          Object.entries(newInfoMenu).filter(([key, value]) => value !== undefined)
+        );
+        
         const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, id);
-        await setDoc(infoMenuDocRef, newInfoMenu);
+        await setDoc(infoMenuDocRef, cleanedMenu);
         console.log(`[Database] Created info menu with ID: ${id} in Firestore`);
+        // Also save local backup
+        await saveInfoMenusToLocalFile();
       } catch (error) {
         if (error.code === 'permission-denied') {
           console.warn(`[Database] Firebase permissions not configured for info menus. Menu ${id} created in memory only.`);
         } else {
           console.error(`[Database] Error creating info menu ${id} in Firestore:`, error);
         }
+        // Save to local file as backup
+        await saveInfoMenusToLocalFile();
       }
     } else {
       console.log(`[Database] Created info menu with ID: ${id} (memory only)`);
+      // Save to local file as backup when Firebase is disabled
+      await saveInfoMenusToLocalFile();
     }
 
     return id;
@@ -715,18 +737,29 @@ const db = {
 
     if (firebaseEnabled) {
       try {
+        // Filter out undefined values for Firestore
+        const cleanedMenu = Object.fromEntries(
+          Object.entries(updatedMenu).filter(([key, value]) => value !== undefined)
+        );
+        
         const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, infoMenuId);
-        await setDoc(infoMenuDocRef, updatedMenu);
+        await setDoc(infoMenuDocRef, cleanedMenu);
         console.log(`[Database] Updated info menu ${infoMenuId} in Firestore`);
+        // Also save local backup
+        await saveInfoMenusToLocalFile();
       } catch (error) {
         if (error.code === 'permission-denied') {
           console.warn(`[Database] Firebase permissions not configured for info menus. Menu ${infoMenuId} updated in memory only.`);
         } else {
           console.error(`[Database] Error updating info menu ${infoMenuId} in Firestore:`, error);
         }
+        // Save to local file as backup
+        await saveInfoMenusToLocalFile();
       }
     } else {
       console.log(`[Database] Updated info menu ${infoMenuId} (memory only)`);
+      // Save to local file as backup when Firebase is disabled
+      await saveInfoMenusToLocalFile();
     }
   },
 
@@ -813,11 +846,17 @@ const db = {
         const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, infoMenuId);
         await deleteDoc(infoMenuDocRef);
         console.log(`[Database] Deleted info menu with ID: ${infoMenuId} from Firestore`);
+        // Also update local backup
+        await saveInfoMenusToLocalFile();
       } catch (error) {
         console.error(`[Database] Error deleting info menu ${infoMenuId} in Firestore:`, error);
+        // Update local backup even if Firebase fails
+        await saveInfoMenusToLocalFile();
       }
     } else {
       console.log(`[Database] Deleted info menu with ID: ${infoMenuId} (memory only)`);
+      // Save to local file as backup when Firebase is disabled
+      await saveInfoMenusToLocalFile();
     }
   },
 
@@ -878,6 +917,66 @@ const db = {
     return pages.find(page => page.id === pageId) || null;
   }
 };
+
+// Local file backup system for info menus (fallback when Firebase fails)
+const LOCAL_BACKUP_DIR = path.join(__dirname, 'data');
+const INFO_MENUS_BACKUP_FILE = path.join(LOCAL_BACKUP_DIR, 'info_menus_backup.json');
+
+/**
+ * Saves info menus to local file as backup
+ */
+async function saveInfoMenusToLocalFile() {
+  try {
+    // Ensure data directory exists
+    await fs.mkdir(LOCAL_BACKUP_DIR, { recursive: true });
+    
+    // Convert Maps to objects for JSON serialization
+    const backupData = {
+      infoMenus: Object.fromEntries(db.infoMenus),
+      infoMenuData: Object.fromEntries(db.infoMenuData),
+      timestamp: new Date().toISOString()
+    };
+    
+    await fs.writeFile(INFO_MENUS_BACKUP_FILE, JSON.stringify(backupData, null, 2));
+    console.log('[Local Backup] Info menus saved to local file');
+  } catch (error) {
+    console.error('[Local Backup] Error saving info menus to local file:', error);
+  }
+}
+
+/**
+ * Loads info menus from local file backup
+ */
+async function loadInfoMenusFromLocalFile() {
+  try {
+    const data = await fs.readFile(INFO_MENUS_BACKUP_FILE, 'utf8');
+    const backupData = JSON.parse(data);
+    
+    // Restore Maps from objects
+    db.infoMenus.clear();
+    db.infoMenuData.clear();
+    
+    if (backupData.infoMenus) {
+      Object.entries(backupData.infoMenus).forEach(([key, value]) => {
+        db.infoMenus.set(key, value);
+      });
+    }
+    
+    if (backupData.infoMenuData) {
+      Object.entries(backupData.infoMenuData).forEach(([key, value]) => {
+        db.infoMenuData.set(key, value);
+      });
+    }
+    
+    console.log(`[Local Backup] Loaded ${db.infoMenuData.size} info menus from local file (backup from ${backupData.timestamp})`);
+    return true;
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('[Local Backup] Error loading info menus from local file:', error);
+    }
+    return false;
+  }
+}
 
 /**
  * Helper function to parse emoji strings for Discord components.
@@ -2381,7 +2480,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Configuration (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"id": "rules", "name": "Rules", "content": {"title": "📋 Rules", "description": "..."}}')
+                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {"title": "Title", "description": "..."}}')
                   .setMaxLength(4000)
               )
             );
