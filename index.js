@@ -708,12 +708,14 @@ client.on("interactionCreate", async (interaction) => {
         (interaction.customId?.startsWith("rr:") && !interaction.customId.startsWith("rr-role-"))
       );
       
-      if (relevantInteraction && !interaction.replied) {
-        // Use a different ephemeral message for the Firebase warning, so it doesn't conflict with other replies
-        await interaction.followUp({
-          content: "⚠️ **WARNING: FIREBASE IS NOT CONFIGURED!** Your bot's data (menus, roles, etc.) will **NOT** persist between restarts. To enable persistence, please set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration. If you're seeing 'menu no longer valid' errors, this is likely the cause.",
-          flags: MessageFlags.Ephemeral
-        }).catch(e => console.error("Error sending Firebase warning:", e));
+      // Only send if it's a relevant admin interaction. sendEphemeralEmbed handles defer/reply logic.
+      if (relevantInteraction) {
+        await sendEphemeralEmbed(
+          interaction,
+          "⚠️ **WARNING: FIREBASE IS NOT CONFIGURED!** Your bot's data (menus, roles, etc.) will **NOT** persist between restarts. To enable persistence, please set the `FIREBASE_CONFIG` environment variable with a valid Firebase configuration. If you're seeing 'menu no longer valid' errors, this is likely the cause.",
+          "#FFA500", // Orange color for warning
+          "Firebase Configuration Warning"
+        );
       }
     }
 
@@ -1367,7 +1369,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "save_managed_roles") { // Renamed from selectroles
           const selectedRoleIds = interaction.values;
-          const type = parts[2]; // 'dropdown' or 'button'
+          const type = parts[2]; // 'dropdown', 'button'
           const menuId = parts[3];
           
           const menu = db.getMenu(menuId); // Corrected back to db.getMenu
