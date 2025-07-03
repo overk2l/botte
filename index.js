@@ -1216,6 +1216,18 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, `Not enough ${type} roles to reorder. Found ${actualRoles.length} role(s).`, "#FF0000", "Error", false);
           }
 
+          // Create a user-friendly display of current roles with numbers
+          const roleDisplay = currentOrder.map((roleId, index) => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            const roleName = role ? role.name : `Unknown Role (${roleId})`;
+            return `${index + 1}. ${roleName}`;
+          }).join('\n');
+
+          // Create example showing how to reorder
+          const exampleOrder = currentOrder.length >= 3 
+            ? `Example: "3, 1, 2" would move the 3rd role to first position`
+            : `Example: "2, 1" would reverse the order`;
+
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:reorder_roles:${menuId}:${type}`)
             .setTitle(`Reorder ${type.charAt(0).toUpperCase() + type.slice(1)} Roles`);
@@ -1223,12 +1235,31 @@ client.on("interactionCreate", async (interaction) => {
           modal.addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
-                .setCustomId("role_ids_order")
-                .setLabel("Role IDs (comma-separated)")
+                .setCustomId("current_roles_display")
+                .setLabel("Current Role Order (READ ONLY - for reference)")
                 .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+                .setValue(roleDisplay)
+                .setMaxLength(2000)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("new_order_numbers")
+                .setLabel("New Order (use numbers from above, comma-separated)")
+                .setStyle(TextInputStyle.Short)
                 .setRequired(true)
-                .setPlaceholder("roleId1, roleId2, roleId3")
-                .setValue(String(currentOrder.join(", ")))
+                .setPlaceholder("1, 2, 3, 4...")
+                .setValue("1, 2, 3, 4, 5".substring(0, currentOrder.length * 3 - 1)) // Default current order
+                .setMaxLength(100)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("example_help")
+                .setLabel("Help (READ ONLY)")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setValue(exampleOrder)
+                .setMaxLength(200)
             )
           );
           
@@ -1728,46 +1759,66 @@ client.on("interactionCreate", async (interaction) => {
               return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
             }
 
-            const roleIdsOrderInput = interaction.fields.getTextInputValue("role_ids_order");
+            // Get the number sequence input from user
+            const numberOrderInput = interaction.fields.getTextInputValue("new_order_numbers");
             
-            if (!roleIdsOrderInput || !roleIdsOrderInput.trim()) {
-              return sendEphemeralEmbed(interaction, "No role IDs provided.", "#FF0000", "Error", false);
+            if (!numberOrderInput || !numberOrderInput.trim()) {
+              return sendEphemeralEmbed(interaction, "No order sequence provided.", "#FF0000", "Error", false);
             }
             
-            const newOrderRaw = roleIdsOrderInput.split(",").map(id => id.trim()).filter(id => id);
+            // Parse the numbers (e.g., "3, 1, 2" -> [3, 1, 2])
+            const orderNumbers = numberOrderInput.split(",").map(num => {
+              const parsed = parseInt(num.trim());
+              return isNaN(parsed) ? null : parsed;
+            }).filter(num => num !== null);
             
-            if (newOrderRaw.length === 0) {
-              return sendEphemeralEmbed(interaction, "No valid role IDs found.", "#FF0000", "Error", false);
+            if (orderNumbers.length === 0) {
+              return sendEphemeralEmbed(interaction, "No valid numbers found in order sequence.", "#FF0000", "Error", false);
             }
 
+            // Get current role order
             const existingRoles = type === "dropdown" ? (menu.dropdownRoles || []) : (menu.buttonRoles || []);
+            const currentOrder = type === "dropdown" 
+              ? (menu.dropdownRoleOrder.length > 0 ? menu.dropdownRoleOrder : menu.dropdownRoles || []) 
+              : (menu.buttonRoleOrder.length > 0 ? menu.buttonRoleOrder : menu.buttonRoles || []);
             
             if (existingRoles.length === 0) {
               return sendEphemeralEmbed(interaction, `No ${type} roles found in this menu.`, "#FF0000", "Error", false);
             }
             
+            // Validate that all numbers are within range
+            const maxNumber = currentOrder.length;
+            for (const num of orderNumbers) {
+              if (num < 1 || num > maxNumber) {
+                return sendEphemeralEmbed(interaction, `Invalid number: ${num}. Must be between 1 and ${maxNumber}.`, "#FF0000", "Error", false);
+              }
+            }
+            
+            // Convert numbers to role IDs based on current order
             const newOrderValidated = [];
-            const seenRoleIds = new Set();
-
-            for (const currentRoleId of newOrderRaw) {
-              if (existingRoles.includes(currentRoleId) && !seenRoleIds.has(currentRoleId)) {
-                newOrderValidated.push(currentRoleId);
-                seenRoleIds.add(currentRoleId);
-              } else if (!existingRoles.includes(currentRoleId)) {
-                console.warn(`Role ID ${currentRoleId} from reorder input not found in existing ${type} roles for menu ${menuId}. Skipping.`);
-              } else if (seenRoleIds.has(currentRoleId)) {
-                console.warn(`Duplicate role ID ${currentRoleId} found in reorder input for menu ${menuId}. Skipping duplicate.`);
+            const usedNumbers = new Set();
+            
+            // First, add roles specified in the order
+            for (const num of orderNumbers) {
+              if (!usedNumbers.has(num)) {
+                const roleIndex = num - 1; // Convert to 0-based index
+                if (roleIndex >= 0 && roleIndex < currentOrder.length) {
+                  newOrderValidated.push(currentOrder[roleIndex]);
+                  usedNumbers.add(num);
+                }
+              }
+            }
+            
+            // Then add any remaining roles that weren't specified
+            for (let i = 0; i < currentOrder.length; i++) {
+              const num = i + 1;
+              if (!usedNumbers.has(num)) {
+                newOrderValidated.push(currentOrder[i]);
               }
             }
 
-            for (const existingRoleId of existingRoles) {
-              if (!seenRoleIds.has(existingRoleId)) {
-                newOrderValidated.push(existingRoleId);
-              }
-            }
-
-            if (newOrderValidated.length !== existingRoles.length) {
-              console.warn(`Mismatch in role count for menu ${menuId}. Expected: ${existingRoles.length}, Got: ${newOrderValidated.length}`);
+            if (newOrderValidated.length !== currentOrder.length) {
+              console.warn(`Mismatch in role count for menu ${menuId}. Expected: ${currentOrder.length}, Got: ${newOrderValidated.length}`);
             }
 
             await db.saveRoleOrder(menuId, newOrderValidated, type);
@@ -1776,7 +1827,7 @@ client.on("interactionCreate", async (interaction) => {
             
           } catch (error) {
             console.error("Error in reorder modal submission:", error);
-            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles.", "#FF0000", "Error", false);
+            return sendEphemeralEmbed(interaction, "An error occurred while reordering roles. Please check your input format.", "#FF0000", "Error", false);
           }
         }
 
