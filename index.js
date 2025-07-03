@@ -2740,6 +2740,39 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "manage_pages") {
+          return showInfoMenuPageManagement(interaction, infoMenuId);
+        }
+
+        if (action === "back_to_config") {
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (action === "confirm_delete_page") {
+          const pageId = parts[3];
+          if (!pageId) {
+            return sendEphemeralEmbed(interaction, "❌ Page ID missing.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found or already deleted.", "#FF0000", "Error", false);
+          }
+
+          try {
+            await db.removeInfoMenuPage(infoMenuId, pageId);
+            await sendEphemeralEmbed(interaction, `✅ Page "${page.name}" deleted successfully!`, "#00FF00", "Success", false);
+            return showInfoMenuPageManagement(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error deleting info menu page:", error);
+            return sendEphemeralEmbed(interaction, `❌ Failed to delete page: ${error.message}`, "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "cancel_delete_page") {
+          return showInfoMenuPageManagement(interaction, infoMenuId);
+        }
+
         // Add more info menu actions here as needed
       }
 
@@ -3066,6 +3099,65 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
+
+        if (action === "page_action") {
+          const infoMenuId = parts[2];
+          const [pageAction, pageId] = interaction.values[0].split(":");
+
+          if (!infoMenuId || !pageAction || !pageId) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid page action selection.", "#FF0000", "Error", false);
+          }
+
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          if (pageAction === "edit") {
+            const modal = new ModalBuilder()
+              .setCustomId(`info:modal:edit_page:${infoMenuId}:${pageId}`)
+              .setTitle(`Edit Page: ${page.name}`)
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("page_json")
+                    .setLabel("Page Configuration (JSON)")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setValue(JSON.stringify({
+                      id: page.id,
+                      name: page.name,
+                      content: page.content
+                    }, null, 2))
+                    .setMaxLength(4000)
+                )
+              );
+            return interaction.showModal(modal);
+          } 
+          
+          if (pageAction === "delete") {
+            const confirmButton = new ButtonBuilder()
+              .setCustomId(`info:confirm_delete_page:${infoMenuId}:${pageId}`)
+              .setLabel("Confirm Delete Page")
+              .setStyle(ButtonStyle.Danger);
+            const cancelButton = new ButtonBuilder()
+              .setCustomId(`info:cancel_delete_page:${infoMenuId}`)
+              .setLabel("Cancel")
+              .setStyle(ButtonStyle.Secondary);
+            const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+            return interaction.editReply({
+              content: `⚠️ Are you sure you want to delete the page "${page.name}"? This cannot be undone.`,
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          }
+        }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
@@ -3192,6 +3284,33 @@ client.on("interactionCreate", async (interaction) => {
               await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
             } else {
               await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            }
+
+            // Update the original message to reset the dropdown so users can select again
+            try {
+              const pages = db.getInfoMenuPages(infoMenuId);
+              if (pages && pages.length > 0) {
+                const selectMenu = new StringSelectMenuBuilder()
+                  .setCustomId(`info-menu-select:${infoMenuId}`)
+                  .setPlaceholder('📚 Select a page to view...')
+                  .addOptions(
+                    pages.map(page => ({
+                      label: page.name.slice(0, 100),
+                      value: page.id,
+                      emoji: '📄'
+                    }))
+                  );
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                
+                // Update the original message to refresh the dropdown
+                await interaction.message.edit({
+                  components: [row]
+                });
+              }
+            } catch (updateError) {
+              console.error("Error updating dropdown after selection:", updateError);
+              // Don't fail the whole interaction if we can't update the dropdown
             }
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
@@ -3738,6 +3857,87 @@ client.on("interactionCreate", async (interaction) => {
             return showInfoMenuConfiguration(interaction, infoMenuId);
           } catch (error) {
             console.error("Error parsing page JSON:", error);
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!", "#FF0000", "JSON Error", false);
+          }
+        }
+
+        if (modalType === "edit_page") {
+          const infoMenuId = parts[3];
+          const pageId = parts[4];
+          const pageJsonRaw = interaction.fields.getTextInputValue("page_json");
+
+          try {
+            let pageData = JSON.parse(pageJsonRaw);
+            
+            // Auto-detect Discohook format and convert it (same as add_page)
+            if (pageData.embeds && Array.isArray(pageData.embeds) && pageData.embeds.length > 0) {
+              const embed = pageData.embeds[0];
+              
+              // Helper functions for validation
+              const isValidUrl = (url) => {
+                if (!url || typeof url !== 'string' || url.trim() === '') return false;
+                try {
+                  new URL(url);
+                  return true;
+                } catch {
+                  return false;
+                }
+              };
+
+              const normalizeColor = (color) => {
+                if (!color) return null;
+                if (typeof color === 'number') {
+                  return `#${color.toString(16).padStart(6, '0')}`;
+                }
+                if (typeof color === 'string') {
+                  if (/^#[0-9A-F]{6}$/i.test(color)) return color;
+                  if (/^[0-9A-F]{6}$/i.test(color)) return `#${color}`;
+                }
+                return null;
+              };
+              
+              // Convert Discohook format to page format with validation
+              pageData = {
+                id: pageId, // Keep the existing page ID
+                name: embed.title || "Edited Page",
+                content: {
+                  title: embed.title,
+                  description: embed.description,
+                  color: normalizeColor(embed.color),
+                  thumbnail: isValidUrl(embed.thumbnail?.url) ? embed.thumbnail.url : 
+                            isValidUrl(embed.thumbnail) ? embed.thumbnail : null,
+                  image: isValidUrl(embed.image?.url) ? embed.image.url : 
+                         isValidUrl(embed.image) ? embed.image : null,
+                  author: embed.author && embed.author.name ? {
+                    name: embed.author.name,
+                    iconURL: isValidUrl(embed.author.iconURL || embed.author.icon_url) ? 
+                            (embed.author.iconURL || embed.author.icon_url) : null
+                  } : null,
+                  footer: embed.footer && embed.footer.text ? {
+                    text: embed.footer.text,
+                    iconURL: isValidUrl(embed.footer.iconURL || embed.footer.icon_url) ? 
+                            (embed.footer.iconURL || embed.footer.icon_url) : null
+                  } : null,
+                  fields: Array.isArray(embed.fields) ? embed.fields.filter(field => 
+                    field && field.name && field.value
+                  ) : null
+                }
+              };
+            }
+            
+            // Validate required fields
+            if (!pageData.id || !pageData.name || !pageData.content) {
+              return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!", "#FF0000", "JSON Error", false);
+            }
+
+            // Ensure the page ID matches
+            pageData.id = pageId;
+
+            await db.saveInfoMenuPage(infoMenuId, pageData);
+            await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" updated successfully!`, "#00FF00", "Success", false);
+            return showInfoMenuPageManagement(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error parsing/updating page JSON:", error);
             return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!", "#FF0000", "JSON Error", false);
           }
         }
@@ -4905,6 +5105,108 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
  * Displays the information menus dashboard, listing existing menus and providing options to create/configure.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  */
+/**
+ * Shows the page management interface for an information menu.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu.
+ */
+async function showInfoMenuPageManagement(interaction, infoMenuId) {
+  const menu = db.getInfoMenu(infoMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+  }
+
+  const pages = db.getInfoMenuPages(infoMenuId);
+  
+  const embed = new EmbedBuilder()
+    .setTitle(`📄 Page Management: ${menu.name}`)
+    .setDescription(`Manage pages for your information menu.\n\n**Total Pages:** ${pages.length}`)
+    .setColor("#5865F2");
+
+  if (pages.length > 0) {
+    const pageList = pages.slice(0, 10).map((page, index) => {
+      const truncatedContent = page.content.description 
+        ? (page.content.description.length > 50 
+           ? page.content.description.substring(0, 47) + "..." 
+           : page.content.description)
+        : "No description";
+      return `**${index + 1}.** ${page.name}\n   *${truncatedContent}*`;
+    }).join('\n\n');
+
+    embed.addFields([
+      { 
+        name: "📚 Current Pages", 
+        value: pageList + (pages.length > 10 ? `\n\n*...and ${pages.length - 10} more pages*` : ""), 
+        inline: false 
+      }
+    ]);
+  } else {
+    embed.addFields([
+      { name: "📚 Current Pages", value: "*No pages yet. Add your first page!*", inline: false }
+    ]);
+  }
+
+  const components = [];
+
+  // Page management buttons
+  const managementRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:add_page:${infoMenuId}`)
+      .setLabel("Add New Page")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("➕"),
+    new ButtonBuilder()
+      .setCustomId(`info:reorder_pages:${infoMenuId}`)
+      .setLabel("Reorder Pages")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(pages.length < 2)
+  );
+
+  components.push(managementRow);
+
+  // If there are pages, add edit/delete dropdown
+  if (pages.length > 0) {
+    const pageOptions = pages.slice(0, 25).map(page => ({
+      label: `Edit: ${page.name}`.substring(0, 100),
+      value: `edit:${page.id}`,
+      description: page.content.description ? page.content.description.substring(0, 100) : undefined,
+      emoji: "✏️"
+    }));
+
+    // Add delete options
+    pageOptions.push(...pages.slice(0, 25 - pageOptions.length).map(page => ({
+      label: `Delete: ${page.name}`.substring(0, 100),
+      value: `delete:${page.id}`,
+      description: "⚠️ Permanently remove this page",
+      emoji: "🗑️"
+    })));
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`info:page_action:${infoMenuId}`)
+      .setPlaceholder("Select a page to edit or delete...")
+      .addOptions(pageOptions.slice(0, 25));
+
+    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:back_to_config:${infoMenuId}`)
+      .setLabel("Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  components.push(backRow);
+
+  return interaction.editReply({
+    embeds: [embed],
+    components: components,
+    flags: MessageFlags.Ephemeral
+  });
+}
+
 /**
  * Publishes an information menu to a channel or edits an existing published message.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
