@@ -1436,6 +1436,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:customize_footer:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:save_as_template:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:publish:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:create_from_template:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template"))
   );
 
@@ -3540,6 +3541,36 @@ client.on("interactionCreate", async (interaction) => {
             parsedJson = JSON.parse(jsonString);
           } catch (e) {
             return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "JSON Error", false);
+          }
+
+          // Auto-detect Discohook format and convert it
+          if (parsedJson.embeds && Array.isArray(parsedJson.embeds) && parsedJson.embeds.length > 0) {
+            const embed = parsedJson.embeds[0]; // Use first embed
+            
+            // Convert Discohook format to our format
+            const convertedJson = {
+              name: embed.title || "Imported Menu",
+              desc: embed.description ? 
+                (embed.description.length > 100 ? embed.description.substring(0, 97) + "..." : embed.description) 
+                : "Imported from Discohook",
+              embedColor: embed.color ? `#${embed.color.toString(16).padStart(6, '0')}` : "#5865F2",
+              pages: [{
+                id: "main",
+                name: embed.title || "Main Page",
+                content: {
+                  title: embed.title,
+                  description: embed.description,
+                  color: embed.color,
+                  thumbnail: embed.thumbnail?.url || embed.thumbnail,
+                  image: embed.image?.url || embed.image,
+                  author: embed.author,
+                  footer: embed.footer,
+                  fields: embed.fields
+                }
+              }]
+            };
+            
+            parsedJson = convertedJson;
           }
 
           // Extract required fields from JSON
