@@ -517,6 +517,7 @@ async function createReactionRoleEmbed(guild, menu) {
 
 /**
  * Sends an ephemeral embed reply or follow-up to an interaction.
+ * The message will be automatically deleted after 6 seconds.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  * @param {string} description - The description for the embed.
  * @param {string} [color="#5865F2"] - The color of the embed (hex code).
@@ -528,21 +529,48 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
         .setDescription(description)
         .setColor(color);
     
+    let message;
     try {
         // Check if interaction has already been replied/deferred
         if (interaction.replied || interaction.deferred) {
-            await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
+            message = await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
         } else {
-            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            message = await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         }
     } catch (error) {
         console.error("Error sending ephemeral embed:", error);
         // Try followUp as last resort
         try {
-            await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            message = await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } catch (followUpError) {
             console.error("Error sending follow-up:", followUpError);
+            return; // Cannot send message, so nothing to delete
         }
+    }
+
+    // Auto-delete the ephemeral message after 6 seconds
+    if (message) {
+        setTimeout(async () => {
+            try {
+                // If it was an initial reply, use deleteReply() on the interaction
+                if (interaction.replied || interaction.deferred) {
+                    // Check if the message still exists before attempting to delete
+                    // This is a safeguard if the user somehow dismissed it already
+                    const fetchedMessage = await interaction.channel.messages.fetch(message.id).catch(() => null);
+                    if (fetchedMessage) {
+                        await interaction.deleteReply();
+                    }
+                } else {
+                    // If it was a followUp, delete the message directly
+                    await message.delete();
+                }
+            } catch (deleteError) {
+                // Ignore "Unknown Message" error (10008) if the user already dismissed it
+                if (deleteError.code !== 10008) {
+                    console.error("Error auto-deleting ephemeral message:", deleteError);
+                }
+            }
+        }, 6000); // 6000 milliseconds = 6 seconds
     }
 }
 
@@ -1440,7 +1468,7 @@ client.on("interactionCreate", async (interaction) => {
 
           const selectExclusionRoles = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_exclusion_roles:${triggerRoleId}:${menuId}`)
-            .setPlaceholder("Select roles to exclude when " + String(interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role") + " is picked...") // Coerce to string
+            .setPlaceholder("Select roles to exclude when " + String(interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role") + " is picked...")
             .setMinValues(0)
             .setMaxValues(Math.min(allRoles.size, 25))
             .addOptions(roleOptions);
@@ -1567,7 +1595,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "reorder_roles") {
           try {
-            if (!currentMenuId) { // Removed !type as it's always 'dropdown' or 'button' here
+            if (!currentMenuId) {
               return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error");
             }
             
@@ -1883,7 +1911,7 @@ client.on("interactionCreate", async (interaction) => {
         
         // Try to get all available menus for debugging (if such method exists)
         try {
-            if (typeof db.getAllMenuIds === 'function') { // Corrected from db.getAllMenus
+            if (typeof db.getAllMenuIds === 'function') {
                 console.log(`[Debug] Available menu IDs:`, db.getAllMenuIds());
             } else {
                 console.log(`[Debug] db.getAllMenuIds() method not available for listing all menu IDs.`);
