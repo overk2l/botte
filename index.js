@@ -1884,7 +1884,7 @@ client.on("interactionCreate", async (interaction) => {
         });
 
         const selectedInteractionRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
-        console.log(`[Debug] Selected role IDs:`, selectedInteractionRoleIds);
+        console.log(`[Debug] Selected role IDs from interaction:`, selectedInteractionRoleIds);
 
         let rolesToAdd = [];
         let rolesToRemove = [];
@@ -1896,22 +1896,17 @@ client.on("interactionCreate", async (interaction) => {
 
         console.log(`[Debug] Current member roles:`, currentMemberRoleIds.length);
         console.log(`[Debug] All menu roles:`, allMenuRoleIds);
-        console.log(`[Debug] Current menu roles held:`, currentMenuRolesHeldByMember);
+        console.log(`[Debug] Current menu roles held by member from this menu:`, currentMenuRolesHeldByMember);
 
-        // Determine roles to add and remove based on selection and current member roles
         if (interaction.isStringSelectMenu()) {
-            // For dropdowns, implement toggle behavior
-            for (const selectedRoleId of selectedInteractionRoleIds) {
-                // If the member currently has this role, it means they clicked to remove it
-                if (currentMemberRoleIds.includes(selectedRoleId)) {
-                    rolesToRemove.push(selectedRoleId);
-                } else {
-                    // If the member does not have this role, it means they clicked to add it
-                    rolesToAdd.push(selectedRoleId);
-                }
-            }
+            // For dropdowns, calculate the difference between current roles and selected roles
+            // Roles to add are those in selectedInteractionRoleIds but not in currentMenuRolesHeldByMember
+            rolesToAdd = selectedInteractionRoleIds.filter(roleId => !currentMenuRolesHeldByMember.includes(roleId));
+            // Roles to remove are those in currentMenuRolesHeldByMember but not in selectedInteractionRoleIds
+            rolesToRemove = currentMenuRolesHeldByMember.filter(roleId => !selectedInteractionRoleIds.includes(roleId));
+
         } else { // Button interaction (already behaves as a toggle)
-            const clickedRoleId = selectedInteractionRoleIds[0];
+            const clickedRoleId = selectedInteractionRoleIds[0]; // For buttons, there's only one clicked role
             console.log(`[Debug] Button clicked - Role ID: ${clickedRoleId}`);
             
             if (currentMemberRoleIds.includes(clickedRoleId)) {
