@@ -2776,12 +2776,18 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "reorder_pages") {
           const menu = db.getInfoMenu(infoMenuId);
           if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+            return interaction.reply({
+              content: "❌ Information menu not found.",
+              flags: MessageFlags.Ephemeral
+            });
           }
 
           const pages = db.getInfoMenuPages(infoMenuId);
           if (!pages || pages.length < 2) {
-            return sendEphemeralEmbed(interaction, "❌ You need at least 2 pages to reorder them.", "#FF0000", "Error", false);
+            return interaction.reply({
+              content: "❌ You need at least 2 pages to reorder them.",
+              flags: MessageFlags.Ephemeral
+            });
           }
 
           // Create a user-friendly display of current pages with numbers
@@ -5307,7 +5313,12 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 async function showInfoMenuPageManagement(interaction, infoMenuId) {
   const menu = db.getInfoMenu(infoMenuId);
   if (!menu) {
-    return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+    return interaction.editReply({
+      content: "❌ Information menu not found.",
+      embeds: [],
+      components: [],
+      flags: MessageFlags.Ephemeral
+    });
   }
 
   const pages = db.getInfoMenuPages(infoMenuId);
