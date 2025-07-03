@@ -390,7 +390,7 @@ const db = {
         await deleteDoc(menuDocRef);
         console.log(`[Database] Deleted menu with ID: ${menuId} from Firestore`);
       } catch (error) {
-        console.error(`[Database] Error deleting menu ${menuId} from Firestore:`, error);
+        console.error(`[Database] Error deleting menu ${menuId} in Firestore:`, error);
         // Continue with in-memory deletion only
       }
     } else {
@@ -1804,9 +1804,37 @@ client.on("interactionCreate", async (interaction) => {
         console.log(`[Debug] MenuId type: ${typeof menuId}`);
         console.log(`[Debug] MenuId length: ${menuId ? menuId.length : 'undefined/null'}`);
         
-        if (!menuId) {
-            console.error(`[Error] No menuId found in customId: ${interaction.customId}`);
-            return sendEphemeralEmbed(interaction, "❌ Invalid interaction. Please try again.", "#FF0000", "Error");
+        if (!menuId || menuId === 'undefined') {
+            console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
+            
+            // Try to find which menu this message belongs to
+            const messageId = interaction.message?.id;
+            const channelId = interaction.channel?.id;
+            
+            if (messageId && channelId) {
+                console.log(`[Debug] Attempting to find menu for message ${messageId} in channel ${channelId}`);
+                
+                // Search all menus to find one with this message ID
+                let foundMenuId = null;
+                for (const [id, menuData] of db.menuData.entries()) {
+                    if (menuData.messageId === messageId && menuData.channelId === channelId) {
+                        foundMenuId = id;
+                        console.log(`[Debug] Found menu ID ${id} for orphaned message`);
+                        break;
+                    }
+                }
+                
+                if (foundMenuId) {
+                    await sendEphemeralEmbed(interaction, 
+                        "⚠️ This reaction role message has an invalid configuration. Please ask an administrator to use '/dashboard' and republish this menu to fix it.", 
+                        "#FFA500", 
+                        "Configuration Error"
+                    );
+                    return;
+                }
+            }
+            
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
         }
         
         // Enhanced debugging for menu lookup
@@ -1814,7 +1842,7 @@ client.on("interactionCreate", async (interaction) => {
         
         // Try to get all available menus for debugging (if such method exists)
         try {
-            if (typeof db.getAllMenuIds === 'function') {
+            if (typeof db.getAllMenuIds === 'function') { // Corrected from db.getAllMenus
                 console.log(`[Debug] Available menu IDs:`, db.getAllMenuIds());
             } else {
                 console.log(`[Debug] db.getAllMenuIds() method not available for listing all menu IDs.`);
