@@ -3105,17 +3105,26 @@ client.on("interactionCreate", async (interaction) => {
           const [pageAction, pageId] = interaction.values[0].split(":");
 
           if (!infoMenuId || !pageAction || !pageId) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid page action selection.", "#FF0000", "Error", false);
+            return interaction.reply({
+              content: "❌ Invalid page action selection.",
+              flags: MessageFlags.Ephemeral
+            });
           }
 
           const menu = db.getInfoMenu(infoMenuId);
           if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+            return interaction.reply({
+              content: "❌ Information menu not found.",
+              flags: MessageFlags.Ephemeral
+            });
           }
 
           const page = db.getInfoMenuPage(infoMenuId, pageId);
           if (!page) {
-            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            return interaction.reply({
+              content: "❌ Page not found.",
+              flags: MessageFlags.Ephemeral
+            });
           }
 
           if (pageAction === "edit") {
@@ -3151,7 +3160,7 @@ client.on("interactionCreate", async (interaction) => {
               .setStyle(ButtonStyle.Secondary);
             const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
-            return interaction.editReply({
+            return interaction.reply({
               content: `⚠️ Are you sure you want to delete the page "${page.name}"? This cannot be undone.`,
               components: [row],
               flags: MessageFlags.Ephemeral
