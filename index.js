@@ -727,8 +727,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
             if (dropdownOptions.length > 0) {
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`rr-role-select:${menuId}`)
-                    .setPlaceholder("Select your roles...")
-                    .setMinValues(0)
+                    .setPlaceholder("Select roles to toggle...")
+                    .setMinValues(1)
                     .setMaxValues(dropdownOptions.length)
                     .addOptions(dropdownOptions);
                 components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -2048,11 +2048,10 @@ async function handleRoleInteraction(interaction) {
 
         if (interaction.isStringSelectMenu()) {
             const selectedValues = interaction.values;
-            const menuDropdownRoles = new Set(menu.dropdownRoles || []);
             
             console.log(`[DEBUG] Dropdown - Selected values:`, selectedValues);
             
-            // Validate selected roles still exist
+            // Validate all selected roles still exist
             const validSelectedValues = selectedValues.filter(roleId => {
                 const role = interaction.guild.roles.cache.get(roleId);
                 if (!role) {
@@ -2062,16 +2061,20 @@ async function handleRoleInteraction(interaction) {
                 return true;
             });
             
-            // Remove all current dropdown roles
-            for (const roleId of menuDropdownRoles) {
-                if (newRoles.has(roleId)) {
-                    newRoles.delete(roleId);
-                }
+            if (validSelectedValues.length === 0) {
+                return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
             }
             
-            // Add selected roles
-            for (const roleId of validSelectedValues) {
-                newRoles.add(roleId);
+            // Toggle each selected role individually
+            for (const selectedRoleId of validSelectedValues) {
+                const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
+                if (newRoles.has(selectedRoleId)) {
+                    newRoles.delete(selectedRoleId);
+                    console.log(`[DEBUG] Toggled OFF role: ${selectedRoleId} (${selectedRole.name})`);
+                } else {
+                    newRoles.add(selectedRoleId);
+                    console.log(`[DEBUG] Toggled ON role: ${selectedRoleId} (${selectedRole.name})`);
+                }
             }
             
         } else if (interaction.isButton()) { // Button
@@ -2601,8 +2604,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           if (dropdownOptions.length > 0) {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`rr-role-select:${menuId}`)
-              .setPlaceholder("Select your roles...")
-              .setMinValues(0)
+              .setPlaceholder("Select roles to toggle...")
+              .setMinValues(1)
               .setMaxValues(dropdownOptions.length)
               .addOptions(dropdownOptions);
             components.push(new ActionRowBuilder().addComponents(selectMenu));
