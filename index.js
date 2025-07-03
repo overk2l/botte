@@ -584,7 +584,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) { // 
                 const button = new ButtonBuilder()
                     .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
                     .setLabel(role.name)
-                    .setStyle(member.roles.cache.has(roleId) ? ButtonStyle.Success : ButtonStyle.Secondary);
+                    // Always set style to Secondary (grey)
+                    .setStyle(ButtonStyle.Secondary); 
                 
                 // Only set emoji if parseEmoji returns a valid object
                 const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
@@ -2440,8 +2441,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
       const button = new ButtonBuilder()
         .setCustomId(`rr-role-button:${menuId}:${role.id}`)
         .setLabel(role.name.substring(0, 80))
-        .setStyle(ButtonStyle.Secondary);
-
+        .setStyle(ButtonStyle.Secondary); // Always set to secondary
       const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
       if (parsedEmoji) {
         button.setEmoji(parsedEmoji);
