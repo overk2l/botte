@@ -2260,17 +2260,6 @@ client.on("interactionCreate", async (interaction) => {
       } else if (interaction.customId.startsWith("rr-role-select:")) {
           return handleRoleInteraction(interaction);
       }
-
-      if (ctx === "im") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure interactive menus.", "#FF0000", "Permission Denied", false);
-        }
-        
-        if (action === "selectmenu") {
-          const targetMenuId = interaction.values[0];
-          return showInteractiveMenuConfiguration(interaction, targetMenuId);
-        }
-      }
     }
 
     if (interaction.isModalSubmit()) {
@@ -3032,12 +3021,7 @@ async function sendMainDashboard(interaction) {
           .setCustomId("dash:reaction-roles")
           .setLabel("Reaction Roles")
           .setStyle(ButtonStyle.Primary)
-          .setEmoji("🎭"),
-      new ButtonBuilder()
-          .setCustomId("dash:interactive-menus")
-          .setLabel("Interactive Menus")
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji("📋")
+          .setEmoji("🎭")
   );
   await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
