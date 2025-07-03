@@ -187,6 +187,15 @@ const db = {
   },
 
   /**
+   * Retrieves all menu IDs currently loaded in memory.
+   * This is a helper for debugging.
+   * @returns {string[]} An array of all menu IDs.
+   */
+  getAllMenuIds() {
+    return Array.from(this.menuData.keys());
+  },
+
+  /**
    * Updates an existing menu's data in both memory and Firestore.
    * @param {string} menuId - The ID of the menu to update.
    * @param {Object} data - The partial data object to merge into the existing menu.
@@ -1775,9 +1784,12 @@ client.on("interactionCreate", async (interaction) => {
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
 
-        console.log(`[Interaction] Role interaction: customId=${interaction.customId}`); // Log customId
+        console.log(`[Interaction] Role interaction: customId=${interaction.customId}`); // Diagnostic log
+        console.log(`[Interaction] Interaction type: ${interaction.isButton() ? 'Button' : 'Select Menu'}`);
+        
         const parts = interaction.customId.split(":");
-        console.log(`[Interaction] Custom ID parts: ${JSON.stringify(parts)}`); // Log parts
+        console.log(`[Interaction] Custom ID parts: ${JSON.stringify(parts)}`); // Diagnostic log
+        console.log(`[Interaction] Parts length: ${parts.length}`);
 
         // Ensure interaction is deferred if it wasn't already
         if (!interaction.replied && !interaction.deferred) {
@@ -1786,18 +1798,61 @@ client.on("interactionCreate", async (interaction) => {
 
         const menuId = parts[1];
         
+        // Enhanced debugging for menuId
+        console.log(`[Debug] Extracted menuId: "${menuId}"`);
+        console.log(`[Debug] MenuId type: ${typeof menuId}`);
+        console.log(`[Debug] MenuId length: ${menuId ? menuId.length : 'undefined/null'}`);
+        
         if (!menuId) {
             console.error(`[Error] No menuId found in customId: ${interaction.customId}`);
             return sendEphemeralEmbed(interaction, "❌ Invalid interaction. Please try again.", "#FF0000", "Error");
         }
         
+        // Enhanced debugging for menu lookup
+        console.log(`[Debug] Looking up menu with ID: "${menuId}"`);
+        
+        // Try to get all available menus for debugging (if such method exists)
+        try {
+            if (typeof db.getAllMenuIds === 'function') {
+                console.log(`[Debug] Available menu IDs:`, db.getAllMenuIds());
+            } else {
+                console.log(`[Debug] db.getAllMenuIds() method not available for listing all menu IDs.`);
+            }
+        } catch (debugError) {
+            console.log(`[Debug] Could not retrieve all menu IDs:`, debugError.message);
+        }
+        
         const menu = db.getMenu(menuId);
+        console.log(`[Debug] Menu lookup result:`, menu);
+        console.log(`[Debug] Menu exists: ${!!menu}`);
+        console.log(`[Debug] Menu type: ${typeof menu}`);
+        
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId} during user interaction. CustomId: ${interaction.customId}`);
+            
+            // Additional debugging info
+            console.error(`[Error] Debug info:`);
+            console.error(`  - Full customId: ${interaction.customId}`);
+            console.error(`  - Split parts: ${JSON.stringify(parts)}`);
+            console.error(`  - Extracted menuId: "${menuId}"`);
+            console.error(`  - Interaction guild: ${interaction.guild.id}`);
+            console.error(`  - Interaction channel: ${interaction.channel.id}`);
+            console.error(`  - Interaction message: ${interaction.message?.id}`);
+            
             return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error");
         }
 
+        // Log menu structure for debugging
+        console.log(`[Debug] Menu structure:`, {
+            id: menu.id,
+            dropdownRoles: menu.dropdownRoles?.length || 0,
+            buttonRoles: menu.buttonRoles?.length || 0,
+            hasExclusionMap: !!menu.exclusionMap,
+            maxRolesLimit: menu.maxRolesLimit
+        });
+
         const selectedInteractionRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
+        console.log(`[Debug] Selected role IDs:`, selectedInteractionRoleIds);
 
         let rolesToAdd = [];
         let rolesToRemove = [];
@@ -1806,6 +1861,10 @@ client.on("interactionCreate", async (interaction) => {
         const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
+
+        console.log(`[Debug] Current member roles:`, currentMemberRoleIds.length);
+        console.log(`[Debug] All menu roles:`, allMenuRoleIds);
+        console.log(`[Debug] Current menu roles held:`, currentMenuRolesHeldByMember);
 
         // Determine roles to add and remove based on selection and current member roles
         if (interaction.isStringSelectMenu()) {
@@ -1821,10 +1880,14 @@ client.on("interactionCreate", async (interaction) => {
             
         } else { // Button interaction (already behaves as a toggle)
             const clickedRoleId = selectedInteractionRoleIds[0];
+            console.log(`[Debug] Button clicked - Role ID: ${clickedRoleId}`);
+            
             if (currentMemberRoleIds.includes(clickedRoleId)) {
                 rolesToRemove.push(clickedRoleId);
+                console.log(`[Debug] Role will be removed (user has it)`);
             } else {
                 rolesToAdd.push(clickedRoleId);
+                console.log(`[Debug] Role will be added (user doesn't have it)`);
             }
         }
 
@@ -1837,11 +1900,15 @@ client.on("interactionCreate", async (interaction) => {
                     rolesToRemoveByExclusion.push(...excludedRolesForThisAdd);
                     const removedRoleNames = excludedRolesForThisAdd.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
                     messages.push(`Removed conflicting roles: ${removedRoleNames}`);
+                    console.log(`[Debug] Exclusions triggered - removing:`, excludedRolesForThisAdd);
                 }
             }
         }
         rolesToRemove.push(...rolesToRemoveByExclusion);
         rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
+
+        console.log(`[Debug] Final roles to add:`, rolesToAdd);
+        console.log(`[Debug] Final roles to remove:`, rolesToRemove);
 
         // Calculate the potential new set of roles after this interaction for limit checks
         let potentialNewRoleIds = [...currentMemberRoleIds];
@@ -1872,9 +1939,12 @@ client.on("interactionCreate", async (interaction) => {
         // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
         const potentialMenuRoleIds = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id));
 
+        console.log(`[Debug] Potential menu roles after change:`, potentialMenuRoleIds);
+
         // Check regional limits
         const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialMenuRoleIds);
         if (regionalViolations.length > 0) {
+            console.log(`[Debug] Regional limit violations:`, regionalViolations);
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
             await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
             return;
@@ -1883,6 +1953,7 @@ client.on("interactionCreate", async (interaction) => {
         // Check overall max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (potentialMenuRoleIds.length > menu.maxRolesLimit) {
+                console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIds.length} > ${menu.maxRolesLimit}`);
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
                 await updatePublishedMessageComponents(interaction, menu); // Re-sync components on published message
                 return;
@@ -1902,9 +1973,11 @@ client.on("interactionCreate", async (interaction) => {
 
         try {
             if (rolesToAdd.length > 0) {
+                console.log(`[Debug] Adding roles:`, rolesToAdd);
                 await interaction.member.roles.add(rolesToAdd);
             }
             if (rolesToRemove.length > 0) {
+                console.log(`[Debug] Removing roles:`, rolesToRemove);
                 await interaction.member.roles.remove(rolesToRemove);
             }
 
@@ -1914,11 +1987,15 @@ client.on("interactionCreate", async (interaction) => {
                 await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
             }
 
+            console.log(`[Debug] About to update published message components`);
             // Update the original published message components to reflect current selections
             await updatePublishedMessageComponents(interaction, menu);
+            console.log(`[Debug] Published message components updated successfully`);
 
         } catch (error) {
             console.error("Error updating roles:", error);
+            console.error("Error stack:", error.stack);
+            
             if (error.code === 50013) { // Missing Permissions
                 await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
             } else {
