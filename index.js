@@ -1435,6 +1435,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:customize_embed:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:customize_footer:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:save_as_template:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:publish:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template"))
   );
 
