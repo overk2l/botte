@@ -594,8 +594,8 @@ const db = {
     this.interactiveMenus.get(guildId).push(id);
     this.interactiveMenuData.set(id, newMenu);
 
-    // Save to Firestore if enabled
-    if (firebaseEnabled) {
+    // Save to Firestore if enabled - DISABLED for interactive menus to avoid permission issues
+    if (false && firebaseEnabled) {
       try {
         const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, id);
         await setDoc(menuDocRef, newMenu);
@@ -616,49 +616,18 @@ const db = {
    * @returns {Array<Object>} Array of interactive menu objects
    */
   getInteractiveMenus(guildId) {
-    // Try to load from Firebase on first access if not loaded yet
-    if (!this.interactiveMenus.has(guildId) && firebaseEnabled) {
-      // Don't await - this will load in background
-      this.loadInteractiveMenusForGuild(guildId).catch(error => {
-        console.warn(`[Database] Could not load interactive menus for guild ${guildId}:`, error.message);
-      });
-    }
+    // Interactive menus work in memory-only mode to avoid Firebase permission issues
     return (this.interactiveMenus.get(guildId) || []).map((id) => ({ id, ...this.interactiveMenuData.get(id) }));
   },
 
   /**
-   * Loads interactive menus for a specific guild (used for on-demand loading)
+   * Loads interactive menus for a specific guild - DISABLED to avoid permission issues
    * @param {string} guildId - The guild ID to load menus for
    */
   async loadInteractiveMenusForGuild(guildId) {
-    if (!firebaseEnabled) return;
-
-    try {
-      const menusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`);
-      const querySnapshot = await getDocs(menusCollectionRef);
-
-      querySnapshot.forEach(doc => {
-        const menu = doc.data();
-        const menuId = doc.id;
-        
-        // Only load menus for the specific guild
-        if (menu.guildId === guildId) {
-          if (!this.interactiveMenus.has(guildId)) {
-            this.interactiveMenus.set(guildId, []);
-          }
-          
-          // Avoid duplicates
-          if (!this.interactiveMenus.get(guildId).includes(menuId)) {
-            this.interactiveMenus.get(guildId).push(menuId);
-          }
-          this.interactiveMenuData.set(menuId, menu);
-        }
-      });
-      console.log(`[Database] Loaded ${this.interactiveMenus.get(guildId)?.length || 0} interactive menus for guild ${guildId}.`);
-    } catch (error) {
-      // Don't throw the error, just log it
-      console.warn(`[Database] Could not load interactive menus for guild ${guildId}:`, error.message);
-    }
+    // Firebase operations completely disabled for interactive menus
+    console.log(`[Database] Interactive menus for guild ${guildId} running in memory-only mode.`);
+    return;
   },
 
   /**
@@ -696,7 +665,8 @@ const db = {
     data.updatedAt = Date.now();
     Object.assign(menu, data);
 
-    if (firebaseEnabled) {
+    // Firebase operations disabled for interactive menus to avoid permission issues
+    if (false && firebaseEnabled) {
       try {
         const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, menuId);
         await setDoc(menuDocRef, menu, { merge: true });
@@ -736,7 +706,8 @@ const db = {
     }
     this.interactiveMenuData.delete(menuId);
 
-    if (firebaseEnabled) {
+    // Firebase operations disabled for interactive menus to avoid permission issues
+    if (false && firebaseEnabled) {
       try {
         const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, menuId);
         await deleteDoc(menuDocRef);
@@ -750,38 +721,12 @@ const db = {
   },
 
   /**
-   * Loads all interactive menus from Firestore
+   * Loads all interactive menus from Firestore - DISABLED to avoid permission issues
    */
   async loadAllInteractiveMenus() {
-    console.log("[Database] Loading all interactive menus...");
-    if (!firebaseEnabled) {
-      console.warn("[Database] Running in memory-only mode for interactive menus.");
-      return;
-    }
-
-    try {
-      const menusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`);
-      const querySnapshot = await getDocs(menusCollectionRef);
-      this.interactiveMenus.clear();
-      this.interactiveMenuData.clear();
-
-      querySnapshot.forEach(doc => {
-        const menu = doc.data();
-        const menuId = doc.id;
-        const guildId = menu.guildId;
-
-        if (!this.interactiveMenus.has(guildId)) {
-          this.interactiveMenus.set(guildId, []);
-        }
-        this.interactiveMenus.get(guildId).push(menuId);
-        this.interactiveMenuData.set(menuId, menu);
-      });
-      console.log(`[Database] Loaded ${this.interactiveMenuData.size} interactive menus from Firestore.`);
-    } catch (error) {
-      // Don't fail startup if interactive menus can't be loaded
-      console.warn("[Database] Could not load interactive menus:", error.message);
-      console.warn("[Database] Interactive menus will work in memory-only mode.");
-    }
+    console.log("[Database] Interactive menus running in memory-only mode (Firebase disabled for this feature).");
+    // Firebase operations completely disabled for interactive menus to avoid permission issues
+    return;
   }
 };
 
