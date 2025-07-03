@@ -1,4 +1,4 @@
-arequire("dotenv").config();
+require("dotenv").config();
 
 const {
   Client,
@@ -88,15 +88,25 @@ try {
  * @returns {Promise<import('discord.js').Webhook>} The webhook instance.
  */
 async function getOrCreateWebhook(channel, name = "Role Menu Webhook") {
-  const webhooks = await channel.fetchWebhooks();
-  const existing = webhooks.find(w => w.owner.id === channel.client.user.id);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error("Invalid channel provided to getOrCreateWebhook");
+  }
 
-  if (existing) return existing;
-  return channel.createWebhook({
-    name,
-    avatar: channel.client.user.displayAvatarURL(),
-    reason: "For role menus with custom branding"
-  });
+  try {
+    const webhooks = await channel.fetchWebhooks();
+    const existing = webhooks.find(w => w.owner && w.owner.id === channel.client.user.id);
+
+    if (existing) return existing;
+    
+    return await channel.createWebhook({
+      name,
+      avatar: channel.client.user.displayAvatarURL(),
+      reason: "For role menus with custom branding"
+    });
+  } catch (error) {
+    console.error("Error in getOrCreateWebhook:", error);
+    throw error;
+  }
 }
 
 /**
@@ -232,11 +242,23 @@ const db = {
    * @param {Object} data - The partial data object to merge into the existing menu.
    */
   async updateMenu(menuId, data) {
+    if (!menuId || typeof menuId !== 'string') {
+      console.warn(`[Database] Invalid menuId provided to updateMenu: ${menuId}`);
+      return;
+    }
+
     const menu = this.menuData.get(menuId);
     if (!menu) {
       console.warn(`[Database] Attempted to update non-existent menu: ${menuId}`);
       return;
     }
+    
+    // Validate data parameter
+    if (!data || typeof data !== 'object') {
+      console.warn(`[Database] Invalid data provided to updateMenu for menu ${menuId}`);
+      return;
+    }
+
     Object.assign(menu, data); // Update in-memory map
 
     if (firebaseEnabled) {
@@ -400,8 +422,16 @@ const db = {
    * @param {string} menuId - The ID of the menu to delete.
    */
   async deleteMenu(menuId) {
+    if (!menuId || typeof menuId !== 'string') {
+      console.warn(`[Database] Invalid menuId provided to deleteMenu: ${menuId}`);
+      return;
+    }
+
     const menu = this.menuData.get(menuId);
-    if (!menu) return;
+    if (!menu) {
+      console.warn(`[Database] Attempted to delete non-existent menu: ${menuId}`);
+      return;
+    }
 
     // Remove from in-memory maps
     const guildMenus = this.menus.get(menu.guildId);
@@ -410,8 +440,18 @@ const db = {
       if (index > -1) {
         guildMenus.splice(index, 1);
       }
+      // Clean up empty guild arrays
+      if (guildMenus.length === 0) {
+        this.menus.delete(menu.guildId);
+      }
     }
     this.menuData.delete(menuId);
+
+    // Clear any pending timeouts for this menu
+    if (menu.messageId && ephemeralTimeouts.has(menu.messageId)) {
+      clearTimeout(ephemeralTimeouts.get(menu.messageId));
+      ephemeralTimeouts.delete(menu.messageId);
+    }
 
     if (firebaseEnabled) {
       try {
@@ -513,6 +553,45 @@ async function createReactionRoleEmbed(guild, menu) {
     return embed;
 }
 
+// Map to store timeout references for cleanup
+const ephemeralTimeouts = new Map();
+
+// Simple rate limiting for role interactions
+const roleInteractionCooldowns = new Map();
+const ROLE_INTERACTION_COOLDOWN = 3000; // 3 seconds cooldown
+
+/**
+ * Checks if a user is on cooldown for role interactions
+ * @param {string} userId - The user ID
+ * @returns {boolean} True if user is on cooldown
+ */
+function isOnRoleInteractionCooldown(userId) {
+    const now = Date.now();
+    const lastInteraction = roleInteractionCooldowns.get(userId);
+    
+    if (!lastInteraction) return false;
+    
+    const timeSinceLastInteraction = now - lastInteraction;
+    if (timeSinceLastInteraction < ROLE_INTERACTION_COOLDOWN) {
+        return true;
+    }
+    
+    // Clean up old entries
+    if (timeSinceLastInteraction > ROLE_INTERACTION_COOLDOWN * 2) {
+        roleInteractionCooldowns.delete(userId);
+    }
+    
+    return false;
+}
+
+/**
+ * Sets a user's last role interaction time
+ * @param {string} userId - The user ID
+ */
+function setRoleInteractionCooldown(userId) {
+    roleInteractionCooldowns.set(userId, Date.now());
+}
+
 /**
  * Sends an ephemeral embed reply or follow-up to an interaction.
  * The message will be automatically deleted after 6 seconds if autoDelete is true.
@@ -523,6 +602,11 @@ async function createReactionRoleEmbed(guild, menu) {
  * @param {boolean} [autoDelete=true] - Whether the message should be auto-deleted after 6 seconds.
  */
 async function sendEphemeralEmbed(interaction, description, color = "#5865F2", title = "Notification", autoDelete = true) {
+    if (!interaction || !description) {
+        console.error("Invalid parameters for sendEphemeralEmbed");
+        return;
+    }
+
     const embed = new EmbedBuilder()
         .setTitle(title)
         .setDescription(description)
@@ -549,28 +633,36 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
 
     // Auto-delete the ephemeral message after 6 seconds if autoDelete is true
     if (message && autoDelete) {
-        setTimeout(async () => {
+        const timeoutId = setTimeout(async () => {
             try {
                 // If it was an initial reply, use deleteReply() on the interaction
                 if (interaction.replied || interaction.deferred) {
-                    // Check if the message still exists before attempting to delete
-                    // This is a safeguard if the user somehow dismissed it already
-                    const fetchedMessage = await interaction.channel.messages.fetch(message.id).catch(() => null);
-                    if (fetchedMessage) {
-                        await interaction.deleteReply();
-                    }
+                    // For ephemeral messages, we can't fetch them, so just try to delete
+                    await interaction.deleteReply().catch(() => {
+                        // Silently fail if already deleted
+                    });
                 } else {
                     // If it was a followUp, delete the message directly
-                    await message.delete();
+                    await message.delete().catch(() => {
+                        // Silently fail if already deleted
+                    });
                 }
             } catch (deleteError) {
                 // Ignore "Unknown Message" error (10008) if the user already dismissed it
                 if (deleteError.code !== 10008) {
                     console.error("Error auto-deleting ephemeral message:", deleteError);
                 }
+            } finally {
+                // Clean up timeout reference
+                ephemeralTimeouts.delete(message.id);
             }
         }, 6000); // 6000 milliseconds = 6 seconds
+        
+        // Store timeout reference for potential cleanup
+        ephemeralTimeouts.set(message.id, timeoutId);
     }
+
+    return message;
 }
 
 
@@ -583,19 +675,32 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * @param {string} menuId - The ID of the menu.
  */
 async function updatePublishedMessageComponents(interaction, menu, menuId) {
-    if (!menu.channelId || !menu.messageId) return;
+    if (!menu || !menu.channelId || !menu.messageId) {
+        console.warn(`[updatePublishedMessageComponents] Invalid menu or missing channel/message ID for menu ${menuId}`);
+        return;
+    }
+
+    if (!interaction || !interaction.guild) {
+        console.warn(`[updatePublishedMessageComponents] Invalid interaction for menu ${menuId}`);
+        return;
+    }
 
     const guild = interaction.guild;
-    const member = interaction.member;
 
     try {
-        const originalChannel = await guild.channels.fetch(menu.channelId);
+        const originalChannel = await guild.channels.fetch(menu.channelId).catch(() => null);
         if (!originalChannel || !originalChannel.isTextBased()) {
             console.error(`Channel ${menu.channelId} not found or not text-based for menu ${menuId}`);
+            await db.clearMessageId(menuId);
             return;
         }
 
-        const originalMessage = await originalChannel.messages.fetch(menu.messageId);
+        const originalMessage = await originalChannel.messages.fetch(menu.messageId).catch(() => null);
+        if (!originalMessage) {
+            console.error(`Message ${menu.messageId} not found for menu ${menuId}`);
+            await db.clearMessageId(menuId);
+            return;
+        }
 
         const components = [];
 
@@ -606,12 +711,15 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                 : menu.dropdownRoles
             ).map(roleId => {
                 const role = guild.roles.cache.get(roleId);
-                if (!role) return null;
+                if (!role) {
+                    console.warn(`Role ${roleId} not found in guild for menu ${menuId}`);
+                    return null;
+                }
                 return {
-                    label: role.name,
+                    label: role.name.substring(0, 100),
                     value: role.id,
                     emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-                    description: menu.dropdownRoleDescriptions[role.id] || undefined,
+                    description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
                     default: false // Always set default to false so roles are not pre-selected
                 };
             }).filter(Boolean);
@@ -637,11 +745,14 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
 
             for (const roleId of orderedButtonRoles) {
                 const role = guild.roles.cache.get(roleId);
-                if (!role) continue;
+                if (!role) {
+                    console.warn(`Button role ${roleId} not found in guild for menu ${menuId}`);
+                    continue;
+                }
 
                 const button = new ButtonBuilder()
                     .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-                    .setLabel(role.name)
+                    .setLabel(role.name.substring(0, 80))
                     .setStyle(ButtonStyle.Secondary); // Always set to secondary
 
                 // Only set emoji if parseEmoji returns a valid object
@@ -655,9 +766,10 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                 } else {
                     buttonRows.push(currentRow);
                     currentRow = new ActionRowBuilder().addComponents(button);
+                    if (buttonRows.length >= 4) break; // Discord limit
                 }
             }
-            if (currentRow.components.length > 0) {
+            if (currentRow.components.length > 0 && buttonRows.length < 4) {
                 buttonRows.push(currentRow);
             }
             components.push(...buttonRows);
@@ -667,13 +779,19 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
 
         // Edit the message
         if (menu.useWebhook) {
-            const webhook = await getOrCreateWebhook(originalChannel);
-            await webhook.editMessage(originalMessage.id, {
-                embeds: [publishedEmbed],
-                components,
-                username: menu.webhookName || client.user.displayName,
-                avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
-            });
+            try {
+                const webhook = await getOrCreateWebhook(originalChannel);
+                await webhook.editMessage(originalMessage.id, {
+                    embeds: [publishedEmbed],
+                    components,
+                    username: menu.webhookName || client.user.displayName,
+                    avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
+                });
+            } catch (webhookError) {
+                console.error("Error updating via webhook:", webhookError);
+                // Fallback to regular bot message edit
+                await originalMessage.edit({ embeds: [publishedEmbed], components });
+            }
         } else {
             await originalMessage.edit({ embeds: [publishedEmbed], components });
         }
@@ -723,6 +841,39 @@ client.once("ready", async () => {
   } catch (error) {
     console.error("Error deploying slash command:", error);
   }
+});
+
+// Cleanup function for graceful shutdown
+function cleanup() {
+  console.log("🧹 Cleaning up resources...");
+  
+  // Clear all pending timeouts
+  for (const [messageId, timeoutId] of ephemeralTimeouts) {
+    clearTimeout(timeoutId);
+  }
+  ephemeralTimeouts.clear();
+  
+  // Clear cooldown maps
+  roleInteractionCooldowns.clear();
+  
+  // Clear database maps
+  db.menus.clear();
+  db.menuData.clear();
+  
+  console.log("✅ Cleanup completed");
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.log("📴 Received SIGINT, shutting down gracefully...");
+  cleanup();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log("📴 Received SIGTERM, shutting down gracefully...");
+  cleanup();
+  process.exit(0);
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -815,7 +966,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select", "prompt_raw_embed_json"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button'
@@ -1407,7 +1558,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied", false);
         }
-
+        
         if (action === "selectmenu") {
           const targetMenuId = interaction.values[0];
           return showMenuConfiguration(interaction, targetMenuId);
@@ -1504,6 +1655,8 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
+      } else if (interaction.customId.startsWith("rr-role-select:")) {
+          return handleRoleInteraction(interaction);
       }
     }
 
@@ -1820,9 +1973,38 @@ client.on("interactionCreate", async (interaction) => {
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
+        
+        return handleRoleInteraction(interaction);
+    }
 
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
+  } catch (error) {
+      console.error("Unhandled error during interaction:", error);
+      if (!interaction.replied && !interaction.deferred) {
+          try {
+              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
+          } catch (replyError) {
+              console.error("Error sending fallback error reply:", replyError);
+          }
+      } else {
+          try {
+            await interaction.editReply({ content: "❌ An unexpected error occurred. Please try again.", embeds: [], components: [] });
+          } catch (editError) {
+              console.error("Error sending fallback error editReply:", editError);
+          }
+      }
+  }
+});
+
+async function handleRoleInteraction(interaction) {
+    if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
+    }
+
+    try {
+        // Check rate limiting
+        if (isOnRoleInteractionCooldown(interaction.user.id)) {
+            const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+            return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
         }
 
         const parts = interaction.customId.split(":");
@@ -1842,7 +2024,21 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
         }
 
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        // Set cooldown
+        setRoleInteractionCooldown(interaction.user.id);
+
+        // Validate guild and member
+        if (!interaction.guild || !interaction.member) {
+            console.error(`[Error] Invalid guild or member for menu ${menuId}`);
+            return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
+        }
+
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        if (!member) {
+            console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
+            return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
+        }
+
         const currentRoles = new Set(member.roles.cache.map(r => r.id));
         
         let newRoles = new Set(currentRoles);
@@ -1856,25 +2052,47 @@ client.on("interactionCreate", async (interaction) => {
             
             console.log(`[DEBUG] Dropdown - Selected values:`, selectedValues);
             
+            // Validate selected roles still exist
+            const validSelectedValues = selectedValues.filter(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                if (!role) {
+                    console.warn(`[Warning] Selected role ${roleId} no longer exists in guild`);
+                    return false;
+                }
+                return true;
+            });
+            
+            // Remove all current dropdown roles
             for (const roleId of menuDropdownRoles) {
                 if (newRoles.has(roleId)) {
                     newRoles.delete(roleId);
                 }
             }
             
-            for (const roleId of selectedValues) {
+            // Add selected roles
+            for (const roleId of validSelectedValues) {
                 newRoles.add(roleId);
             }
             
-        } else {
+        } else if (interaction.isButton()) { // Button
             const clickedRoleId = parts[2];
             console.log(`[DEBUG] Button - Clicked role ID:`, clickedRoleId);
+            
+            // Validate clicked role still exists
+            const clickedRole = interaction.guild.roles.cache.get(clickedRoleId);
+            if (!clickedRole) {
+                console.warn(`[Warning] Clicked role ${clickedRoleId} no longer exists in guild`);
+                return sendEphemeralEmbed(interaction, "❌ The selected role no longer exists. Please contact an administrator.", "#FF0000", "Error");
+            }
             
             if (newRoles.has(clickedRoleId)) {
                 newRoles.delete(clickedRoleId);
             } else {
                 newRoles.add(clickedRoleId);
             }
+        } else {
+            console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
+            return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
         }
 
         console.log(`[DEBUG] New roles after interaction logic:`, Array.from(newRoles));
@@ -1882,6 +2100,7 @@ client.on("interactionCreate", async (interaction) => {
         const rolesBeingAdded = Array.from(newRoles).filter(id => !currentRoles.has(id));
         console.log(`[DEBUG] Roles being added:`, rolesBeingAdded);
 
+        // Handle exclusions
         for (const addedRoleId of rolesBeingAdded) {
             if (menu.exclusionMap && menu.exclusionMap[addedRoleId]) {
                 const rolesToExclude = menu.exclusionMap[addedRoleId];
@@ -1903,6 +2122,7 @@ client.on("interactionCreate", async (interaction) => {
         const allMenuRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const newMenuRoles = Array.from(newRoles).filter(id => allMenuRoles.includes(id));
 
+        // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
@@ -1910,6 +2130,7 @@ client.on("interactionCreate", async (interaction) => {
             return;
         }
 
+        // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
@@ -1924,53 +2145,53 @@ client.on("interactionCreate", async (interaction) => {
         console.log(`[DEBUG] Final roles to add:`, rolesToAdd);
         console.log(`[DEBUG] Final roles to remove:`, rolesToRemove);
 
-        rolesToAdd.forEach(id => {
+        // Filter out roles that don't exist anymore
+        const validRolesToAdd = rolesToAdd.filter(id => interaction.guild.roles.cache.has(id));
+        const validRolesToRemove = rolesToRemove.filter(id => interaction.guild.roles.cache.has(id));
+
+        // Generate success messages
+        validRolesToAdd.forEach(id => {
             messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
         });
         
-        rolesToRemove.forEach(id => {
+        validRolesToRemove.forEach(id => {
             messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
         });
 
-        try {
-            if (rolesToAdd.length > 0) {
-                await member.roles.add(rolesToAdd);
-            }
-            if (rolesToRemove.length > 0) {
-                await member.roles.remove(rolesToRemove);
-            }
-
-            if (messages.length > 0) {
-                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
-            } else {
-                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
-            }
-
-            await updatePublishedMessageComponents(interaction, menu, menuId);
-
-        } catch (error) {
-            console.error("Error updating roles:", error);
-            if (error.code === 50013) {
-                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
-            } else {
-                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error");
-            }
+        // Apply role changes
+        if (validRolesToAdd.length > 0) {
+            await member.roles.add(validRolesToAdd);
         }
-    }
+        if (validRolesToRemove.length > 0) {
+            await member.roles.remove(validRolesToRemove);
+        }
 
-  } catch (error) {
-      console.error("Unhandled error during interaction:", error);
-      if (!interaction.replied && !interaction.deferred) {
-          try {
-              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
-          } catch (replyError) {
-              console.error("Error sending fallback error reply:", replyError);
-          }
-      } else {
-          await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error");
-      }
-  }
-});
+        // Send feedback
+        if (messages.length > 0) {
+            await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
+        } else {
+            await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
+        }
+
+        // Update published message components
+        await updatePublishedMessageComponents(interaction, menu, menuId);
+
+    } catch (error) {
+        console.error("Error in handleRoleInteraction:", error);
+        
+        let errorMessage = "❌ There was an error updating your roles.";
+        
+        if (error.code === 50013) {
+            errorMessage = "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.";
+        } else if (error.code === 10011) {
+            errorMessage = "❌ One or more roles no longer exist. Please contact an administrator to update the menu.";
+        } else if (error.code === 50001) {
+            errorMessage = "❌ I don't have access to manage roles in this server. Please check my permissions.";
+        }
+        
+        await sendEphemeralEmbed(interaction, errorMessage, "#FF0000", "Error");
+    }
+}
 
 /**
  * Helper function to prompt the user to select roles for a given type (dropdown or button).
@@ -2298,149 +2519,215 @@ async function showMenuConfiguration(interaction, menuId) {
  * @param {import('discord.js').Message} [messageToEdit=null] - An optional existing message to edit instead of sending a new one.
  */
 async function publishMenu(interaction, menuId, messageToEdit = null) {
-    const menu = db.getMenu(menuId);
-    if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+    if (!menuId || typeof menuId !== 'string') {
+        return interaction.editReply({ content: "❌ Invalid menu ID provided.", flags: MessageFlags.Ephemeral });
+    }
 
+    const menu = db.getMenu(menuId);
+    if (!menu) {
+        return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
+    }
+
+    // Validate guild and permissions
+    if (!interaction.guild) {
+        return interaction.editReply({ content: "❌ This command can only be used in a server.", flags: MessageFlags.Ephemeral });
+    }
+
+    // Check if bot has necessary permissions
+    const botMember = interaction.guild.members.me;
+    if (!botMember) {
+        return interaction.editReply({ content: "❌ Unable to verify bot permissions.", flags: MessageFlags.Ephemeral });
+    }
+
+    const channel = messageToEdit ? messageToEdit.channel : interaction.channel;
+    if (!channel.permissionsFor(botMember).has(['SendMessages', 'UseExternalEmojis', 'EmbedLinks'])) {
+        return interaction.editReply({ content: "❌ Bot lacks required permissions in this channel: Send Messages, Use External Emojis, Embed Links.", flags: MessageFlags.Ephemeral });
+    }
+
+    if (menu.useWebhook && !channel.permissionsFor(botMember).has('ManageWebhooks')) {
+        return interaction.editReply({ content: "❌ Webhook mode is enabled but bot lacks 'Manage Webhooks' permission.", flags: MessageFlags.Ephemeral });
+    }
+
+    // Validate menu configuration
     if (!menu.selectionType.length || (menu.selectionType.includes('dropdown') && !menu.dropdownRoles.length) && (menu.selectionType.includes('button') && !menu.buttonRoles.length)) {
         return interaction.editReply({ content: "❌ Cannot publish: Please configure at least one role for the enabled component types.", flags: MessageFlags.Ephemeral });
     }
 
-    const embed = await createReactionRoleEmbed(interaction.guild, menu);
-    const components = [];
+    // Validate roles still exist
+    const allConfiguredRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+    const validRoles = allConfiguredRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+    const invalidRoles = allConfiguredRoles.filter(roleId => !interaction.guild.roles.cache.has(roleId));
 
-    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-      const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-        ? menu.dropdownRoleOrder
-        : menu.dropdownRoles
-      ).map(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) return null;
-        return {
-          label: role.name.substring(0, 100),
-          value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-          description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-          default: false
-        };
-      }).filter(Boolean);
-
-      if (dropdownOptions.length > 0) {
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId(`rr-role-select:${menuId}`)
-          .setPlaceholder("Select your roles...")
-          .setMinValues(0)
-          .setMaxValues(dropdownOptions.length)
-          .addOptions(dropdownOptions);
-        components.push(new ActionRowBuilder().addComponents(selectMenu));
-      }
+    if (invalidRoles.length > 0) {
+        console.warn(`Menu ${menuId} contains ${invalidRoles.length} invalid roles:`, invalidRoles);
+        // Optionally clean up invalid roles from the menu
+        if (menu.dropdownRoles) {
+            menu.dropdownRoles = menu.dropdownRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+        }
+        if (menu.buttonRoles) {
+            menu.buttonRoles = menu.buttonRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+        }
+        await db.updateMenu(menuId, { 
+            dropdownRoles: menu.dropdownRoles, 
+            buttonRoles: menu.buttonRoles 
+        });
     }
 
-    if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
-      const buttonRows = [];
-      let currentRow = new ActionRowBuilder();
-      const orderedButtonRoles = menu.buttonRoleOrder.length > 0
-        ? menu.buttonRoleOrder
-        : menu.buttonRoles;
-
-      for (const roleId of orderedButtonRoles) {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) continue;
-
-        const button = new ButtonBuilder()
-          .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-          .setLabel(role.name.substring(0, 80))
-          .setStyle(ButtonStyle.Secondary);
-
-        const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-        if (parsedEmoji) {
-          button.setEmoji(parsedEmoji);
-        }
-
-        if (currentRow.components.length < 5) {
-          currentRow.addComponents(button);
-        } else {
-          buttonRows.push(currentRow);
-          currentRow = new ActionRowBuilder().addComponents(button);
-          if (buttonRows.length >= 4) break;
-        }
-      }
-      if (currentRow.components.length > 0 && buttonRows.length < 4) {
-        buttonRows.push(currentRow);
-      }
-      components.push(...buttonRows);
+    if (validRoles.length === 0) {
+        return interaction.editReply({ content: "❌ Cannot publish: All configured roles have been deleted. Please reconfigure the menu.", flags: MessageFlags.Ephemeral });
     }
 
     try {
-      if (menu.messageId && !messageToEdit) {
-        try {
-          const oldChannel = interaction.guild.channels.cache.get(menu.channelId);
-          if (oldChannel) {
-            const oldMessage = await oldChannel.messages.fetch(menu.messageId);
-            await oldMessage.delete();
-            console.log(`Deleted old published message for menu ${menuId}.`);
+        const embed = await createReactionRoleEmbed(interaction.guild, menu);
+        const components = [];
+
+        // Build dropdown components
+        if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
+          const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+            ? menu.dropdownRoleOrder
+            : menu.dropdownRoles
+          ).map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) return null;
+            return {
+              label: role.name.substring(0, 100),
+              value: role.id,
+              emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+              description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+              default: false
+            };
+          }).filter(Boolean);
+
+          if (dropdownOptions.length > 0) {
+            const selectMenu = new StringSelectMenuBuilder()
+              .setCustomId(`rr-role-select:${menuId}`)
+              .setPlaceholder("Select your roles...")
+              .setMinValues(0)
+              .setMaxValues(dropdownOptions.length)
+              .addOptions(dropdownOptions);
+            components.push(new ActionRowBuilder().addComponents(selectMenu));
           }
-        } catch (error) {
-          console.log(`Couldn't delete old message for menu ${menuId}, probably already deleted or not found. Error: ${error.message}`);
         }
-      }
 
-      let message;
-      const botDisplayName = client.user.displayName;
-      const botAvatarURL = client.user.displayAvatarURL();
-      const channel = messageToEdit ? messageToEdit.channel : interaction.channel;
+        // Build button components
+        if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
+          const buttonRows = [];
+          let currentRow = new ActionRowBuilder();
+          const orderedButtonRoles = menu.buttonRoleOrder.length > 0
+            ? menu.buttonRoleOrder
+            : menu.buttonRoles;
 
-      if (messageToEdit) {
-        if (menu.useWebhook) {
-          const webhook = await getOrCreateWebhook(channel);
-          await webhook.editMessage(messageToEdit.id, {
-            embeds: [embed],
-            components,
-            username: menu.webhookName || botDisplayName,
-            avatarURL: menu.webhookAvatar || botAvatarURL,
-          });
-          message = messageToEdit;
+          for (const roleId of orderedButtonRoles) {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) continue;
+
+            const button = new ButtonBuilder()
+              .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+              .setLabel(role.name.substring(0, 80))
+              .setStyle(ButtonStyle.Secondary);
+
+            const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+            if (parsedEmoji) {
+              button.setEmoji(parsedEmoji);
+            }
+
+            if (currentRow.components.length < 5) {
+              currentRow.addComponents(button);
+            } else {
+              buttonRows.push(currentRow);
+              currentRow = new ActionRowBuilder().addComponents(button);
+              if (buttonRows.length >= 4) break; // Discord limit
+            }
+          }
+          if (currentRow.components.length > 0 && buttonRows.length < 4) {
+            buttonRows.push(currentRow);
+          }
+          components.push(...buttonRows);
+        }
+
+        // Clean up old message if publishing a new one
+        if (menu.messageId && !messageToEdit) {
+            try {
+                const oldChannel = interaction.guild.channels.cache.get(menu.channelId);
+                if (oldChannel && oldChannel.isTextBased()) {
+                    const oldMessage = await oldChannel.messages.fetch(menu.messageId).catch(() => null);
+                    if (oldMessage) {
+                        await oldMessage.delete();
+                        console.log(`Deleted old published message for menu ${menuId}.`);
+                    }
+                }
+            } catch (error) {
+                console.log(`Couldn't delete old message for menu ${menuId}, probably already deleted. Error: ${error.message}`);
+            }
+        }
+
+        let message;
+        const botDisplayName = client.user.displayName || client.user.username;
+        const botAvatarURL = client.user.displayAvatarURL();
+
+        // Publish or edit the message
+        if (messageToEdit) {
+            if (menu.useWebhook) {
+                try {
+                    const webhook = await getOrCreateWebhook(channel);
+                    await webhook.editMessage(messageToEdit.id, {
+                        embeds: [embed],
+                        components,
+                        username: menu.webhookName || botDisplayName,
+                        avatarURL: menu.webhookAvatar || botAvatarURL,
+                    });
+                    message = messageToEdit;
+                } catch (webhookError) {
+                    console.error("Webhook edit failed, falling back to regular edit:", webhookError);
+                    message = await messageToEdit.edit({ embeds: [embed], components });
+                }
+            } else {
+                message = await messageToEdit.edit({ embeds: [embed], components });
+            }
+        } else if (menu.useWebhook) {
+            try {
+                const webhook = await getOrCreateWebhook(channel);
+                message = await webhook.send({
+                    embeds: [embed],
+                    components,
+                    username: menu.webhookName || botDisplayName,
+                    avatarURL: menu.webhookAvatar || botAvatarURL,
+                });
+            } catch (webhookError) {
+                console.error("Webhook send failed, falling back to regular send:", webhookError);
+                message = await channel.send({ embeds: [embed], components });
+            }
         } else {
-          message = await messageToEdit.edit({
-            embeds: [embed],
-            components
-          });
+            message = await channel.send({ embeds: [embed], components });
         }
-      } else if (menu.useWebhook) {
-        const webhook = await getOrCreateWebhook(channel);
-        message = await webhook.send({
-          embeds: [embed],
-          components,
-          username: menu.webhookName || botDisplayName,
-          avatarURL: menu.webhookAvatar || botAvatarURL,
-        });
-      } else {
-        message = await channel.send({
-          embeds: [embed],
-          components
-        });
-      }
 
-      await db.saveMessageId(menuId, channel.id, message.id);
-      await interaction.editReply({
-        content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!`,
-        flags: MessageFlags.Ephemeral
-      });
-      return showMenuConfiguration(interaction, menuId);
+        // Save message information
+        await db.saveMessageId(menuId, channel.id, message.id);
+        
+        await interaction.editReply({
+            content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!${invalidRoles.length > 0 ? `\n⚠️ Warning: ${invalidRoles.length} invalid roles were removed from the menu.` : ''}`,
+            flags: MessageFlags.Ephemeral
+        });
+        
+        return showMenuConfiguration(interaction, menuId);
+        
     } catch (error) {
-      console.error("Publishing error:", error);
-      let errorMsg = "❌ Failed to publish menu. ";
+        console.error("Publishing error:", error);
+        let errorMsg = "❌ Failed to publish menu. ";
 
-      if (error.code === 50013) {
-        errorMsg += "Bot lacks permissions. Required: 'Manage Webhooks' and 'Send Messages' in the channel, and 'Manage Roles' in the guild.";
-      } else if (error.code === 50035) {
-        errorMsg += "Invalid component data. Please check your role configurations and emoji formats.";
-      } else if (error.message?.includes("ENOENT") || error.message?.includes("Invalid Form Body")) {
-        errorMsg += "Invalid image URL or resource not found. Please check your embed/webhook settings.";
-      } else {
-        errorMsg += error.message || "Unknown error occurred.";
-      }
+        if (error.code === 50013) {
+            errorMsg += "Bot lacks permissions. Required: 'Manage Webhooks' and 'Send Messages' in the channel, and 'Manage Roles' in the guild.";
+        } else if (error.code === 50035) {
+            errorMsg += "Invalid component data. Please check your role configurations and emoji formats.";
+        } else if (error.code === 50001) {
+            errorMsg += "Missing access to the channel. Please check permissions.";
+        } else if (error.message?.includes("ENOENT") || error.message?.includes("Invalid Form Body")) {
+            errorMsg += "Invalid image URL or resource not found. Please check your embed/webhook settings.";
+        } else {
+            errorMsg += error.message || "Unknown error occurred.";
+        }
 
-      await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
     }
 }
 
