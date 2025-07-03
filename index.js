@@ -1318,7 +1318,18 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Success Add Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("{\"embeds\": [{\"title\": \"Role Added!\", \"description\": \"...\"}]}")
+                  // Provide example JSON for clarity
+                  .setPlaceholder(JSON.stringify({
+                    embeds: [{
+                      title: "✅ Roles Added",
+                      color: 5793266, // Green color
+                      timestamp: "${nowtimestamp}",
+                      fields: [{ name: "Added:", value: "**${rolesadded}**", inline: false }],
+                      footer: { text: "${usertag}", icon_url: "${useravatarurl}" },
+                      thumbnail: { url: "${useravatarurl}" },
+                      author: { name: "${usertag}", icon_url: "${useravatarurl}" }
+                    }]
+                  }, null, 2))
                   .setValue(menu.successMessageAddJson ? JSON.stringify(menu.successMessageAddJson, null, 2) : "")
               ),
               new ActionRowBuilder().addComponents(
@@ -1327,7 +1338,18 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Success Remove Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("{\"embeds\": [{\"title\": \"Role Removed!\", \"description\": \"...\"}]}")
+                  // Provide example JSON for clarity
+                  .setPlaceholder(JSON.stringify({
+                    embeds: [{
+                      title: "🚫 Roles Removed",
+                      color: 16734296, // Red color
+                      timestamp: "${nowtimestamp}",
+                      fields: [{ name: "Removed:", value: "**${rolesremoved}**", inline: false }],
+                      footer: { text: "${usertag}", icon_url: "${useravatarurl}" },
+                      thumbnail: { url: "${useravatarurl}" },
+                      author: { name: "${usertag}", icon_url: "${useravatarurl}" }
+                    }]
+                  }, null, 2))
                   .setValue(menu.successMessageRemoveJson ? JSON.stringify(menu.successMessageRemoveJson, null, 2) : "")
               ),
               new ActionRowBuilder().addComponents(
@@ -1336,7 +1358,14 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Limit Exceeded Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("{\"content\": \"You have too many roles!\", \"embeds\": [...]}")
+                  .setPlaceholder(JSON.stringify({
+                    content: "You have reached the maximum number of roles for this menu or region.",
+                    embeds: [{
+                      title: "❌ Limit Exceeded",
+                      description: "You can only have a maximum of ${maxRolesLimit} roles from this menu.",
+                      color: 16711680 // Red color
+                    }]
+                  }, null, 2))
                   .setValue(menu.limitExceededMessageJson ? JSON.stringify(menu.limitExceededMessageJson, null, 2) : "")
               )
             );
@@ -2166,17 +2195,21 @@ client.on("interactionCreate", async (interaction) => {
                     await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Removed", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 }
             } else if (rolesToAdd.length > 0 && rolesToRemove.length > 0) { // Both added and removed
-                // This case is tricky with separate JSONs. For simplicity, we'll send a combined message
-                // or prioritize the 'add' message if both are present.
-                // A more robust solution might involve a dedicated 'combined' JSON message.
-                if (menu.successMessageAddJson) { // Prioritize add message if both
+                // For simplicity, if both are present, we'll send two separate ephemeral messages.
+                // This avoids complex logic for combining two distinct JSON structures.
+                if (menu.successMessageAddJson) {
                     await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else if (menu.successMessageRemoveJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else {
                     messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Added", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                }
+                
+                if (menu.successMessageRemoveJson) {
+                    // Use followUp for the second message
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                } else {
                     messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Removed", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 }
             } else {
                 await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
