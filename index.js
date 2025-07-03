@@ -650,7 +650,11 @@ const db = {
         await setDoc(infoMenuDocRef, newInfoMenu);
         console.log(`[Database] Created info menu with ID: ${id} in Firestore`);
       } catch (error) {
-        console.error(`[Database] Error creating info menu ${id} in Firestore:`, error);
+        if (error.code === 'permission-denied') {
+          console.warn(`[Database] Firebase permissions not configured for info menus. Menu ${id} created in memory only.`);
+        } else {
+          console.error(`[Database] Error creating info menu ${id} in Firestore:`, error);
+        }
       }
     } else {
       console.log(`[Database] Created info menu with ID: ${id} (memory only)`);
@@ -715,7 +719,11 @@ const db = {
         await setDoc(infoMenuDocRef, updatedMenu);
         console.log(`[Database] Updated info menu ${infoMenuId} in Firestore`);
       } catch (error) {
-        console.error(`[Database] Error updating info menu ${infoMenuId} in Firestore:`, error);
+        if (error.code === 'permission-denied') {
+          console.warn(`[Database] Firebase permissions not configured for info menus. Menu ${infoMenuId} updated in memory only.`);
+        } else {
+          console.error(`[Database] Error updating info menu ${infoMenuId} in Firestore:`, error);
+        }
       }
     } else {
       console.log(`[Database] Updated info menu ${infoMenuId} (memory only)`);
@@ -847,6 +855,27 @@ const db = {
 
     await this.updateInfoMenu(newId, templateData);
     return newId;
+  },
+
+  /**
+   * Gets all pages for an information menu.
+   * @param {string} infoMenuId - The ID of the info menu.
+   * @returns {Array} Array of page objects.
+   */
+  getInfoMenuPages(infoMenuId) {
+    const menu = this.getInfoMenu(infoMenuId);
+    return menu ? (menu.pages || []) : [];
+  },
+
+  /**
+   * Gets a specific page from an information menu.
+   * @param {string} infoMenuId - The ID of the info menu.
+   * @param {string} pageId - The ID of the page.
+   * @returns {Object|null} The page object or null if not found.
+   */
+  getInfoMenuPage(infoMenuId, pageId) {
+    const pages = this.getInfoMenuPages(infoMenuId);
+    return pages.find(page => page.id === pageId) || null;
   }
 };
 
