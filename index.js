@@ -522,9 +522,10 @@ async function createReactionRoleEmbed(guild, menu) {
  * @param {string} [options.title] - Title for a simple embed.
  * @param {string} [options.jsonPayload] - Raw JSON string for a full message payload.
  * @param {Object} [options.placeholderData] - Data for placeholder replacement in JSON payloads.
+ * @param {number} [options.timeout] - Number of seconds after which to delete the ephemeral reply. Only applies to the initial reply.
  */
 async function sendEphemeralResponse(interaction, options) {
-    const { description, color, title, jsonPayload, placeholderData } = options;
+    const { description, color, title, jsonPayload, placeholderData, timeout } = options;
     
     let finalPayload = {};
 
@@ -562,133 +563,44 @@ async function sendEphemeralResponse(interaction, options) {
     }
 
     try {
+        // Store the reply promise to await it before setting timeout
+        let replyPromise;
         if (interaction.replied || interaction.deferred) {
-            await interaction.editReply(finalPayload);
+            replyPromise = interaction.editReply(finalPayload);
         } else {
-            await interaction.reply(finalPayload);
+            replyPromise = interaction.reply(finalPayload);
         }
+        
+        // Await the reply to ensure it's sent before attempting to delete
+        await replyPromise;
+
+        // If it's an ephemeral message and a timeout is specified, schedule deletion
+        // interaction.deleteReply() only works on the initial reply, not follow-ups.
+        if (finalPayload.flags & MessageFlags.Ephemeral && typeof timeout === 'number' && timeout > 0) {
+            setTimeout(async () => {
+                try {
+                    // Check if the interaction is still valid and the reply hasn't been deleted yet
+                    // The `interaction.ephemeralMessageDeleted` is a custom flag to prevent double deletion attempts
+                    if (interaction.isRepliable() && !(interaction.ephemeralMessageDeleted || false)) {
+                        await interaction.deleteReply();
+                        interaction.ephemeralMessageDeleted = true; // Mark as deleted
+                    }
+                } catch (deleteError) {
+                    // Ignore "Unknown Message" (error code 10008) as it means it already disappeared or was manually deleted
+                    if (deleteError.code !== 10008) { 
+                        console.error("Error deleting ephemeral reply:", deleteError);
+                    }
+                }
+            }, timeout * 1000); // Convert seconds to milliseconds
+        }
+
     } catch (error) {
         console.error("Error sending ephemeral response:", error);
         try {
+            // If initial reply fails, try followUp. Follow-ups are not auto-deleted by this function.
             await interaction.followUp(finalPayload);
         } catch (followUpError) {
             console.error("Error sending follow-up response:", followUpError);
-        }
-    }
-}
-
-
-/**
- * Updates the components (dropdowns and buttons) on a published reaction role message
- * to reflect the current roles held by the interacting member.
- * This is crucial for keeping the UI in sync with the user's state.
- * @param {import('discord.js').Interaction} interaction - The interaction that triggered the update.
- * @param {Object} menu - The menu object.
- * @param {string} menuId - The ID of the menu. (Added based on user's new code)
- */
-async function updatePublishedMessageComponents(interaction, menu, menuId) { // Modified function signature
-    if (!menu.channelId || !menu.messageId) return;
-
-    const guild = interaction.guild;
-    const member = interaction.member;
-
-    try {
-        const originalChannel = await guild.channels.fetch(menu.channelId);
-        if (!originalChannel) {
-            console.error(`Channel ${menu.channelId} not found for menu ${menu.id}`);
-            return;
-        }
-
-        const originalMessage = await originalChannel.messages.fetch(menu.messageId);
-
-        const components = [];
-
-        // Rebuild Dropdown Select Menu
-        if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-            const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-                ? menu.dropdownRoleOrder
-                : menu.dropdownRoles
-            ).map(roleId => {
-                const role = guild.roles.cache.get(roleId);
-                if (!role) return null;
-                return {
-                    label: role.name,
-                    value: role.id,
-                    emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-                    description: menu.dropdownRoleDescriptions[role.id] || undefined,
-                    default: false // Always set default to false so roles are not pre-selected
-                };
-            }).filter(Boolean);
-
-            if (dropdownOptions.length > 0) {
-                const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`rr-role-select:${menu.id}`)
-                    .setPlaceholder("Select your roles...")
-                    .setMinValues(0)
-                    .setMaxValues(dropdownOptions.length)
-                    .addOptions(dropdownOptions);
-                components.push(new ActionRowBuilder().addComponents(selectMenu));
-            }
-        }
-
-        // Rebuild Buttons
-        if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
-            const buttonRows = [];
-            let currentRow = new ActionRowBuilder();
-            const orderedButtonRoles = menu.buttonRoleOrder.length > 0
-                ? menu.buttonRoleOrder
-                : menu.buttonRoles;
-
-            for (const roleId of orderedButtonRoles) {
-                const role = guild.roles.cache.get(roleId);
-                if (!role) continue;
-
-                const button = new ButtonBuilder()
-                    .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
-                    .setLabel(role.name)
-                    // Always set style to Secondary (grey)
-                    .setStyle(ButtonStyle.Secondary); 
-                
-                // Only set emoji if parseEmoji returns a valid object
-                const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-                if (parsedEmoji) {
-                    button.setEmoji(parsedEmoji);
-                }
-
-                if (currentRow.components.length < 5) {
-                    currentRow.addComponents(button);
-                } else {
-                    buttonRows.push(currentRow);
-                    currentRow = new ActionRowBuilder().addComponents(button);
-                }
-            }
-            if (currentRow.components.length > 0) {
-                buttonRows.push(currentRow);
-            }
-            components.push(...buttonRows);
-        }
-
-        const publishedEmbed = await createReactionRoleEmbed(guild, menu);
-
-        // Edit the message
-        if (menu.useWebhook) {
-            const webhook = await getOrCreateWebhook(originalChannel);
-            await webhook.editMessage(originalMessage.id, {
-                embeds: [publishedEmbed],
-                components,
-                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName, // Added fallback
-                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(), // Added fallback
-            });
-        } else {
-            await originalMessage.edit({ embeds: [publishedEmbed], components });
-        }
-
-    } catch (error) {
-        console.error("Error updating published message components:", error);
-        // If the message or channel is gone, clear the message ID from the menu
-        if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
-            console.log(`Clearing message ID for menu ${menu.id} due to channel/message access error.`);
-            await db.clearMessageId(menu.id);
         }
     }
 }
@@ -702,6 +614,9 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message, Partials.GuildMember],
 });
+
+// Define the timeout duration for ephemeral role messages (e.g., 3 seconds)
+const ROLE_MESSAGE_TIMEOUT_SECONDS = 3;
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -2107,9 +2022,9 @@ client.on("interactionCreate", async (interaction) => {
         if (regionalViolations.length > 0) {
             console.log(`[Debug] Regional limit violations:`, regionalViolations);
             if (menu.limitExceededMessageJson) {
-                await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData });
+                await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
             } else {
-                await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, color: "#FF0000", title: "Limit Exceeded" });
+                await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, color: "#FF0000", title: "Limit Exceeded", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
             }
             await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
             return;
@@ -2120,9 +2035,9 @@ client.on("interactionCreate", async (interaction) => {
             if (potentialMenuRoleIds.length > menu.maxRolesLimit) {
                 console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIds.length} > ${menu.maxRolesLimit}`);
                 if (menu.limitExceededMessageJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData });
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.limitExceededMessageJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else {
-                    await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, color: "#FF0000", title: "Limit Exceeded" });
+                    await sendEphemeralResponse(interaction, { description: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, color: "#FF0000", title: "Limit Exceeded", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 }
                 await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
                 return;
@@ -2142,20 +2057,20 @@ client.on("interactionCreate", async (interaction) => {
             // Send success messages based on JSON or plain text
             if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
                 if (rolesToAdd.length > 0 && menu.successMessageAddJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData });
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else if (rolesToRemove.length > 0 && menu.successMessageRemoveJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData });
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else if (rolesToAdd.length > 0) { // Fallback to plain text if no JSON
                     messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update" });
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else if (rolesToRemove.length > 0) { // Fallback to plain text if no JSON
                     messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update" });
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 } else {
-                    await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change" });
+                    await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 }
             } else {
-                await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change" });
+                await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
             }
 
             console.log(`[Debug] About to update published message components`);
@@ -2168,9 +2083,9 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error stack:", error.stack);
             
             if (error.code === 50013) { // Missing Permissions
-                await sendEphemeralResponse(interaction, { description: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", color: "#FF0000", title: "Permission Error" });
+                await sendEphemeralResponse(interaction, { description: "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", color: "#FF0000", title: "Permission Error", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
             } else {
-                await sendEphemeralResponse(interaction, { description: "❌ There was an error updating your roles. Please try again later.", color: "#FF0000", title: "Error" });
+                await sendEphemeralResponse(interaction, { description: "❌ There was an error updating your roles. Please try again later.", color: "#FF0000", title: "Error", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
             }
         }
     }
