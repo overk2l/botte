@@ -1366,7 +1366,7 @@ client.on("interactionCreate", async (interaction) => {
           const type = parts[2]; // 'dropdown' or 'button'
           const menuId = parts[3];
           
-          const menu = db.getMenu(menuId); // Corrected back to db.getMenu
+          const menu = db.get(menuId); // Corrected back to db.getMenu
           if (!menu) {
             return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
@@ -1872,6 +1872,9 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error");
         }
 
+        // Fetch the member again to ensure we have the absolute latest role cache
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+
         // Log menu structure for debugging
         console.log(`[Debug] Menu structure:`, {
             id: menu.id || 'NO ID PROPERTY',
@@ -1890,11 +1893,11 @@ client.on("interactionCreate", async (interaction) => {
         let rolesToRemove = [];
         let messages = [];
 
-        const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
+        const currentMemberRoleIds = member.roles.cache.map(r => r.id); // Use the freshly fetched member's roles
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
 
-        console.log(`[Debug] Current member roles:`, currentMemberRoleIds.length);
+        console.log(`[Debug] Current member roles (fresh fetch):`, currentMemberRoleIds.length);
         console.log(`[Debug] All menu roles:`, allMenuRoleIds);
         console.log(`[Debug] Current menu roles held by member from this menu:`, currentMenuRolesHeldByMember);
 
@@ -1967,7 +1970,7 @@ client.on("interactionCreate", async (interaction) => {
         console.log(`[Debug] Potential menu roles after change:`, potentialMenuRoleIds);
 
         // Check regional limits
-        const regionalViolations = checkRegionalLimits(interaction.member, menu, potentialMenuRoleIds);
+        const regionalViolations = checkRegionalLimits(member, menu, potentialMenuRoleIds);
         if (regionalViolations.length > 0) {
             console.log(`[Debug] Regional limit violations:`, regionalViolations);
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
@@ -1999,11 +2002,11 @@ client.on("interactionCreate", async (interaction) => {
         try {
             if (rolesToAdd.length > 0) {
                 console.log(`[Debug] Adding roles:`, rolesToAdd);
-                await interaction.member.roles.add(rolesToAdd);
+                await member.roles.add(rolesToAdd);
             }
             if (rolesToRemove.length > 0) {
                 console.log(`[Debug] Removing roles:`, rolesToRemove);
-                await interaction.member.roles.remove(rolesToRemove);
+                await member.roles.remove(rolesToRemove);
             }
 
             if (messages.length > 0) {
