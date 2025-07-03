@@ -1365,7 +1365,7 @@ client.on("interactionCreate", async (interaction) => {
           const type = parts[2]; // 'dropdown' or 'button'
           const menuId = parts[3];
           
-          const menu = db.getMenu(menuId);
+          const menu = db.get(menuId); // Changed from db.getMenu to db.get
           if (!menu) {
             return sendEphemeralEmbed(interaction, "Menu not found. Please re-select the menu.", "#FF0000", "Error");
           }
