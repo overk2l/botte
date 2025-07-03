@@ -2376,20 +2376,11 @@ client.on("interactionCreate", async (interaction) => {
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("page_name")
-                  .setLabel("Page Name")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Official Rules, Voice Chat Rules, etc.")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("page_content")
-                  .setLabel("Page Content (JSON)")
+                  .setCustomId("page_json")
+                  .setLabel("Page Configuration (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"title": "Rules", "description": "1. Be respectful\\n2. No spam"}')
+                  .setPlaceholder('{"id": "rules", "name": "Server Rules", "content": {"title": "📋 Rules", "description": "1. Be respectful\\n2. No spam"}}')
                   .setMaxLength(4000)
               )
             );
@@ -2709,7 +2700,16 @@ client.on("interactionCreate", async (interaction) => {
             embed.addFields(page.content.fields);
           }
 
-          await sendEphemeralEmbed(interaction, null, null, null, false, [embed]);
+          try {
+            if (interaction.replied || interaction.deferred) {
+              await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            } else {
+              await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            }
+          } catch (replyError) {
+            console.error("Error sending embed reply:", replyError);
+            return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+          }
         } catch (error) {
           console.error("Error displaying info page:", error);
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
@@ -2958,7 +2958,16 @@ client.on("interactionCreate", async (interaction) => {
             embed.addFields(page.content.fields);
           }
 
-          await sendEphemeralEmbed(interaction, null, null, null, false, [embed]);
+          try {
+            if (interaction.replied || interaction.deferred) {
+              await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            } else {
+              await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            }
+          } catch (replyError) {
+            console.error("Error sending embed reply:", replyError);
+            return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+          }
         } catch (error) {
           console.error("Error displaying info page from dropdown:", error);
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
@@ -3422,20 +3431,26 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "add_page") {
           const infoMenuId = parts[3];
-          const pageName = interaction.fields.getTextInputValue("page_name");
-          const pageContentRaw = interaction.fields.getTextInputValue("page_content");
+          const pageJsonRaw = interaction.fields.getTextInputValue("page_json");
 
           try {
-            const pageContent = JSON.parse(pageContentRaw);
+            const pageData = JSON.parse(pageJsonRaw);
+            
+            // Validate required fields
+            if (!pageData.id || !pageData.name || !pageData.content) {
+              return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.", "#FF0000", "JSON Error", false);
+            }
+
             const pageId = await db.saveInfoMenuPage(infoMenuId, {
-              name: pageName,
-              content: pageContent
+              id: pageData.id,
+              name: pageData.name,
+              content: pageData.content
             });
-            await sendEphemeralEmbed(interaction, `✅ Page "${pageName}" added successfully!`, "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" added successfully!`, "#00FF00", "Success", false);
             return showInfoMenuConfiguration(interaction, infoMenuId);
           } catch (error) {
-            console.error("Error parsing page content JSON:", error);
-            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format in page content. Please check your JSON syntax.", "#FF0000", "JSON Error", false);
+            console.error("Error parsing page JSON:", error);
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON syntax.", "#FF0000", "JSON Error", false);
           }
         }
 
@@ -4645,7 +4660,12 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
           )
         );
 
-      return interaction.showModal(modal);
+      try {
+        return await interaction.showModal(modal);
+      } catch (modalError) {
+        console.error("Error showing publish modal:", modalError);
+        return sendEphemeralEmbed(interaction, "❌ Failed to show channel selection modal. Please try again.", "#FF0000", "Error", false);
+      }
     }
   } catch (error) {
     console.error("Error in publishInfoMenu:", error);
