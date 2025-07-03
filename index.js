@@ -2380,7 +2380,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Configuration (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"id": "rules", "name": "Server Rules", "content": {"title": "📋 Rules", "description": "1. Be respectful\\n2. No spam"}}')
+                  .setPlaceholder('{"id": "rules", "name": "Rules", "content": {"title": "📋 Rules", "description": "..."}}')
                   .setMaxLength(4000)
               )
             );
