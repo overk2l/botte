@@ -2454,6 +2454,144 @@ client.on("interactionCreate", async (interaction) => {
           return showInfoMenuConfiguration(interaction, infoMenuId);
         }
 
+        if (action === "publish") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          return publishInfoMenu(interaction, infoMenuId);
+        }
+
+        if (action === "edit_published") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu || !menu.channelId || !menu.messageId) {
+            return sendEphemeralEmbed(interaction, "❌ No published message found for this menu to edit.", "#FF0000", "Error", false);
+          }
+          
+          const channel = interaction.guild.channels.cache.get(menu.channelId);
+          if (!channel) return sendEphemeralEmbed(interaction, "❌ Published channel not found.", "#FF0000", "Error", false);
+
+          try {
+            const message = await channel.messages.fetch(menu.messageId);
+            return publishInfoMenu(interaction, infoMenuId, message);
+          } catch (error) {
+            console.error("Error fetching published info menu message:", error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to fetch published message. It might have been deleted manually.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "delete_published") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu || !menu.channelId || !menu.messageId) {
+            return sendEphemeralEmbed(interaction, "❌ No published message found for this menu to delete.", "#FF0000", "Error", false);
+          }
+
+          const confirmButton = new ButtonBuilder()
+            .setCustomId(`info:confirm_delete_published:${infoMenuId}`)
+            .setLabel("Confirm Delete Published Message")
+            .setStyle(ButtonStyle.Danger);
+          const cancelButton = new ButtonBuilder()
+            .setCustomId(`info:cancel_delete_published:${infoMenuId}`)
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Secondary);
+          const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+          return interaction.editReply({
+            content: "⚠️ Are you sure you want to delete the published information menu message? This cannot be undone.",
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "confirm_delete_published") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu || !menu.channelId || !menu.messageId) {
+            return sendEphemeralEmbed(interaction, "❌ No published message found or already deleted.", "#FF0000", "Error", false);
+          }
+          
+          const channel = interaction.guild.channels.cache.get(menu.channelId);
+          if (!channel) {
+            await db.updateInfoMenu(infoMenuId, { channelId: null, messageId: null });
+            return sendEphemeralEmbed(interaction, "❌ Published channel not found. Message ID cleared.", "#FF0000", "Error", false);
+          }
+
+          try {
+            const message = await channel.messages.fetch(menu.messageId);
+            await message.delete();
+            await db.updateInfoMenu(infoMenuId, { channelId: null, messageId: null });
+            await sendEphemeralEmbed(interaction, "✅ Published message deleted successfully!", "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error deleting info menu message:", error);
+            await db.updateInfoMenu(infoMenuId, { channelId: null, messageId: null });
+            return sendEphemeralEmbed(interaction, "❌ Failed to delete message. It might have already been deleted manually. Message ID cleared.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "cancel_delete_published") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          return sendEphemeralEmbed(interaction, "Deletion cancelled.", "#00FF00", "Cancelled", false);
+        }
+
+        if (action === "delete_menu") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const confirmButton = new ButtonBuilder()
+            .setCustomId(`info:confirm_delete_menu:${infoMenuId}`)
+            .setLabel("Confirm Delete Menu")
+            .setStyle(ButtonStyle.Danger);
+          const cancelButton = new ButtonBuilder()
+            .setCustomId(`info:cancel_delete_menu:${infoMenuId}`)
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Secondary);
+          const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+          return interaction.editReply({
+            content: "⚠️ Are you sure you want to delete this entire information menu? This will remove all its configurations and cannot be undone.",
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "confirm_delete_menu") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Menu not found or already deleted.", "#FF0000", "Error", false);
+          }
+
+          try {
+            // If there's a published message, attempt to delete it first
+            if (menu.channelId && menu.messageId) {
+              try {
+                const channel = interaction.guild.channels.cache.get(menu.channelId);
+                if (channel) {
+                  const message = await channel.messages.fetch(menu.messageId);
+                  await message.delete();
+                }
+              } catch (error) {
+                console.log("Couldn't delete associated published info menu message, probably already deleted or not found.");
+              }
+            }
+            
+            await db.deleteInfoMenu(infoMenuId);
+            await sendEphemeralEmbed(interaction, "✅ Information menu and its associated published message (if any) deleted successfully!", "#00FF00", "Success", false);
+            return showInfoMenusDashboard(interaction);
+          } catch (error) {
+            console.error("Error deleting info menu:", error);
+            return sendEphemeralEmbed(interaction, `❌ Failed to delete menu: ${error.message}`, "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "cancel_delete_menu") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          return sendEphemeralEmbed(interaction, "Deletion cancelled.", "#00FF00", "Cancelled", false);
+        }
+
         if (action === "save_as_template") {
           const modal = new ModalBuilder()
             .setCustomId(`info:modal:save_as_template:${infoMenuId}`)
@@ -2482,6 +2620,70 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         // Add more info menu actions here as needed
+      }
+
+      // Handle user interactions with published info menus (non-admin users)
+      if (ctx === "info-page") {
+        const infoMenuId = parts[1];
+        const pageId = parts[2];
+
+        if (!infoMenuId || !pageId) {
+          return sendEphemeralEmbed(interaction, "❌ Invalid menu or page.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+        }
+
+        const page = db.getInfoMenuPage(infoMenuId, pageId);
+        if (!page) {
+          return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+        }
+
+        try {
+          // Create embed for the page content
+          const embed = new EmbedBuilder();
+          
+          if (page.content.title) embed.setTitle(page.content.title);
+          if (page.content.description) embed.setDescription(page.content.description);
+          if (page.content.color || menu.embedColor) embed.setColor(page.content.color || menu.embedColor);
+          if (page.content.thumbnail || menu.embedThumbnail) embed.setThumbnail(page.content.thumbnail || menu.embedThumbnail);
+          if (page.content.image || menu.embedImage) embed.setImage(page.content.image || menu.embedImage);
+          
+          if (page.content.author) {
+            embed.setAuthor({
+              name: page.content.author.name || menu.embedAuthorName,
+              iconURL: page.content.author.iconURL || menu.embedAuthorIconURL
+            });
+          } else if (menu.embedAuthorName) {
+            embed.setAuthor({
+              name: menu.embedAuthorName,
+              iconURL: menu.embedAuthorIconURL
+            });
+          }
+
+          if (page.content.footer) {
+            embed.setFooter({
+              text: page.content.footer.text || menu.embedFooterText,
+              iconURL: page.content.footer.iconURL || menu.embedFooterIconURL
+            });
+          } else if (menu.embedFooterText) {
+            embed.setFooter({
+              text: menu.embedFooterText,
+              iconURL: menu.embedFooterIconURL
+            });
+          }
+
+          if (page.content.fields) {
+            embed.addFields(page.content.fields);
+          }
+
+          await sendEphemeralEmbed(interaction, null, null, null, false, [embed]);
+        } catch (error) {
+          console.error("Error displaying info page:", error);
+          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+        }
       }
     }
 
@@ -2667,6 +2869,69 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
           return interaction.showModal(modal);
+        }
+      } else if (interaction.customId.startsWith("info-menu-select:")) {
+        // Handle user selecting a page from published info menu dropdown
+        const parts = interaction.customId.split(":");
+        const infoMenuId = parts[1];
+        const selectedPageId = interaction.values[0];
+
+        if (!infoMenuId || !selectedPageId) {
+          return sendEphemeralEmbed(interaction, "❌ Invalid menu or page selection.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+        }
+
+        const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+        if (!page) {
+          return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+        }
+
+        try {
+          // Create embed for the page content
+          const embed = new EmbedBuilder();
+          
+          if (page.content.title) embed.setTitle(page.content.title);
+          if (page.content.description) embed.setDescription(page.content.description);
+          if (page.content.color || menu.embedColor) embed.setColor(page.content.color || menu.embedColor);
+          if (page.content.thumbnail || menu.embedThumbnail) embed.setThumbnail(page.content.thumbnail || menu.embedThumbnail);
+          if (page.content.image || menu.embedImage) embed.setImage(page.content.image || menu.embedImage);
+          
+          if (page.content.author) {
+            embed.setAuthor({
+              name: page.content.author.name || menu.embedAuthorName,
+              iconURL: page.content.author.iconURL || menu.embedAuthorIconURL
+            });
+          } else if (menu.embedAuthorName) {
+            embed.setAuthor({
+              name: menu.embedAuthorName,
+              iconURL: menu.embedAuthorIconURL
+            });
+          }
+
+          if (page.content.footer) {
+            embed.setFooter({
+              text: page.content.footer.text || menu.embedFooterText,
+              iconURL: page.content.footer.iconURL || menu.embedFooterIconURL
+            });
+          } else if (menu.embedFooterText) {
+            embed.setFooter({
+              text: menu.embedFooterText,
+              iconURL: menu.embedFooterIconURL
+            });
+          }
+
+          if (page.content.fields) {
+            embed.addFields(page.content.fields);
+          }
+
+          await sendEphemeralEmbed(interaction, null, null, null, false, [embed]);
+        } catch (error) {
+          console.error("Error displaying info page from dropdown:", error);
+          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
           return handleRoleInteraction(interaction);
@@ -3280,6 +3545,116 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error("Error creating info menu from JSON:", error);
             return sendEphemeralEmbed(interaction, "❌ Failed to create menu from JSON. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "publish_channel") {
+          const infoMenuId = parts[3];
+          const channelInput = interaction.fields.getTextInputValue("channel_id").trim();
+          
+          let channel;
+          if (channelInput.startsWith('#')) {
+            // Handle #channel format
+            const channelName = channelInput.slice(1);
+            channel = interaction.guild.channels.cache.find(ch => ch.name === channelName && ch.isTextBased());
+          } else {
+            // Handle channel ID format
+            channel = interaction.guild.channels.cache.get(channelInput);
+          }
+
+          if (!channel || !channel.isTextBased()) {
+            return sendEphemeralEmbed(interaction, "❌ Channel not found or is not a text channel.", "#FF0000", "Error", false);
+          }
+
+          // Check permissions
+          if (!channel.permissionsFor(interaction.guild.members.me).has(['ViewChannel', 'SendMessages', 'EmbedLinks'])) {
+            return sendEphemeralEmbed(interaction, "❌ I don't have permission to send messages in that channel.", "#FF0000", "Error", false);
+          }
+
+          try {
+            const menu = db.getInfoMenu(infoMenuId);
+            const pages = db.getInfoMenuPages(infoMenuId);
+
+            // Create the main embed
+            const embed = new EmbedBuilder()
+              .setTitle(menu.name)
+              .setDescription(menu.desc)
+              .setColor(menu.embedColor || "#5865F2");
+
+            if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+            if (menu.embedImage) embed.setImage(menu.embedImage);
+            
+            if (menu.embedAuthorName) {
+              embed.setAuthor({
+                name: menu.embedAuthorName,
+                iconURL: menu.embedAuthorIconURL
+              });
+            }
+
+            if (menu.embedFooterText) {
+              embed.setFooter({
+                text: menu.embedFooterText,
+                iconURL: menu.embedFooterIconURL
+              });
+            }
+
+            // Create interaction components
+            const components = [];
+
+            if (menu.selectionType === "dropdown") {
+              const pageOptions = pages.slice(0, 25).map(page => ({
+                label: page.name.substring(0, 100),
+                value: page.id,
+                description: page.content.description ? page.content.description.substring(0, 100) : undefined
+              }));
+
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`info-menu-select:${infoMenuId}`)
+                .setPlaceholder("Select a page to view...")
+                .addOptions(pageOptions);
+
+              components.push(new ActionRowBuilder().addComponents(selectMenu));
+            } else {
+              // Create buttons for pages
+              const maxButtons = Math.min(pages.length, 25);
+              let currentRow = new ActionRowBuilder();
+              let buttonsInRow = 0;
+
+              for (let i = 0; i < maxButtons; i++) {
+                const page = pages[i];
+                const button = new ButtonBuilder()
+                  .setCustomId(`info-page:${infoMenuId}:${page.id}`)
+                  .setLabel(page.name.substring(0, 80))
+                  .setStyle(ButtonStyle.Secondary);
+
+                currentRow.addComponents(button);
+                buttonsInRow++;
+
+                if (buttonsInRow === 5 || i === maxButtons - 1) {
+                  components.push(currentRow);
+                  currentRow = new ActionRowBuilder();
+                  buttonsInRow = 0;
+                }
+              }
+            }
+
+            // Send the message
+            const message = await channel.send({
+              embeds: [embed],
+              components: components
+            });
+
+            // Save the message info to the menu
+            await db.updateInfoMenu(infoMenuId, {
+              channelId: channel.id,
+              messageId: message.id
+            });
+
+            await sendEphemeralEmbed(interaction, `✅ Information menu "${menu.name}" published successfully in ${channel}!`, "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error publishing info menu:", error);
+            return sendEphemeralEmbed(interaction, `❌ Failed to publish menu: ${error.message}`, "#FF0000", "Error", false);
           }
         }
       }
@@ -4132,6 +4507,122 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
  * Displays the information menus dashboard, listing existing menus and providing options to create/configure.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  */
+/**
+ * Publishes an information menu to a channel or edits an existing published message.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu to publish.
+ * @param {import('discord.js').Message} [existingMessage] - Existing message to edit (optional).
+ */
+async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) {
+  try {
+    const menu = db.getInfoMenu(infoMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+    }
+
+    const pages = db.getInfoMenuPages(infoMenuId);
+    if (!pages || pages.length === 0) {
+      return sendEphemeralEmbed(interaction, "❌ No pages found for this menu. Add some pages first!", "#FF0000", "Error", false);
+    }
+
+    // Create the main embed
+    const embed = new EmbedBuilder()
+      .setTitle(menu.name)
+      .setDescription(menu.desc)
+      .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    
+    if (menu.embedAuthorName) {
+      embed.setAuthor({
+        name: menu.embedAuthorName,
+        iconURL: menu.embedAuthorIconURL
+      });
+    }
+
+    if (menu.embedFooterText) {
+      embed.setFooter({
+        text: menu.embedFooterText,
+        iconURL: menu.embedFooterIconURL
+      });
+    }
+
+    // Create interaction components based on selection type
+    const components = [];
+
+    if (menu.selectionType === "dropdown") {
+      // Create dropdown with pages
+      const pageOptions = pages.slice(0, 25).map(page => ({
+        label: page.name.substring(0, 100),
+        value: page.id,
+        description: page.content.description ? page.content.description.substring(0, 100) : undefined
+      }));
+
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`info-menu-select:${infoMenuId}`)
+        .setPlaceholder("Select a page to view...")
+        .addOptions(pageOptions);
+
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+    } else {
+      // Create buttons for pages (max 25 buttons across 5 rows)
+      const maxButtons = Math.min(pages.length, 25);
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      for (let i = 0; i < maxButtons; i++) {
+        const page = pages[i];
+        const button = new ButtonBuilder()
+          .setCustomId(`info-page:${infoMenuId}:${page.id}`)
+          .setLabel(page.name.substring(0, 80))
+          .setStyle(ButtonStyle.Secondary);
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+
+        // Start new row after 5 buttons or if it's the last button
+        if (buttonsInRow === 5 || i === maxButtons - 1) {
+          components.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+      }
+    }
+
+    const messagePayload = {
+      embeds: [embed],
+      components: components
+    };
+
+    if (existingMessage) {
+      // Edit existing message
+      await existingMessage.edit(messagePayload);
+      await sendEphemeralEmbed(interaction, `✅ Information menu "${menu.name}" updated successfully!`, "#00FF00", "Success", false);
+    } else {
+      // Show channel selection modal
+      const modal = new ModalBuilder()
+        .setCustomId(`info:modal:publish_channel:${infoMenuId}`)
+        .setTitle("Publish Information Menu")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("channel_id")
+              .setLabel("Channel ID or #channel")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setPlaceholder("123456789012345678 or #general")
+          )
+        );
+
+      return interaction.showModal(modal);
+    }
+  } catch (error) {
+    console.error("Error in publishInfoMenu:", error);
+    return sendEphemeralEmbed(interaction, `❌ Failed to publish menu: ${error.message}`, "#FF0000", "Error", false);
+  }
+}
+
 async function showInfoMenusDashboard(interaction) {
   const infoMenus = db.getInfoMenus(interaction.guild.id);
 
