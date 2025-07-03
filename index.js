@@ -1186,20 +1186,10 @@ client.on("interactionCreate", async (interaction) => {
             .setCustomId(`rr:modal:custom_messages:${menuId}`)
             .setTitle("Customize Response Messages")
             .addComponents(
-              // Plain text fields (will be overridden by JSON if provided)
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("success_add_message")
-                  .setLabel("Success Add Message (Plain Text)") // Shortened label
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
-                  .setValue(menu.successMessageAdd || "")
-              ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("success_add_json")
-                  .setLabel("Success Add Message (JSON)") // Shortened label
+                  .setLabel("Success Add Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"embeds\": [{\"title\": \"Role Added!\", \"description\": \"...\"}]}")
@@ -1207,17 +1197,8 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("success_remove_message")
-                  .setLabel("Success Remove Message (Plain Text)") // Shortened label
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
-                  .setValue(menu.successMessageRemove || "")
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
                   .setCustomId("success_remove_json")
-                  .setLabel("Success Remove Message (JSON)") // Shortened label
+                  .setLabel("Success Remove Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"embeds\": [{\"title\": \"Role Removed!\", \"description\": \"...\"}]}")
@@ -1225,17 +1206,8 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("limit_exceeded_message")
-                  .setLabel("Limit Exceeded Message (Plain Text)") // Shortened label
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("❌ You have reached the maximum number of roles for this menu or region.")
-                  .setValue(menu.limitExceededMessage || "")
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
                   .setCustomId("limit_exceeded_json")
-                  .setLabel("Limit Exceeded Message (JSON)") // Shortened label
+                  .setLabel("Limit Exceeded Message (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"content\": \"You have too many roles!\", \"embeds\": [...]}")
@@ -1699,10 +1671,7 @@ client.on("interactionCreate", async (interaction) => {
               return sendEphemeralResponse(interaction, { description: "Menu not found.", color: "#FF0000", title: "Error" });
           }
 
-          const successAdd = interaction.fields.getTextInputValue("success_add_message") || null;
-          const successRemove = interaction.fields.getTextInputValue("success_remove_message") || null;
-          const limitExceeded = interaction.fields.getTextInputValue("limit_exceeded_message") || null;
-
+          // Removed plain text fields. Only process JSON fields.
           const successAddJsonRaw = interaction.fields.getTextInputValue("success_add_json");
           const successRemoveJsonRaw = interaction.fields.getTextInputValue("success_remove_json");
           const limitExceededJsonRaw = interaction.fields.getTextInputValue("limit_exceeded_json");
@@ -1728,9 +1697,10 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           await db.saveCustomMessages(currentMenuId, {
-            successMessageAdd: successAdd || "✅ You now have the role <@&{roleId}>!",
-            successMessageRemove: successRemove || "✅ You removed the role <@&{roleId}>!",
-            limitExceededMessage: limitExceeded || "❌ You have reached the maximum number of roles for this menu or region.",
+            // Default plain text messages remain in the DB schema but are not editable via this modal
+            successMessageAdd: menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!",
+            successMessageRemove: menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!",
+            limitExceededMessage: menu.limitExceededMessage || "❌ You have reached the maximum number of roles for this menu or region.",
             successMessageAddJson: successAddJson,
             successMessageRemoveJson: successRemoveJson,
             limitExceededMessageJson: limitExceededJson,
