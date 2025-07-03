@@ -171,6 +171,7 @@ const db = {
       selectionType: [], // 'dropdown', 'button', or 'both'
       dropdownEmojis: {},
       buttonEmojis: {},
+      buttonColors: {}, // roleId -> ButtonStyle (Primary, Secondary, Success, Danger)
       regionalLimits: {},
       exclusionMap: {},
       maxRolesLimit: null,
@@ -192,6 +193,11 @@ const db = {
       embedAuthorIconURL: null,
       embedFooterText: null,
       embedFooterIconURL: null,
+      showMemberCounts: false, // Show member counts on buttons/dropdowns
+      buttonColors: {}, // roleId -> ButtonStyle string
+      isTemplate: false, // Whether this menu is saved as a template
+      templateName: null, // Name for the template
+      templateDescription: null, // Description of what this template is for
     };
 
     // Save to in-memory storage
@@ -361,15 +367,96 @@ const db = {
   },
 
   /**
-   * Saves descriptions for dropdown roles.
+   * Saves button colors for roles within a menu.
    * @param {string} menuId - The ID of the menu.
-   * @param {Object} descriptions - An object mapping role IDs to their descriptions.
+   * @param {Object} colors - An object mapping role IDs to ButtonStyle strings.
    */
-  async saveRoleDescriptions(menuId, descriptions) {
+  async saveButtonColors(menuId, colors) {
     const menu = this.menuData.get(menuId);
     if (!menu) return;
-    const updatedDescriptions = { ...menu.dropdownRoleDescriptions, ...descriptions };
-    await this.updateMenu(menuId, { dropdownRoleDescriptions: updatedDescriptions });
+    const currentColors = menu.buttonColors || {};
+    const updatedColors = { ...currentColors, ...colors };
+    
+    await this.updateMenu(menuId, { buttonColors: updatedColors });
+  },
+
+  /**
+   * Saves member count display setting for a menu.
+   * @param {string} menuId - The ID of the menu.
+   * @param {boolean} showCounts - Whether to show member counts.
+   */
+  async saveMemberCountSetting(menuId, showCounts) {
+    await this.updateMenu(menuId, { showMemberCounts: showCounts });
+  },
+
+  /**
+   * Saves a menu as a template.
+   * @param {string} menuId - The ID of the menu.
+   * @param {string} templateName - The name for the template.
+   * @param {string} templateDescription - Description of the template.
+   */
+  async saveAsTemplate(menuId, templateName, templateDescription) {
+    await this.updateMenu(menuId, { 
+      isTemplate: true, 
+      templateName, 
+      templateDescription 
+    });
+  },
+
+  /**
+   * Creates a new menu from a template.
+   * @param {string} templateId - The ID of the template menu.
+   * @param {string} guildId - The ID of the guild where the new menu is created.
+   * @param {string} newName - The name for the new menu.
+   * @param {string} newDesc - The description for the new menu.
+   * @returns {Promise<string>} The ID of the newly created menu.
+   */
+  async createFromTemplate(templateId, guildId, newName, newDesc) {
+    const template = this.getMenu(templateId);
+    if (!template) throw new Error("Template not found");
+    
+    const newMenuId = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+    const newMenu = {
+      ...template,
+      guildId,
+      name: newName,
+      desc: newDesc,
+      isTemplate: false,
+      templateName: null,
+      templateDescription: null,
+      channelId: null,
+      messageId: null
+    };
+
+    // Save to in-memory storage
+    if (!this.menus.has(guildId)) {
+      this.menus.set(guildId, []);
+    }
+    this.menus.get(guildId).push(newMenuId);
+    this.menuData.set(newMenuId, newMenu);
+
+    // Save to Firestore if enabled
+    if (firebaseEnabled) {
+      try {
+        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, newMenuId);
+        await setDoc(menuDocRef, newMenu);
+        console.log(`[Database] Created menu from template with ID: ${newMenuId}`);
+      } catch (error) {
+        console.error("[Database] Error saving template-based menu to Firestore:", error);
+      }
+    }
+
+    return newMenuId;
+  },
+
+  /**
+   * Gets all template menus.
+   * @returns {Array<Object>} An array of template menu objects.
+   */
+  getTemplates() {
+    return Array.from(this.menuData.entries())
+      .filter(([id, menu]) => menu.isTemplate)
+      .map(([id, menu]) => ({ id, ...menu }));
   },
 
   /**
@@ -715,8 +802,15 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                     console.warn(`Role ${roleId} not found in guild for menu ${menuId}`);
                     return null;
                 }
+                
+                // Get member count if enabled
+                const memberCount = menu.showMemberCounts ? role.members.size : null;
+                const labelText = memberCount !== null 
+                    ? `${role.name} (${memberCount})` 
+                    : role.name;
+                
                 return {
-                    label: role.name.substring(0, 100),
+                    label: labelText.substring(0, 100),
                     value: role.id,
                     emoji: parseEmoji(menu.dropdownEmojis[role.id]),
                     description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
@@ -750,10 +844,20 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                     continue;
                 }
 
+                // Get member count if enabled
+                const memberCount = menu.showMemberCounts ? role.members.size : null;
+                const labelText = memberCount !== null 
+                    ? `${role.name} (${memberCount})` 
+                    : role.name;
+
+                // Get custom button color or default to secondary
+                const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+                const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
                 const button = new ButtonBuilder()
                     .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-                    .setLabel(role.name.substring(0, 80))
-                    .setStyle(ButtonStyle.Secondary); // Always set to secondary
+                    .setLabel(labelText.substring(0, 80))
+                    .setStyle(buttonStyle);
 
                 // Only set emoji if parseEmoji returns a valid object
                 const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
@@ -897,8 +1001,12 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:config_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_dropdown:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:reorder_button:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:configure_button_colors:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:save_as_template:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:clone_menu:")) ||
     (interaction.isButton() && interaction.customId === "rr:prompt_raw_embed_json") ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_template"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -966,7 +1074,7 @@ client.on("interactionCreate", async (interaction) => {
         // Assign menuId, type based on action within the rr context
         if (action === "create") {
           // No menuId needed yet, it's created in the modal submit
-        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select", "prompt_raw_embed_json"].includes(action)) {
+        } else if (["publish", "edit_published", "delete_published", "confirm_delete_published", "cancel_delete_published", "setlimits", "setexclusions", "customize_embed", "customize_footer", "toggle_webhook", "config_webhook", "delete_menu", "confirm_delete_menu", "cancel_delete_menu", "custom_messages", "prompt_role_description_select", "prompt_raw_embed_json", "toggle_member_counts", "configure_button_colors", "save_as_template", "clone_menu", "browse_templates"].includes(action)) {
           menuId = parts[2]; // For these actions, menuId is parts[2]
         } else if (["type", "addemoji", "manage_roles", "toggle_type"].includes(action)) {
           type = parts[2]; // 'dropdown', 'button'
@@ -1479,6 +1587,163 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "toggle_member_counts") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const newState = !menu.showMemberCounts;
+          await db.saveMemberCountSetting(menuId, newState);
+
+          await sendEphemeralEmbed(interaction, `✅ Member counts are now ${newState ? "SHOWN" : "HIDDEN"} on roles.`, "#00FF00", "Success", false);
+          return showMenuConfiguration(interaction, menuId);
+        }
+
+        if (action === "configure_button_colors") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:configure_button_colors:${menuId}`)
+            .setTitle("Configure Button Colors");
+
+          const buttonRoles = menu.buttonRoles || [];
+          if (buttonRoles.length === 0) {
+            return interaction.editReply({ content: "No button roles configured for this menu.", flags: MessageFlags.Ephemeral });
+          }
+
+          const maxInputs = Math.min(buttonRoles.length, 5);
+          for (let i = 0; i < maxInputs; i++) {
+            const roleId = buttonRoles[i];
+            const role = interaction.guild.roles.cache.get(roleId);
+            const currentColor = menu.buttonColors?.[roleId] || "Secondary";
+            modal.addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId(roleId)
+                  .setLabel(`Color for ${role ? role.name : "Unknown Role"}`)
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Primary, Secondary, Success, Danger")
+                  .setValue(String(currentColor))
+              )
+            );
+          }
+          return interaction.showModal(modal);
+        }
+
+        if (action === "save_as_template") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:save_as_template:${menuId}`)
+            .setTitle("Save Menu as Template")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("template_name")
+                  .setLabel("Template Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("e.g., Gaming Roles Template")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("template_description")
+                  .setLabel("Template Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Describe what this template is for...")
+                  .setMaxLength(500)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "clone_menu") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:clone_menu:${menuId}`)
+            .setTitle("Clone Menu")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_name")
+                  .setLabel("New Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter name for the cloned menu")
+                  .setValue(String(menu.name + " (Copy)"))
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_desc")
+                  .setLabel("New Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Enter description for the cloned menu")
+                  .setValue(String(menu.desc))
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "browse_templates") {
+          const templates = db.getTemplates();
+          
+          if (templates.length === 0) {
+            return interaction.editReply({ 
+              content: "❌ No templates available. Create a menu and save it as a template first!", 
+              flags: MessageFlags.Ephemeral 
+            });
+          }
+
+          const embed = new EmbedBuilder()
+            .setTitle("📋 Available Templates")
+            .setDescription("Select a template to create a new menu from:")
+            .setColor("#5865F2");
+
+          // Add template information to embed
+          const templateList = templates.slice(0, 10).map((template, index) => {
+            const rolesCount = (template.dropdownRoles?.length || 0) + (template.buttonRoles?.length || 0);
+            return `**${index + 1}. ${template.templateName}**\n${template.templateDescription || "No description"}\n*${rolesCount} roles configured*`;
+          }).join("\n\n");
+
+          embed.setDescription(`Select a template to create a new menu from:\n\n${templateList}`);
+
+          const templateOptions = templates.slice(0, 25).map((template) => ({
+            label: template.templateName.substring(0, 100),
+            value: template.id,
+            description: template.templateDescription ? template.templateDescription.substring(0, 100) : "No description"
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId("rr:select_template")
+            .setPlaceholder("Choose a template...")
+            .addOptions(templateOptions);
+
+          const backButton = new ButtonBuilder()
+            .setCustomId("dash:reaction-roles")
+            .setLabel("Back to RR Dashboard")
+            .setStyle(ButtonStyle.Secondary);
+
+          const components = [
+            new ActionRowBuilder().addComponents(selectMenu),
+            new ActionRowBuilder().addComponents(backButton)
+          ];
+
+          return interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+        }
+
         if (action === "toggle_webhook") {
           if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
@@ -1593,6 +1858,41 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "selectmenu") {
           const targetMenuId = interaction.values[0];
           return showMenuConfiguration(interaction, targetMenuId);
+        }
+
+        if (action === "select_template") {
+          const templateId = interaction.values[0];
+          const template = db.getMenu(templateId);
+          
+          if (!template || !template.isTemplate) {
+            return sendEphemeralEmbed(interaction, "❌ Template not found or invalid.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:create_from_template:${templateId}`)
+            .setTitle("Create Menu from Template")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_name")
+                  .setLabel("New Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder(`Based on: ${template.templateName}`)
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_desc")
+                  .setLabel("New Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Describe your new menu...")
+                  .setValue(template.desc || "")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
         }
 
         if (action === "save_managed_roles") {
@@ -2019,6 +2319,115 @@ client.on("interactionCreate", async (interaction) => {
             
             return showMenuConfiguration(interaction, newMenuId);
         }
+
+        if (modalType === "configure_button_colors") {
+          menuId = parts[3];
+          if (!menuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false);
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
+          }
+
+          const colors = {};
+          const buttonRoles = menu.buttonRoles || [];
+          const validStyles = ['Primary', 'Secondary', 'Success', 'Danger'];
+          
+          for (let i = 0; i < Math.min(buttonRoles.length, 5); i++) {
+            const currentRoleId = buttonRoles[i];
+            const colorInput = interaction.fields.getTextInputValue(currentRoleId);
+            if (colorInput) {
+              const colorName = colorInput.trim();
+              if (validStyles.includes(colorName)) {
+                colors[currentRoleId] = colorName;
+              } else {
+                console.warn(`Invalid button color for role ${currentRoleId}: ${colorInput}. Using Secondary.`);
+                colors[currentRoleId] = 'Secondary';
+              }
+            }
+          }
+          
+          await db.saveButtonColors(menuId, colors);
+          return showMenuConfiguration(interaction, menuId);
+        }
+
+        if (modalType === "save_as_template") {
+          menuId = parts[3];
+          if (!menuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false);
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
+          }
+
+          const templateName = interaction.fields.getTextInputValue("template_name");
+          const templateDescription = interaction.fields.getTextInputValue("template_description") || "";
+          
+          if (!templateName || templateName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Template name is required.", "#FF0000", "Input Error", false);
+          }
+
+          await db.saveAsTemplate(menuId, templateName.trim(), templateDescription.trim());
+          await sendEphemeralEmbed(interaction, `✅ Menu saved as template: "${templateName}"`, "#00FF00", "Success", false);
+          return showMenuConfiguration(interaction, menuId);
+        }
+
+        if (modalType === "clone_menu") {
+          menuId = parts[3];
+          if (!menuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false);
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
+          }
+
+          const newName = interaction.fields.getTextInputValue("new_name");
+          const newDesc = interaction.fields.getTextInputValue("new_desc");
+          
+          if (!newName || newName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu name is required.", "#FF0000", "Input Error", false);
+          }
+          
+          if (!newDesc || newDesc.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu description is required.", "#FF0000", "Input Error", false);
+          }
+
+          try {
+            const newMenuId = await db.createFromTemplate(menuId, interaction.guild.id, newName.trim(), newDesc.trim());
+            await sendEphemeralEmbed(interaction, `✅ Menu cloned successfully! New menu: "${newName}"`, "#00FF00", "Success", false);
+            return showMenuConfiguration(interaction, newMenuId);
+          } catch (error) {
+            console.error("Error cloning menu:", error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to clone menu. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "create_from_template") {
+          const templateId = parts[3];
+          if (!templateId) return sendEphemeralEmbed(interaction, "Template ID missing.", "#FF0000", "Error", false);
+          
+          const template = db.getMenu(templateId);
+          if (!template || !template.isTemplate) {
+              return sendEphemeralEmbed(interaction, "Template not found or invalid.", "#FF0000", "Error", false);
+          }
+
+          const newName = interaction.fields.getTextInputValue("new_name");
+          const newDesc = interaction.fields.getTextInputValue("new_desc");
+          
+          if (!newName || newName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu name is required.", "#FF0000", "Input Error", false);
+          }
+          
+          if (!newDesc || newDesc.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu description is required.", "#FF0000", "Input Error", false);
+          }
+
+          try {
+            const newMenuId = await db.createFromTemplate(templateId, interaction.guild.id, newName.trim(), newDesc.trim());
+            await sendEphemeralEmbed(interaction, `✅ Menu created from template "${template.templateName}"! New menu: "${newName}"`, "#00FF00", "Success", false);
+            return showMenuConfiguration(interaction, newMenuId);
+          } catch (error) {
+            console.error("Error creating menu from template:", error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to create menu from template. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -2349,12 +2758,19 @@ async function showReactionRolesDashboard(interaction) {
       .setLabel("Create from Raw Embed JSON")
       .setStyle(ButtonStyle.Secondary);
 
+  const templateButton = new ButtonBuilder()
+      .setCustomId("rr:browse_templates")
+      .setLabel("Create from Template")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📋");
+
   const backButton = new ButtonBuilder()
       .setCustomId("dash:back")
       .setLabel("Back to Dashboard")
       .setStyle(ButtonStyle.Secondary);
 
-  components.push(new ActionRowBuilder().addComponents(createButton, rawJsonButton, backButton));
+  components.push(new ActionRowBuilder().addComponents(createButton, templateButton, rawJsonButton));
+  components.push(new ActionRowBuilder().addComponents(backButton));
 
   try {
       await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
@@ -2424,6 +2840,13 @@ async function showMenuConfiguration(interaction, menuId) {
             ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
             : "Not configured")
           : "N/A (Webhook Disabled)",
+        inline: true
+      },
+      {
+        name: "Advanced Features",
+        value: `Member Counts: ${menu.showMemberCounts ? "✅ Shown" : "❌ Hidden"}\n` +
+               `Button Colors: ${Object.keys(menu.buttonColors || {}).length > 0 ? "✅ Customized" : "❌ Default"}\n` +
+               `Template: ${menu.isTemplate ? `✅ "${menu.templateName}"` : "❌ No"}`,
         inline: true
       }
     );
@@ -2550,12 +2973,33 @@ async function showMenuConfiguration(interaction, menuId) {
       );
     }
 
+    const row_advanced_features = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`rr:toggle_member_counts:${menuId}`)
+        .setLabel(menu.showMemberCounts ? "Hide Member Counts" : "Show Member Counts")
+        .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`rr:configure_button_colors:${menuId}`)
+        .setLabel("Configure Button Colors")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!menu.buttonRoles.length),
+      new ButtonBuilder()
+        .setCustomId(`rr:save_as_template:${menuId}`)
+        .setLabel("Save as Template")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`rr:clone_menu:${menuId}`)
+        .setLabel("Clone Menu")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
     const finalComponents = [
       row_publish_delete,
       row_role_types_and_management,
       row_emojis_reorder,
       row_limits_exclusions_descriptions,
       row_customization_webhook,
+      row_advanced_features,
     ].filter(row => row.components.length > 0);
 
     try {
@@ -2643,8 +3087,15 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           ).map(roleId => {
             const role = interaction.guild.roles.cache.get(roleId);
             if (!role) return null;
+            
+            // Get member count if enabled
+            const memberCount = menu.showMemberCounts ? role.members.size : null;
+            const labelText = memberCount !== null 
+                ? `${role.name} (${memberCount})` 
+                : role.name;
+            
             return {
-              label: role.name.substring(0, 100),
+              label: labelText.substring(0, 100),
               value: role.id,
               emoji: parseEmoji(menu.dropdownEmojis[role.id]),
               description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
@@ -2675,10 +3126,20 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
             const role = interaction.guild.roles.cache.get(roleId);
             if (!role) continue;
 
+            // Get member count if enabled
+            const memberCount = menu.showMemberCounts ? role.members.size : null;
+            const labelText = memberCount !== null 
+                ? `${role.name} (${memberCount})` 
+                : role.name;
+
+            // Get custom button color or default to secondary
+            const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+            const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
             const button = new ButtonBuilder()
               .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-              .setLabel(role.name.substring(0, 80))
-              .setStyle(ButtonStyle.Secondary);
+              .setLabel(labelText.substring(0, 80))
+              .setStyle(buttonStyle);
 
             const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
             if (parsedEmoji) {
