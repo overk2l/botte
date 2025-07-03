@@ -1236,7 +1236,7 @@ client.on("interactionCreate", async (interaction) => {
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
                 .setCustomId("current_roles_display")
-                .setLabel("Current Role Order (READ ONLY - for reference)")
+                .setLabel("Current Role Order (for reference)")
                 .setStyle(TextInputStyle.Paragraph)
                 .setRequired(false)
                 .setValue(roleDisplay)
@@ -1245,7 +1245,7 @@ client.on("interactionCreate", async (interaction) => {
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
                 .setCustomId("new_order_numbers")
-                .setLabel("New Order (use numbers from above, comma-separated)")
+                .setLabel("New Order (comma-separated numbers)")
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true)
                 .setPlaceholder("1, 2, 3, 4...")
@@ -1255,7 +1255,7 @@ client.on("interactionCreate", async (interaction) => {
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
                 .setCustomId("example_help")
-                .setLabel("Help (READ ONLY)")
+                .setLabel("Help & Example")
                 .setStyle(TextInputStyle.Short)
                 .setRequired(false)
                 .setValue(exampleOrder)
