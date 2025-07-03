@@ -2918,7 +2918,12 @@ async function showMenuConfiguration(interaction, menuId) {
         .setCustomId(`rr:reorder_button:${menuId}`)
         .setLabel("Reorder Button Roles")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(menu.buttonRoles.length <= 1)
+        .setDisabled(menu.buttonRoles.length <= 1),
+      new ButtonBuilder()
+        .setCustomId(`rr:configure_button_colors:${menuId}`)
+        .setLabel("Button Colors")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!menu.buttonRoles.length)
     );
 
     const row_limits_exclusions_descriptions = new ActionRowBuilder().addComponents(
@@ -2934,7 +2939,11 @@ async function showMenuConfiguration(interaction, menuId) {
         .setCustomId(`rr:prompt_role_description_select:${menuId}`)
         .setLabel("Set Role Descriptions")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!menu.dropdownRoles.length)
+        .setDisabled(!menu.dropdownRoles.length),
+      new ButtonBuilder()
+        .setCustomId(`rr:toggle_member_counts:${menuId}`)
+        .setLabel(menu.showMemberCounts ? "Hide Counts" : "Show Counts")
+        .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success)
     );
 
     const row_customization_webhook = new ActionRowBuilder();
@@ -2969,29 +2978,17 @@ async function showMenuConfiguration(interaction, menuId) {
         new ButtonBuilder()
           .setCustomId(`rr:toggle_webhook:${menuId}`)
           .setLabel("Enable Webhook")
-          .setStyle(ButtonStyle.Success)
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`rr:save_as_template:${menuId}`)
+          .setLabel("Save as Template")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`rr:clone_menu:${menuId}`)
+          .setLabel("Clone Menu")
+          .setStyle(ButtonStyle.Secondary)
       );
     }
-
-    const row_advanced_features = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`rr:toggle_member_counts:${menuId}`)
-        .setLabel(menu.showMemberCounts ? "Hide Member Counts" : "Show Member Counts")
-        .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`rr:configure_button_colors:${menuId}`)
-        .setLabel("Configure Button Colors")
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(!menu.buttonRoles.length),
-      new ButtonBuilder()
-        .setCustomId(`rr:save_as_template:${menuId}`)
-        .setLabel("Save as Template")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`rr:clone_menu:${menuId}`)
-        .setLabel("Clone Menu")
-        .setStyle(ButtonStyle.Secondary)
-    );
 
     const finalComponents = [
       row_publish_delete,
@@ -2999,7 +2996,6 @@ async function showMenuConfiguration(interaction, menuId) {
       row_emojis_reorder,
       row_limits_exclusions_descriptions,
       row_customization_webhook,
-      row_advanced_features,
     ].filter(row => row.components.length > 0);
 
     try {
