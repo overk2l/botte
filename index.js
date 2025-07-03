@@ -1019,6 +1019,7 @@ client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   // Load all menus from Firestore when the bot starts
   await db.loadAllMenus();
+  await db.loadAllInfoMenus();
 
   const rest = new REST().setToken(process.env.TOKEN);
   const cmd = new SlashCommandBuilder()
@@ -1058,6 +1059,8 @@ function cleanup() {
   // Clear database maps
   db.menus.clear();
   db.menuData.clear();
+  db.infoMenus.clear();
+  db.infoMenuData.clear();
   
   console.log("✅ Cleanup completed");
 }
@@ -1157,181 +1160,8 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
-        if (action === "interactive-menus") return showInteractiveMenusDashboard(interaction);
+        if (action === "info-menus") return showInfoMenusDashboard(interaction);
         if (action === "back") return sendMainDashboard(interaction);
-      }
-
-      if (ctx === "im") {
-        // All interactive menu buttons require admin permissions
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to configure interactive menus.", flags: MessageFlags.Ephemeral });
-        }
-
-        // Parse menu ID for actions that need it
-        if (["add_page", "edit_pages", "preview", "publish", "customize", "settings", "delete", "confirm_delete", "cancel_delete"].includes(action)) {
-          menuId = parts[2];
-        }
-
-        if (action === "create") {
-          const modal = new ModalBuilder()
-            .setCustomId("im:modal:create")
-            .setTitle("New Interactive Menu")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("name")
-                  .setLabel("Menu Name")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Enter menu name (e.g., 'Server Guide')")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("description")
-                  .setLabel("Menu Description")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("Describe what this interactive menu is for")
-                  .setMaxLength(1000)
-              )
-            );
-          return interaction.showModal(modal);
-        }
-
-        if (action === "add_page") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          
-          const modal = new ModalBuilder()
-            .setCustomId(`im:modal:add_page:${menuId}`)
-            .setTitle("Add New Page")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("title")
-                  .setLabel("Page Title")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Enter page title")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("content")
-                  .setLabel("Page Content")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("Enter the content for this page")
-                  .setMaxLength(4000)
-              )
-            );
-          return interaction.showModal(modal);
-        }
-
-        if (action === "edit_pages") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          return interaction.editReply({ 
-            content: "📝 **Page editing is coming soon!** For now, you can add new pages and preview your menu.", 
-            flags: MessageFlags.Ephemeral 
-          });
-        }
-
-        if (action === "preview") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          const menu = db.getInteractiveMenu(menuId);
-          if (!menu) {
-            return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
-          }
-          if (!menu.pages?.length) {
-            return interaction.editReply({ content: "❌ This menu has no pages to preview.", flags: MessageFlags.Ephemeral });
-          }
-          return interaction.editReply({ 
-            content: "👀 **Preview feature is coming soon!** You'll be able to test your interactive menu before publishing.", 
-            flags: MessageFlags.Ephemeral 
-          });
-        }
-
-        if (action === "publish") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          const menu = db.getInteractiveMenu(menuId);
-          if (!menu) {
-            return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
-          }
-          if (!menu.pages?.length) {
-            return interaction.editReply({ content: "❌ Cannot publish a menu with no pages.", flags: MessageFlags.Ephemeral });
-          }
-          return interaction.editReply({ 
-            content: "🚀 **Publishing feature is coming soon!** You'll be able to publish your interactive menu to any channel.", 
-            flags: MessageFlags.Ephemeral 
-          });
-        }
-
-        if (action === "customize") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          return interaction.editReply({ 
-            content: "🎨 **Customization options are coming soon!** You'll be able to customize colors, thumbnails, and more.", 
-            flags: MessageFlags.Ephemeral 
-          });
-        }
-
-        if (action === "settings") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          return interaction.editReply({ 
-            content: "⚙️ **Settings panel is coming soon!** You'll be able to configure permissions, auto-delete, and other options.", 
-            flags: MessageFlags.Ephemeral 
-          });
-        }
-
-        if (action === "delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          
-          const confirmButton = new ButtonBuilder()
-            .setCustomId(`im:confirm_delete:${menuId}`)
-            .setLabel("Confirm Delete")
-            .setStyle(ButtonStyle.Danger);
-          const cancelButton = new ButtonBuilder()
-            .setCustomId(`im:cancel_delete:${menuId}`)
-            .setLabel("Cancel")
-            .setStyle(ButtonStyle.Secondary);
-          const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
-
-          return interaction.editReply({
-            content: "⚠️ Are you sure you want to delete this interactive menu? This will remove all its pages and content permanently.",
-            components: [row],
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        if (action === "confirm_delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
-          
-          const menu = db.getInteractiveMenu(menuId);
-          if (!menu) {
-            return interaction.editReply({ content: "❌ Menu not found or already deleted.", components: [], flags: MessageFlags.Ephemeral });
-          }
-
-          try {
-            await db.deleteInteractiveMenu(menuId);
-            await interaction.editReply({
-              content: "✅ Interactive menu deleted successfully!",
-              components: [],
-              flags: MessageFlags.Ephemeral
-            });
-            return showInteractiveMenusDashboard(interaction);
-          } catch (error) {
-            console.error("Error deleting interactive menu:", error);
-            return interaction.editReply({
-              content: `❌ Failed to delete menu: ${error.message}`,
-              components: [],
-              flags: MessageFlags.Ephemeral
-            });
-          }
-        }
-
-        if (action === "cancel_delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
-          return showInteractiveMenuConfiguration(interaction, menuId);
-        }
       }
 
       if (ctx === "rr") {
@@ -2114,6 +1944,261 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
       }
+
+      if (ctx === "info") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure information menus.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (action === "create") {
+          const modal = new ModalBuilder()
+            .setCustomId("info:modal:create")
+            .setTitle("Create Information Menu")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("name")
+                  .setLabel("Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Rules, FAQ, Guide, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("desc")
+                  .setLabel("Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Brief description of what this menu contains")
+                  .setMaxLength(1000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "browse_templates") {
+          const templates = db.getInfoMenus().filter(menu => menu.isTemplate);
+          if (templates.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No information menu templates found.", "#FF0000", "No Templates", false);
+          }
+
+          const templateOptions = templates.slice(0, 25).map((template) => ({
+            label: template.templateName?.substring(0, 100) || template.name.substring(0, 100),
+            value: template.id,
+            description: template.templateDescription?.substring(0, 100) || template.desc?.substring(0, 100) || undefined
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId("info:select_template")
+            .setPlaceholder("Select a template to use...")
+            .addOptions(templateOptions);
+
+          return interaction.editReply({
+            content: "Select a template to create a new information menu:",
+            components: [new ActionRowBuilder().addComponents(selectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "create_from_json") {
+          const modal = new ModalBuilder()
+            .setCustomId("info:modal:create_from_json")
+            .setTitle("Create Info Menu from JSON")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("menu_name")
+                  .setLabel("Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Rules, FAQ, Guide, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("menu_desc")
+                  .setLabel("Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Brief description of what this menu contains")
+                  .setMaxLength(1000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("raw_json_input")
+                  .setLabel("JSON Configuration")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('{"embedColor": "#5865F2", "pages": [{"name": "Page 1", "content": {"title": "Hello", "description": "World"}}]}')
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        // Actions that require menuId
+        const infoMenuId = parts[2];
+        if (!infoMenuId) {
+          return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+        }
+
+        if (action === "toggle_type") {
+          const newType = menu.selectionType === "dropdown" ? "button" : "dropdown";
+          await db.updateInfoMenu(infoMenuId, { selectionType: newType });
+          await sendEphemeralEmbed(interaction, `✅ Selection type changed to ${newType}!`, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (action === "add_page") {
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:add_page:${infoMenuId}`)
+            .setTitle("Add New Page")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_name")
+                  .setLabel("Page Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Official Rules, Voice Chat Rules, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_content")
+                  .setLabel("Page Content (JSON)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('{"title": "Rules", "description": "1. Be respectful\\n2. No spam"}')
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "customize_embed") {
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:customize_embed:${infoMenuId}`)
+            .setTitle("Customize Embed Appearance")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("embed_color")
+                  .setLabel("Embed Color (hex)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("#5865F2")
+                  .setValue(menu.embedColor || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("thumbnail_url")
+                  .setLabel("Thumbnail URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/image.png")
+                  .setValue(menu.embedThumbnail || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("image_url")
+                  .setLabel("Image URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/image.png")
+                  .setValue(menu.embedImage || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("author_name")
+                  .setLabel("Author Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Server Name or Author")
+                  .setValue(menu.embedAuthorName || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("author_icon_url")
+                  .setLabel("Author Icon URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/icon.png")
+                  .setValue(menu.embedAuthorIconURL || "")
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "customize_footer") {
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:customize_footer:${infoMenuId}`)
+            .setTitle("Customize Footer")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("footer_text")
+                  .setLabel("Footer Text")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Server Name • Contact Info")
+                  .setValue(menu.embedFooterText || "")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("footer_icon_url")
+                  .setLabel("Footer Icon URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("https://example.com/icon.png")
+                  .setValue(menu.embedFooterIconURL || "")
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "toggle_webhook") {
+          const newWebhookState = !menu.useWebhook;
+          await db.updateInfoMenu(infoMenuId, { useWebhook: newWebhookState });
+          await sendEphemeralEmbed(interaction, `✅ Webhook ${newWebhookState ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (action === "save_as_template") {
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:save_as_template:${infoMenuId}`)
+            .setTitle("Save as Template")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("template_name")
+                  .setLabel("Template Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Server Rules Template, FAQ Template, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("template_description")
+                  .setLabel("Template Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("What this template is for and how to use it")
+                  .setMaxLength(500)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        // Add more info menu actions here as needed
+      }
     }
 
     if (interaction.isStringSelectMenu()) {
@@ -2253,6 +2338,48 @@ client.on("interactionCreate", async (interaction) => {
                   .setRequired(false)
                   .setPlaceholder("A short description for this role.")
                   .setValue(String(currentDescription))
+              )
+            );
+          return interaction.showModal(modal);
+        }
+      } else if (ctx === "info") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure information menus.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (action === "selectmenu") {
+          const infoMenuId = interaction.values[0];
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (action === "select_template") {
+          const templateId = interaction.values[0];
+          const template = db.getInfoMenu(templateId);
+          if (!template || !template.isTemplate) {
+            return sendEphemeralEmbed(interaction, "❌ Template not found or invalid.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:create_from_template:${templateId}`)
+            .setTitle(`Create from Template: ${template.templateName}`)
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_name")
+                  .setLabel("New Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("My Server Rules, My FAQ, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_desc")
+                  .setLabel("New Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Description for your specific use of this template")
+                  .setMaxLength(1000)
               )
             );
           return interaction.showModal(modal);
@@ -2701,51 +2828,171 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      if (ctx === "im" && action === "modal") {
+      if (ctx === "info" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure interactive menus.", "#FF0000", "Permission Denied", false);
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure information menus.", "#FF0000", "Permission Denied", false);
         }
 
         if (modalType === "create") {
           const name = interaction.fields.getTextInputValue("name");
-          const description = interaction.fields.getTextInputValue("description");
-          const newMenuId = await db.createInteractiveMenu(interaction.guild.id, name, description);
-          return showInteractiveMenuConfiguration(interaction, newMenuId);
+          const desc = interaction.fields.getTextInputValue("desc");
+          const newInfoMenuId = await db.createInfoMenu(interaction.guild.id, name, desc);
+          await sendEphemeralEmbed(interaction, `✅ Information menu "${name}" created successfully!`, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, newInfoMenuId);
         }
 
         if (modalType === "add_page") {
-          menuId = parts[3];
-          if (!menuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false);
-          
-          const menu = db.getInteractiveMenu(menuId);
-          if (!menu) {
-              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
+          const infoMenuId = parts[3];
+          const pageName = interaction.fields.getTextInputValue("page_name");
+          const pageContentRaw = interaction.fields.getTextInputValue("page_content");
+
+          try {
+            const pageContent = JSON.parse(pageContentRaw);
+            const pageId = await db.saveInfoMenuPage(infoMenuId, {
+              name: pageName,
+              content: pageContent
+            });
+            await sendEphemeralEmbed(interaction, `✅ Page "${pageName}" added successfully!`, "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error parsing page content JSON:", error);
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format in page content. Please check your JSON syntax.", "#FF0000", "JSON Error", false);
+          }
+        }
+
+        if (modalType === "customize_embed") {
+          const infoMenuId = parts[3];
+          const embedColor = interaction.fields.getTextInputValue("embed_color") || null;
+          const embedThumbnail = interaction.fields.getTextInputValue("thumbnail_url") || null;
+          const embedImage = interaction.fields.getTextInputValue("image_url") || null;
+          const embedAuthorName = interaction.fields.getTextInputValue("author_name") || null;
+          const embedAuthorIconURL = interaction.fields.getTextInputValue("author_icon_url") || null;
+
+          if (embedColor && !/^#[0-9A-F]{6}$/i.test(embedColor)) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid color format. Use hex format like #5865F2", "#FF0000", "Invalid Color", false);
           }
 
-          const title = interaction.fields.getTextInputValue("title");
-          const content = interaction.fields.getTextInputValue("content");
-          
-          if (!title || title.trim().length === 0) {
-            return sendEphemeralEmbed(interaction, "❌ Page title is required.", "#FF0000", "Input Error", false);
-          }
-          
-          if (!content || content.trim().length === 0) {
-            return sendEphemeralEmbed(interaction, "❌ Page content is required.", "#FF0000", "Input Error", false);
+          await db.updateInfoMenu(infoMenuId, {
+            embedColor,
+            embedThumbnail,
+            embedImage,
+            embedAuthorName,
+            embedAuthorIconURL
+          });
+          await sendEphemeralEmbed(interaction, "✅ Embed customization saved!", "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (modalType === "customize_footer") {
+          const infoMenuId = parts[3];
+          const footerText = interaction.fields.getTextInputValue("footer_text") || null;
+          const footerIconURL = interaction.fields.getTextInputValue("footer_icon_url") || null;
+
+          await db.updateInfoMenu(infoMenuId, {
+            embedFooterText: footerText,
+            embedFooterIconURL: footerIconURL
+          });
+          await sendEphemeralEmbed(interaction, "✅ Footer customization saved!", "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (modalType === "save_as_template") {
+          const infoMenuId = parts[3];
+          const templateName = interaction.fields.getTextInputValue("template_name");
+          const templateDescription = interaction.fields.getTextInputValue("template_description") || "";
+
+          if (!templateName || templateName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Template name is required.", "#FF0000", "Input Error", false);
           }
 
-          // Add the page to the menu
-          const pages = menu.pages || [];
-          const newPage = {
-            id: Date.now().toString(),
-            title: title.trim(),
-            content: content.trim(),
-            createdAt: Date.now()
-          };
-          pages.push(newPage);
+          await db.updateInfoMenu(infoMenuId, {
+            isTemplate: true,
+            templateName: templateName.trim(),
+            templateDescription: templateDescription.trim()
+          });
+          await sendEphemeralEmbed(interaction, `✅ Information menu saved as template: "${templateName}"`, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
 
-          await db.updateInteractiveMenu(menuId, { pages });
-          await sendEphemeralEmbed(interaction, `✅ Page "${title}" added successfully!`, "#00FF00", "Success", false);
-          return showInteractiveMenuConfiguration(interaction, menuId);
+        if (modalType === "create_from_template") {
+          const templateId = parts[3];
+          const newName = interaction.fields.getTextInputValue("new_name");
+          const newDesc = interaction.fields.getTextInputValue("new_desc");
+
+          if (!newName || newName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu name is required.", "#FF0000", "Input Error", false);
+          }
+
+          if (!newDesc || newDesc.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu description is required.", "#FF0000", "Input Error", false);
+          }
+
+          try {
+            const newInfoMenuId = await db.createInfoMenuFromTemplate(templateId, interaction.guild.id, newName.trim(), newDesc.trim());
+            const template = db.getInfoMenu(templateId);
+            await sendEphemeralEmbed(interaction, `✅ Information menu created from template "${template.templateName}"! New menu: "${newName}"`, "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, newInfoMenuId);
+          } catch (error) {
+            console.error("Error creating info menu from template:", error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to create menu from template. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "create_from_json") {
+          const menuName = interaction.fields.getTextInputValue("menu_name");
+          const menuDesc = interaction.fields.getTextInputValue("menu_desc");
+          const jsonString = interaction.fields.getTextInputValue("raw_json_input");
+
+          if (!menuName || menuName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu name is required.", "#FF0000", "Input Error", false);
+          }
+
+          if (!menuDesc || menuDesc.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Menu description is required.", "#FF0000", "Input Error", false);
+          }
+
+          let parsedJson;
+          try {
+            parsedJson = JSON.parse(jsonString);
+          } catch (e) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "JSON Error", false);
+          }
+
+          try {
+            const newInfoMenuId = await db.createInfoMenu(interaction.guild.id, menuName.trim(), menuDesc.trim());
+            
+            // Apply JSON configuration
+            const updateData = {};
+            if (parsedJson.embedColor) updateData.embedColor = parsedJson.embedColor;
+            if (parsedJson.embedThumbnail) updateData.embedThumbnail = parsedJson.embedThumbnail;
+            if (parsedJson.embedImage) updateData.embedImage = parsedJson.embedImage;
+            if (parsedJson.embedAuthorName) updateData.embedAuthorName = parsedJson.embedAuthorName;
+            if (parsedJson.embedAuthorIconURL) updateData.embedAuthorIconURL = parsedJson.embedAuthorIconURL;
+            if (parsedJson.embedFooterText) updateData.embedFooterText = parsedJson.embedFooterText;
+            if (parsedJson.embedFooterIconURL) updateData.embedFooterIconURL = parsedJson.embedFooterIconURL;
+            if (parsedJson.selectionType) updateData.selectionType = parsedJson.selectionType;
+            if (parsedJson.useWebhook !== undefined) updateData.useWebhook = parsedJson.useWebhook;
+            
+            await db.updateInfoMenu(newInfoMenuId, updateData);
+
+            // Add pages if provided
+            if (parsedJson.pages && Array.isArray(parsedJson.pages)) {
+              for (const page of parsedJson.pages) {
+                if (page.name && page.content) {
+                  await db.saveInfoMenuPage(newInfoMenuId, {
+                    name: page.name,
+                    content: page.content
+                  });
+                }
+              }
+            }
+
+            await sendEphemeralEmbed(interaction, `✅ Information menu "${menuName}" created successfully from JSON!`, "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, newInfoMenuId);
+          } catch (error) {
+            console.error("Error creating info menu from JSON:", error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to create menu from JSON. Please try again.", "#FF0000", "Error", false);
+          }
         }
       }
     }
@@ -3021,7 +3268,12 @@ async function sendMainDashboard(interaction) {
           .setCustomId("dash:reaction-roles")
           .setLabel("Reaction Roles")
           .setStyle(ButtonStyle.Primary)
-          .setEmoji("🎭")
+          .setEmoji("🎭"),
+      new ButtonBuilder()
+          .setCustomId("dash:info-menus")
+          .setLabel("Information Menus")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("📋")
   );
   await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
@@ -3583,6 +3835,215 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         }
 
         await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
+    }
+}
+
+// ======================= Information Menu Functions =======================
+
+/**
+ * Displays the information menus dashboard, listing existing menus and providing options to create/configure.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ */
+async function showInfoMenusDashboard(interaction) {
+  const infoMenus = db.getInfoMenus(interaction.guild.id);
+
+  const embed = new EmbedBuilder()
+      .setTitle("Information Menus")
+      .setDescription("Manage your information menus here. Create flexible display systems for rules, FAQs, guides, and more!")
+      .setColor("#5865F2");
+
+  const components = [];
+
+  if (infoMenus.length > 0) {
+      const menuOptions = infoMenus.slice(0, 25).map((menu) => ({ 
+          label: menu.name.substring(0, 100), 
+          value: menu.id,
+          description: menu.desc ? menu.desc.substring(0, 100) : undefined
+      }));
+      const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId("info:selectmenu")
+          .setPlaceholder("Select a menu to configure...")
+          .addOptions(menuOptions);
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+  } else {
+      embed.setDescription("No information menus found. Create a new one to get started! Perfect for rules, FAQs, guides, and more.");
+  }
+
+  const createButton = new ButtonBuilder()
+      .setCustomId("info:create")
+      .setLabel("Create New Menu")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("➕");
+
+  const templateButton = new ButtonBuilder()
+      .setCustomId("info:browse_templates")
+      .setLabel("Create from Template")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📋");
+
+  const rawJsonButton = new ButtonBuilder()
+      .setCustomId("info:create_from_json")
+      .setLabel("Create from JSON")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("📄");
+
+  const backButton = new ButtonBuilder()
+      .setCustomId("dash:back")
+      .setLabel("Back to Dashboard")
+      .setStyle(ButtonStyle.Secondary);
+
+  components.push(new ActionRowBuilder().addComponents(createButton, templateButton, rawJsonButton));
+  components.push(new ActionRowBuilder().addComponents(backButton));
+
+  console.log(`[Debug] Info Menu Dashboard components: ${components.length} rows`);
+
+  try {
+      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+      console.error("Error displaying information menus dashboard:", error);
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the information menus dashboard.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+/**
+ * Displays the configuration options for a specific information menu.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu to configure.
+ */
+async function showInfoMenuConfiguration(interaction, infoMenuId) {
+    if (!infoMenuId || typeof infoMenuId !== 'string' || infoMenuId.length < 5) {
+      console.error(`Invalid infoMenuId provided to showInfoMenuConfiguration: ${infoMenuId}`);
+      return interaction.editReply({
+        content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const menu = db.getInfoMenu(infoMenuId);
+    if (!menu) {
+      console.error(`Info menu not found for ID: ${infoMenuId}`);
+      return interaction.editReply({ content: "Information menu not found. It might have been deleted.", flags: MessageFlags.Ephemeral });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Configuring: ${menu.name}`)
+      .setDescription(menu.desc)
+      .addFields(
+        { name: "Menu ID", value: `\`${infoMenuId}\``, inline: true },
+        { name: "Selection Type", value: menu.selectionType || "Not set", inline: true },
+        { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
+        { name: "Pages", value: menu.pages.length > 0 ? `${menu.pages.length} pages configured` : "No pages yet", inline: false },
+        { name: "Page List", value: menu.pages.length > 0 ? menu.pages.slice(0, 10).map((page, index) => `${index + 1}. ${page.name}`).join("\n") + (menu.pages.length > 10 ? `\n... and ${menu.pages.length - 10} more` : "") : "None", inline: false }
+      )
+      .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    if (menu.embedAuthorName) {
+      embed.setAuthor({
+        name: menu.embedAuthorName,
+        iconURL: menu.embedAuthorIconURL || undefined
+      });
+    }
+    if (menu.embedFooterText) {
+      embed.setFooter({
+        text: menu.embedFooterText,
+        iconURL: menu.embedFooterIconURL || undefined
+      });
+    }
+
+    embed.addFields(
+      {
+        name: "Webhook Sending",
+        value: menu.useWebhook ? "✅ Enabled" : "❌ Disabled",
+        inline: true
+      },
+      {
+        name: "Template Status",
+        value: menu.isTemplate ? `✅ "${menu.templateName}"` : "❌ Not a template",
+        inline: true
+      }
+    );
+
+    const row_publish_delete = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`info:publish:${infoMenuId}`)
+        .setLabel("Publish Menu")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(menu.pages.length === 0),
+      new ButtonBuilder()
+        .setCustomId(`info:edit_published:${infoMenuId}`)
+        .setLabel("Update Published Menu")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!menu.messageId),
+      new ButtonBuilder()
+        .setCustomId(`info:delete_published:${infoMenuId}`)
+        .setLabel("Delete Published Message")
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(!menu.messageId),
+      new ButtonBuilder()
+        .setCustomId(`info:delete_menu:${infoMenuId}`)
+        .setLabel("Delete This Menu")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("dash:info-menus")
+        .setLabel("Back to Info Dashboard")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    const row_selection_and_pages = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`info:toggle_type:dropdown:${infoMenuId}`)
+        .setLabel(menu.selectionType === "dropdown" ? "Switch to Buttons" : "Switch to Dropdown")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`info:manage_pages:${infoMenuId}`)
+        .setLabel("Manage Pages")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`info:add_page:${infoMenuId}`)
+        .setLabel("Add New Page")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("➕"),
+      new ButtonBuilder()
+        .setCustomId(`info:reorder_pages:${infoMenuId}`)
+        .setLabel("Reorder Pages")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(menu.pages.length <= 1)
+    );
+
+    const row_customization = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`info:customize_embed:${infoMenuId}`)
+        .setLabel("Customize Embed")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`info:customize_footer:${infoMenuId}`)
+        .setLabel("Customize Footer")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`info:toggle_webhook:${infoMenuId}`)
+        .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
+        .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`info:save_as_template:${infoMenuId}`)
+        .setLabel("Save as Template")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    const finalComponents = [
+      row_publish_delete,
+      row_selection_and_pages,
+      row_customization
+    ];
+
+    console.log(`[Debug] Info Menu ${infoMenuId} components: ${finalComponents.length} rows`);
+
+    try {
+      await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
+    } catch (error) {
+      console.error("Error displaying info menu configuration:", error);
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the info menu configuration.", flags: MessageFlags.Ephemeral });
     }
 }
 
