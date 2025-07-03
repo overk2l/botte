@@ -118,10 +118,6 @@ const db = {
   menus: new Map(),
   // Map to store menuId -> menuObject for quick access to menu data
   menuData: new Map(),
-  
-  // Interactive Menu System - stores content menus (separate from reaction roles)
-  interactiveMenus: new Map(),
-  interactiveMenuData: new Map(),
 
   /**
    * Loads all reaction role menus from Firestore into memory.
@@ -558,176 +554,6 @@ const db = {
       console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`);
     }
   },
-
-  // ===== INTERACTIVE MENU SYSTEM METHODS =====
-  
-  /**
-   * Creates a new interactive content menu
-   * @param {string} guildId - The guild ID where the menu is created
-   * @param {string} name - The name of the interactive menu
-   * @param {string} description - Description of the menu
-   * @returns {Promise<string>} The ID of the newly created interactive menu
-   */
-  async createInteractiveMenu(guildId, name, description) {
-    const id = `interactive_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const newMenu = {
-      guildId,
-      name,
-      description,
-      type: 'interactive', // To distinguish from reaction role menus
-      pages: [], // Array of page objects
-      channelId: null,
-      messageId: null,
-      currentPage: 0,
-      embedColor: "#5865F2",
-      embedThumbnail: null,
-      embedImage: null,
-      embedFooter: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    };
-
-    // Save to in-memory storage
-    if (!this.interactiveMenus.has(guildId)) {
-      this.interactiveMenus.set(guildId, []);
-    }
-    this.interactiveMenus.get(guildId).push(id);
-    this.interactiveMenuData.set(id, newMenu);
-
-    // Save to Firestore if enabled - DISABLED for interactive menus to avoid permission issues
-    if (false && firebaseEnabled) {
-      try {
-        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, id);
-        await setDoc(menuDocRef, newMenu);
-        console.log(`[Database] Created interactive menu with ID: ${id} (saved to Firestore)`);
-      } catch (error) {
-        console.error("[Database] Error saving interactive menu to Firestore:", error);
-      }
-    } else {
-      console.log(`[Database] Created interactive menu with ID: ${id} (memory only)`);
-    }
-
-    return id;
-  },
-
-  /**
-   * Gets all interactive menus for a guild
-   * @param {string} guildId - The guild ID
-   * @returns {Array<Object>} Array of interactive menu objects
-   */
-  getInteractiveMenus(guildId) {
-    // Interactive menus work in memory-only mode to avoid Firebase permission issues
-    return (this.interactiveMenus.get(guildId) || []).map((id) => ({ id, ...this.interactiveMenuData.get(id) }));
-  },
-
-  /**
-   * Loads interactive menus for a specific guild - DISABLED to avoid permission issues
-   * @param {string} guildId - The guild ID to load menus for
-   */
-  async loadInteractiveMenusForGuild(guildId) {
-    // Firebase operations completely disabled for interactive menus
-    console.log(`[Database] Interactive menus for guild ${guildId} running in memory-only mode.`);
-    return;
-  },
-
-  /**
-   * Gets a single interactive menu by ID
-   * @param {string} menuId - The interactive menu ID
-   * @returns {Object|undefined} The menu object or undefined if not found
-   */
-  getInteractiveMenu(menuId) {
-    return this.interactiveMenuData.get(menuId);
-  },
-
-  /**
-   * Updates an interactive menu
-   * @param {string} menuId - The menu ID to update
-   * @param {Object} data - The data to update
-   */
-  async updateInteractiveMenu(menuId, data) {
-    if (!menuId || typeof menuId !== 'string') {
-      console.warn(`[Database] Invalid menuId provided to updateInteractiveMenu: ${menuId}`);
-      return;
-    }
-
-    const menu = this.interactiveMenuData.get(menuId);
-    if (!menu) {
-      console.warn(`[Database] Attempted to update non-existent interactive menu: ${menuId}`);
-      return;
-    }
-
-    if (!data || typeof data !== 'object') {
-      console.warn(`[Database] Invalid data provided to updateInteractiveMenu for menu ${menuId}`);
-      return;
-    }
-
-    // Update timestamp
-    data.updatedAt = Date.now();
-    Object.assign(menu, data);
-
-    // Firebase operations disabled for interactive menus to avoid permission issues
-    if (false && firebaseEnabled) {
-      try {
-        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, menuId);
-        await setDoc(menuDocRef, menu, { merge: true });
-        console.log(`[Database] Updated interactive menu with ID: ${menuId}`);
-      } catch (error) {
-        console.error(`[Database] Error updating interactive menu ${menuId} in Firestore:`, error);
-      }
-    }
-  },
-
-  /**
-   * Deletes an interactive menu
-   * @param {string} menuId - The menu ID to delete
-   */
-  async deleteInteractiveMenu(menuId) {
-    if (!menuId || typeof menuId !== 'string') {
-      console.warn(`[Database] Invalid menuId provided to deleteInteractiveMenu: ${menuId}`);
-      return;
-    }
-
-    const menu = this.interactiveMenuData.get(menuId);
-    if (!menu) {
-      console.warn(`[Database] Attempted to delete non-existent interactive menu: ${menuId}`);
-      return;
-    }
-
-    // Remove from in-memory maps
-    const guildMenus = this.interactiveMenus.get(menu.guildId);
-    if (guildMenus) {
-      const index = guildMenus.indexOf(menuId);
-      if (index > -1) {
-        guildMenus.splice(index, 1);
-      }
-      if (guildMenus.length === 0) {
-        this.interactiveMenus.delete(menu.guildId);
-      }
-    }
-    this.interactiveMenuData.delete(menuId);
-
-    // Firebase operations disabled for interactive menus to avoid permission issues
-    if (false && firebaseEnabled) {
-      try {
-        const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`, menuId);
-        await deleteDoc(menuDocRef);
-        console.log(`[Database] Deleted interactive menu with ID: ${menuId} from Firestore`);
-      } catch (error) {
-        console.error(`[Database] Error deleting interactive menu ${menuId} in Firestore:`, error);
-      }
-    } else {
-      console.log(`[Database] Deleted interactive menu with ID: ${menuId} (memory only)`);
-    }
-  },
-
-  /**
-   * Loads all interactive menus from Firestore - DISABLED to avoid permission issues
-   */
-  async loadAllInteractiveMenus() {
-    console.log("[Database] Interactive menus running in memory-only mode (Firebase disabled for this feature).");
-    // Firebase operations completely disabled for interactive menus to avoid permission issues
-    return;
-  }
 };
 
 /**
@@ -1193,7 +1019,6 @@ client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   // Load all menus from Firestore when the bot starts
   await db.loadAllMenus();
-  // Note: Interactive menus will be loaded on-demand to avoid permission issues
 
   const rest = new REST().setToken(process.env.TOKEN);
   const cmd = new SlashCommandBuilder()
@@ -1233,8 +1058,6 @@ function cleanup() {
   // Clear database maps
   db.menus.clear();
   db.menuData.clear();
-  db.interactiveMenus.clear();
-  db.interactiveMenuData.clear();
   
   console.log("✅ Cleanup completed");
 }
@@ -1265,7 +1088,6 @@ client.on("interactionCreate", async (interaction) => {
   // EXCEPT for interactions that immediately show a modal.
   const isModalTrigger = (
     (interaction.isButton() && interaction.customId === "rr:create") ||
-    (interaction.isButton() && interaction.customId === "im:create") ||
     (interaction.isButton() && interaction.customId.startsWith("rr:addemoji:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:setlimits:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_embed:")) ||
@@ -1337,6 +1159,179 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
         if (action === "interactive-menus") return showInteractiveMenusDashboard(interaction);
         if (action === "back") return sendMainDashboard(interaction);
+      }
+
+      if (ctx === "im") {
+        // All interactive menu buttons require admin permissions
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.editReply({ content: "❌ You need Administrator permissions to configure interactive menus.", flags: MessageFlags.Ephemeral });
+        }
+
+        // Parse menu ID for actions that need it
+        if (["add_page", "edit_pages", "preview", "publish", "customize", "settings", "delete", "confirm_delete", "cancel_delete"].includes(action)) {
+          menuId = parts[2];
+        }
+
+        if (action === "create") {
+          const modal = new ModalBuilder()
+            .setCustomId("im:modal:create")
+            .setTitle("New Interactive Menu")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("name")
+                  .setLabel("Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter menu name (e.g., 'Server Guide')")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("description")
+                  .setLabel("Menu Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Describe what this interactive menu is for")
+                  .setMaxLength(1000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "add_page") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          
+          const modal = new ModalBuilder()
+            .setCustomId(`im:modal:add_page:${menuId}`)
+            .setTitle("Add New Page")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("title")
+                  .setLabel("Page Title")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter page title")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("content")
+                  .setLabel("Page Content")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Enter the content for this page")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "edit_pages") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ 
+            content: "📝 **Page editing is coming soon!** For now, you can add new pages and preview your menu.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
+        if (action === "preview") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getInteractiveMenu(menuId);
+          if (!menu) {
+            return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
+          }
+          if (!menu.pages?.length) {
+            return interaction.editReply({ content: "❌ This menu has no pages to preview.", flags: MessageFlags.Ephemeral });
+          }
+          return interaction.editReply({ 
+            content: "👀 **Preview feature is coming soon!** You'll be able to test your interactive menu before publishing.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
+        if (action === "publish") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getInteractiveMenu(menuId);
+          if (!menu) {
+            return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
+          }
+          if (!menu.pages?.length) {
+            return interaction.editReply({ content: "❌ Cannot publish a menu with no pages.", flags: MessageFlags.Ephemeral });
+          }
+          return interaction.editReply({ 
+            content: "🚀 **Publishing feature is coming soon!** You'll be able to publish your interactive menu to any channel.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
+        if (action === "customize") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ 
+            content: "🎨 **Customization options are coming soon!** You'll be able to customize colors, thumbnails, and more.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
+        if (action === "settings") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ 
+            content: "⚙️ **Settings panel is coming soon!** You'll be able to configure permissions, auto-delete, and other options.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
+        if (action === "delete") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          
+          const confirmButton = new ButtonBuilder()
+            .setCustomId(`im:confirm_delete:${menuId}`)
+            .setLabel("Confirm Delete")
+            .setStyle(ButtonStyle.Danger);
+          const cancelButton = new ButtonBuilder()
+            .setCustomId(`im:cancel_delete:${menuId}`)
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Secondary);
+          const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+          return interaction.editReply({
+            content: "⚠️ Are you sure you want to delete this interactive menu? This will remove all its pages and content permanently.",
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "confirm_delete") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
+          
+          const menu = db.getInteractiveMenu(menuId);
+          if (!menu) {
+            return interaction.editReply({ content: "❌ Menu not found or already deleted.", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          try {
+            await db.deleteInteractiveMenu(menuId);
+            await interaction.editReply({
+              content: "✅ Interactive menu deleted successfully!",
+              components: [],
+              flags: MessageFlags.Ephemeral
+            });
+            return showInteractiveMenusDashboard(interaction);
+          } catch (error) {
+            console.error("Error deleting interactive menu:", error);
+            return interaction.editReply({
+              content: `❌ Failed to delete menu: ${error.message}`,
+              components: [],
+              flags: MessageFlags.Ephemeral
+            });
+          }
+        }
+
+        if (action === "cancel_delete") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
+          return showInteractiveMenuConfiguration(interaction, menuId);
+        }
       }
 
       if (ctx === "rr") {
@@ -2119,93 +2114,6 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
       }
-
-      // Interactive Menu Button Handling
-      if (ctx === "im") {
-        // All interactive menu buttons require administrator permissions
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to manage interactive menus.", flags: MessageFlags.Ephemeral });
-        }
-
-        let menuId = parts[2];
-
-        if (action === "create") {
-          const modal = new ModalBuilder()
-            .setCustomId("im:modal:create")
-            .setTitle("New Interactive Menu")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("name")
-                  .setLabel("Menu Name")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Enter a name for your interactive menu")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("description")
-                  .setLabel("Menu Description")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("Describe what this interactive menu is for")
-                  .setMaxLength(1000)
-              )
-            );
-          return interaction.showModal(modal);
-        }
-
-        if (action === "delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
-          
-          const confirmButton = new ButtonBuilder()
-            .setCustomId(`im:confirm_delete:${menuId}`)
-            .setLabel("Confirm Delete")
-            .setStyle(ButtonStyle.Danger);
-          const cancelButton = new ButtonBuilder()
-            .setCustomId(`im:cancel_delete:${menuId}`)
-            .setLabel("Cancel")
-            .setStyle(ButtonStyle.Secondary);
-          const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
-
-          return interaction.editReply({
-            content: "⚠️ Are you sure you want to delete this interactive menu? This will remove all its pages and content permanently.",
-            components: [row],
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        if (action === "confirm_delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
-          
-          const menu = db.getInteractiveMenu(menuId);
-          if (!menu) {
-            return interaction.editReply({ content: "❌ Menu not found or already deleted.", components: [], flags: MessageFlags.Ephemeral });
-          }
-
-          try {
-            await db.deleteInteractiveMenu(menuId);
-            await interaction.editReply({
-              content: "✅ Interactive menu deleted successfully!",
-              components: [],
-              flags: MessageFlags.Ephemeral
-            });
-            return showInteractiveMenusDashboard(interaction);
-          } catch (error) {
-            console.error("Error deleting interactive menu:", error);
-            return interaction.editReply({
-              content: `❌ Failed to delete menu: ${error.message}`,
-              flags: MessageFlags.Ephemeral
-            });
-          }
-        }
-
-        if (action === "cancel_delete") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", components: [], flags: MessageFlags.Ephemeral });
-          return interaction.editReply({ content: "Deletion cancelled.", components: [], flags: MessageFlags.Ephemeral });
-        }
-      }
     }
 
     if (interaction.isStringSelectMenu()) {
@@ -2349,18 +2257,19 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
-      } else if (ctx === "im") {
-        // Interactive Menu String Select Handling
+      } else if (interaction.customId.startsWith("rr-role-select:")) {
+          return handleRoleInteraction(interaction);
+      }
+
+      if (ctx === "im") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to manage interactive menus.", "#FF0000", "Permission Denied", false);
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure interactive menus.", "#FF0000", "Permission Denied", false);
         }
         
         if (action === "selectmenu") {
           const targetMenuId = interaction.values[0];
           return showInteractiveMenuConfiguration(interaction, targetMenuId);
         }
-      } else if (interaction.customId.startsWith("rr-role-select:")) {
-          return handleRoleInteraction(interaction);
       }
     }
 
@@ -2801,28 +2710,53 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to create menu from template. Please try again.", "#FF0000", "Error", false);
           }
         }
-      } else if (ctx === "im" && action === "modal") {
-        // Interactive Menu Modal Handling
+      }
+
+      if (ctx === "im" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to manage interactive menus.", "#FF0000", "Permission Denied", false);
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure interactive menus.", "#FF0000", "Permission Denied", false);
         }
 
         if (modalType === "create") {
           const name = interaction.fields.getTextInputValue("name");
           const description = interaction.fields.getTextInputValue("description");
+          const newMenuId = await db.createInteractiveMenu(interaction.guild.id, name, description);
+          return showInteractiveMenuConfiguration(interaction, newMenuId);
+        }
+
+        if (modalType === "add_page") {
+          menuId = parts[3];
+          if (!menuId) return sendEphemeralEmbed(interaction, "Menu ID missing.", "#FF0000", "Error", false);
           
-          if (!name || !description) {
-            return sendEphemeralEmbed(interaction, "❌ Please provide both a name and description for the menu.", "#FF0000", "Missing Information", false);
+          const menu = db.getInteractiveMenu(menuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
           }
 
-          try {
-            const newMenuId = await db.createInteractiveMenu(interaction.guild.id, name.trim(), description.trim());
-            await sendEphemeralEmbed(interaction, `✅ Interactive menu "${name}" created successfully!`, "#00FF00", "Success", false);
-            return showInteractiveMenuConfiguration(interaction, newMenuId);
-          } catch (error) {
-            console.error("Error creating interactive menu:", error);
-            return sendEphemeralEmbed(interaction, "❌ Failed to create interactive menu. Please try again.", "#FF0000", "Error", false);
+          const title = interaction.fields.getTextInputValue("title");
+          const content = interaction.fields.getTextInputValue("content");
+          
+          if (!title || title.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Page title is required.", "#FF0000", "Input Error", false);
           }
+          
+          if (!content || content.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ Page content is required.", "#FF0000", "Input Error", false);
+          }
+
+          // Add the page to the menu
+          const pages = menu.pages || [];
+          const newPage = {
+            id: Date.now().toString(),
+            title: title.trim(),
+            content: content.trim(),
+            createdAt: Date.now()
+          };
+          pages.push(newPage);
+
+          await db.updateInteractiveMenu(menuId, { pages });
+          await sendEphemeralEmbed(interaction, `✅ Page "${title}" added successfully!`, "#00FF00", "Success", false);
+          return showInteractiveMenuConfiguration(interaction, menuId);
         }
       }
     }
@@ -3102,7 +3036,7 @@ async function sendMainDashboard(interaction) {
       new ButtonBuilder()
           .setCustomId("dash:interactive-menus")
           .setLabel("Interactive Menus")
-          .setStyle(ButtonStyle.Secondary)
+          .setStyle(ButtonStyle.Primary)
           .setEmoji("📋")
   );
   await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
@@ -3173,161 +3107,6 @@ async function showReactionRolesDashboard(interaction) {
       })), null, 2));
       await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral });
   }
-}
-
-/**
- * Displays the interactive menus dashboard, listing existing menus and providing options to create/configure.
- * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
- */
-async function showInteractiveMenusDashboard(interaction) {
-  const interactiveMenus = db.getInteractiveMenus(interaction.guild.id);
-
-  const embed = new EmbedBuilder()
-      .setTitle("Interactive Content Menus")
-      .setDescription("Create dynamic, multi-page content menus with buttons and embeds.")
-      .setColor("#5865F2");
-
-  const components = [];
-
-  if (interactiveMenus.length > 0) {
-      const menuOptions = interactiveMenus.slice(0, 25).map((menu) => ({ 
-          label: menu.name.substring(0, 100), 
-          value: menu.id,
-          description: menu.description ? menu.description.substring(0, 100) : "No description"
-      }));
-      const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId("im:selectmenu")
-          .setPlaceholder("Select an interactive menu to configure...")
-          .addOptions(menuOptions);
-      components.push(new ActionRowBuilder().addComponents(selectMenu));
-  } else {
-      embed.setDescription("No interactive menus found. Create a new one to get started!\n\nInteractive menus allow you to create dynamic content with multiple pages, buttons, and rich embeds.");
-  }
-
-  const createButton = new ButtonBuilder()
-      .setCustomId("im:create")
-      .setLabel("Create New Interactive Menu")
-      .setStyle(ButtonStyle.Success)
-      .setEmoji("➕");
-
-  const backButton = new ButtonBuilder()
-      .setCustomId("dash:back")
-      .setLabel("Back to Dashboard")
-      .setStyle(ButtonStyle.Secondary);
-
-  components.push(new ActionRowBuilder().addComponents(createButton, backButton));
-
-  try {
-      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
-  } catch (error) {
-      console.error("Error displaying interactive menus dashboard:", error);
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the interactive menus dashboard.", flags: MessageFlags.Ephemeral });
-  }
-}
-
-/**
- * Displays the configuration options for a specific interactive menu.
- * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
- * @param {string} menuId - The ID of the interactive menu to configure.
- */
-async function showInteractiveMenuConfiguration(interaction, menuId) {
-    if (!menuId || typeof menuId !== 'string') {
-        console.error(`Invalid menuId provided to showInteractiveMenuConfiguration: ${menuId}`);
-        return interaction.editReply({
-            content: "❌ Invalid menu configuration. Please select a valid menu from the dashboard.",
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    const menu = db.getInteractiveMenu(menuId);
-    if (!menu) {
-        console.error(`Interactive menu not found for ID: ${menuId}`);
-        return interaction.editReply({ 
-            content: "Interactive menu not found. It might have been deleted.", 
-            flags: MessageFlags.Ephemeral 
-        });
-    }
-
-    const embed = new EmbedBuilder()
-        .setTitle(`📋 Configuring: ${menu.name}`)
-        .setDescription(menu.description)
-        .addFields(
-            { name: "Menu ID", value: `\`${menuId}\``, inline: true },
-            { name: "Pages", value: `${menu.pages?.length || 0} pages`, inline: true },
-            { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
-            { name: "Created", value: `<t:${Math.floor(menu.createdAt / 1000)}:R>`, inline: true },
-            { name: "Updated", value: `<t:${Math.floor(menu.updatedAt / 1000)}:R>`, inline: true }
-        )
-        .setColor(menu.embedColor || "#5865F2");
-
-    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
-    if (menu.embedImage) embed.setImage(menu.embedImage);
-
-    const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`im:add_page:${menuId}`)
-            .setLabel("Add Page")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("➕"),
-        new ButtonBuilder()
-            .setCustomId(`im:edit_pages:${menuId}`)
-            .setLabel("Edit Pages")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("✏️")
-            .setDisabled(!menu.pages?.length),
-        new ButtonBuilder()
-            .setCustomId(`im:preview:${menuId}`)
-            .setLabel("Preview Menu")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("👀")
-            .setDisabled(!menu.pages?.length),
-        new ButtonBuilder()
-            .setCustomId(`im:publish:${menuId}`)
-            .setLabel("Publish Menu")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("🚀")
-            .setDisabled(!menu.pages?.length)
-    );
-
-    const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`im:customize:${menuId}`)
-            .setLabel("Customize Appearance")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("🎨"),
-        new ButtonBuilder()
-            .setCustomId(`im:settings:${menuId}`)
-            .setLabel("Menu Settings")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⚙️"),
-        new ButtonBuilder()
-            .setCustomId(`im:delete:${menuId}`)
-            .setLabel("Delete Menu")
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji("🗑️")
-    );
-
-    const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId("dash:interactive-menus")
-            .setLabel("Back to IM Dashboard")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️")
-    );
-
-    try {
-        await interaction.editReply({ 
-            embeds: [embed], 
-            components: [row1, row2, row3], 
-            flags: MessageFlags.Ephemeral 
-        });
-    } catch (error) {
-        console.error("Error displaying interactive menu configuration:", error);
-        await interaction.editReply({ 
-            content: "❌ Something went wrong while displaying the menu configuration.", 
-            flags: MessageFlags.Ephemeral 
-        });
-    }
 }
 
 /**
