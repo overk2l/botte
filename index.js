@@ -2310,29 +2310,11 @@ client.on("interactionCreate", async (interaction) => {
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("menu_name")
-                  .setLabel("Menu Name")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Rules, FAQ, Guide, etc.")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("menu_desc")
-                  .setLabel("Menu Description")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("Brief description of what this menu contains")
-                  .setMaxLength(1000)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
                   .setCustomId("raw_json_input")
                   .setLabel("JSON Configuration")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"embedColor": "#5865F2", "pages": [{"name": "Rules", "content": {"title": "Rules"}}]}')
+                  .setPlaceholder('{"name": "Server Rules", "desc": "All server rules", "embedColor": "#5865F2"}')
                   .setMaxLength(4000)
               )
             );
@@ -3241,23 +3223,25 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "create_from_json") {
-          const menuName = interaction.fields.getTextInputValue("menu_name");
-          const menuDesc = interaction.fields.getTextInputValue("menu_desc");
           const jsonString = interaction.fields.getTextInputValue("raw_json_input");
-
-          if (!menuName || menuName.trim().length === 0) {
-            return sendEphemeralEmbed(interaction, "❌ Menu name is required.", "#FF0000", "Input Error", false);
-          }
-
-          if (!menuDesc || menuDesc.trim().length === 0) {
-            return sendEphemeralEmbed(interaction, "❌ Menu description is required.", "#FF0000", "Input Error", false);
-          }
 
           let parsedJson;
           try {
             parsedJson = JSON.parse(jsonString);
           } catch (e) {
             return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please ensure it's valid JSON.", "#FF0000", "JSON Error", false);
+          }
+
+          // Extract required fields from JSON
+          const menuName = parsedJson.name;
+          const menuDesc = parsedJson.desc || parsedJson.description;
+
+          if (!menuName || typeof menuName !== 'string' || menuName.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ JSON must include a 'name' field with the menu name.", "#FF0000", "Missing Name", false);
+          }
+
+          if (!menuDesc || typeof menuDesc !== 'string' || menuDesc.trim().length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ JSON must include a 'desc' or 'description' field with the menu description.", "#FF0000", "Missing Description", false);
           }
 
           try {
@@ -3274,6 +3258,8 @@ client.on("interactionCreate", async (interaction) => {
             if (parsedJson.embedFooterIconURL) updateData.embedFooterIconURL = parsedJson.embedFooterIconURL;
             if (parsedJson.selectionType) updateData.selectionType = parsedJson.selectionType;
             if (parsedJson.useWebhook !== undefined) updateData.useWebhook = parsedJson.useWebhook;
+            if (parsedJson.webhookName) updateData.webhookName = parsedJson.webhookName;
+            if (parsedJson.webhookAvatar) updateData.webhookAvatar = parsedJson.webhookAvatar;
             
             await db.updateInfoMenu(newInfoMenuId, updateData);
 
