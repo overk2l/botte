@@ -1536,7 +1536,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:save_as_template:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:publish:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:create_from_template:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template"))
+    (interaction.isButton() && interaction.customId.startsWith("info:reorder_pages:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -2776,7 +2778,7 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "reorder_pages") {
           const menu = db.getInfoMenu(infoMenuId);
           if (!menu) {
-            return interaction.reply({
+            return interaction.editReply({
               content: "❌ Information menu not found.",
               flags: MessageFlags.Ephemeral
             });
@@ -2784,7 +2786,7 @@ client.on("interactionCreate", async (interaction) => {
 
           const pages = db.getInfoMenuPages(infoMenuId);
           if (!pages || pages.length < 2) {
-            return interaction.reply({
+            return interaction.editReply({
               content: "❌ You need at least 2 pages to reorder them.",
               flags: MessageFlags.Ephemeral
             });
@@ -3169,7 +3171,7 @@ client.on("interactionCreate", async (interaction) => {
           const [pageAction, pageId] = interaction.values[0].split(":");
 
           if (!infoMenuId || !pageAction || !pageId) {
-            return interaction.reply({
+            return interaction.editReply({
               content: "❌ Invalid page action selection.",
               flags: MessageFlags.Ephemeral
             });
@@ -3177,7 +3179,7 @@ client.on("interactionCreate", async (interaction) => {
 
           const menu = db.getInfoMenu(infoMenuId);
           if (!menu) {
-            return interaction.reply({
+            return interaction.editReply({
               content: "❌ Information menu not found.",
               flags: MessageFlags.Ephemeral
             });
@@ -3185,7 +3187,7 @@ client.on("interactionCreate", async (interaction) => {
 
           const page = db.getInfoMenuPage(infoMenuId, pageId);
           if (!page) {
-            return interaction.reply({
+            return interaction.editReply({
               content: "❌ Page not found.",
               flags: MessageFlags.Ephemeral
             });
