@@ -616,7 +616,49 @@ const db = {
    * @returns {Array<Object>} Array of interactive menu objects
    */
   getInteractiveMenus(guildId) {
+    // Try to load from Firebase on first access if not loaded yet
+    if (!this.interactiveMenus.has(guildId) && firebaseEnabled) {
+      // Don't await - this will load in background
+      this.loadInteractiveMenusForGuild(guildId).catch(error => {
+        console.warn(`[Database] Could not load interactive menus for guild ${guildId}:`, error.message);
+      });
+    }
     return (this.interactiveMenus.get(guildId) || []).map((id) => ({ id, ...this.interactiveMenuData.get(id) }));
+  },
+
+  /**
+   * Loads interactive menus for a specific guild (used for on-demand loading)
+   * @param {string} guildId - The guild ID to load menus for
+   */
+  async loadInteractiveMenusForGuild(guildId) {
+    if (!firebaseEnabled) return;
+
+    try {
+      const menusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/interactive_menus`);
+      const querySnapshot = await getDocs(menusCollectionRef);
+
+      querySnapshot.forEach(doc => {
+        const menu = doc.data();
+        const menuId = doc.id;
+        
+        // Only load menus for the specific guild
+        if (menu.guildId === guildId) {
+          if (!this.interactiveMenus.has(guildId)) {
+            this.interactiveMenus.set(guildId, []);
+          }
+          
+          // Avoid duplicates
+          if (!this.interactiveMenus.get(guildId).includes(menuId)) {
+            this.interactiveMenus.get(guildId).push(menuId);
+          }
+          this.interactiveMenuData.set(menuId, menu);
+        }
+      });
+      console.log(`[Database] Loaded ${this.interactiveMenus.get(guildId)?.length || 0} interactive menus for guild ${guildId}.`);
+    } catch (error) {
+      // Don't throw the error, just log it
+      console.warn(`[Database] Could not load interactive menus for guild ${guildId}:`, error.message);
+    }
   },
 
   /**
@@ -736,7 +778,9 @@ const db = {
       });
       console.log(`[Database] Loaded ${this.interactiveMenuData.size} interactive menus from Firestore.`);
     } catch (error) {
-      console.error("[Database] Error loading interactive menus:", error);
+      // Don't fail startup if interactive menus can't be loaded
+      console.warn("[Database] Could not load interactive menus:", error.message);
+      console.warn("[Database] Interactive menus will work in memory-only mode.");
     }
   }
 };
@@ -1204,7 +1248,7 @@ client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   // Load all menus from Firestore when the bot starts
   await db.loadAllMenus();
-  await db.loadAllInteractiveMenus();
+  // Note: Interactive menus will be loaded on-demand to avoid permission issues
 
   const rest = new REST().setToken(process.env.TOKEN);
   const cmd = new SlashCommandBuilder()
@@ -1276,6 +1320,7 @@ client.on("interactionCreate", async (interaction) => {
   // EXCEPT for interactions that immediately show a modal.
   const isModalTrigger = (
     (interaction.isButton() && interaction.customId === "rr:create") ||
+    (interaction.isButton() && interaction.customId === "im:create") ||
     (interaction.isButton() && interaction.customId.startsWith("rr:addemoji:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:setlimits:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:customize_embed:")) ||
