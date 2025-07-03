@@ -680,6 +680,101 @@ function setRoleInteractionCooldown(userId) {
 }
 
 /**
+ * Helper function to send a rich embed notification for role changes.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string[]} addedRoles - Array of role IDs that were added.
+ * @param {string[]} removedRoles - Array of role IDs that were removed.
+ * @param {import('discord.js').GuildMember} member - The member whose roles changed.
+ * @param {boolean} [autoDelete=true] - Whether to auto-delete the message after 6 seconds.
+ * @returns {Promise<import('discord.js').Message>} The sent message.
+ */
+async function sendRoleChangeNotification(interaction, addedRoles, removedRoles, member, autoDelete = true) {
+    if (!interaction || (!addedRoles.length && !removedRoles.length)) {
+        return;
+    }
+
+    const embed = new EmbedBuilder()
+        .setAuthor({
+            name: member.displayName,
+            iconURL: member.user.displayAvatarURL({ dynamic: true })
+        })
+        .setTimestamp()
+        .setFooter({
+            text: "Role Update",
+            iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
+        });
+
+    // Build description based on role changes
+    let description = "";
+    let color = "#5865F2"; // Default Discord blurple
+
+    if (addedRoles.length > 0) {
+        const addedRoleNames = addedRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            return role ? `<@&${roleId}>` : 'Unknown Role';
+        });
+        
+        description += `**✅ Roles Added:**\n${addedRoleNames.join('\n')}\n\n`;
+        color = "#00FF00"; // Green for additions
+    }
+
+    if (removedRoles.length > 0) {
+        const removedRoleNames = removedRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            return role ? `<@&${roleId}>` : 'Unknown Role';
+        });
+        
+        description += `**❌ Roles Removed:**\n${removedRoleNames.join('\n')}`;
+        color = addedRoles.length > 0 ? "#FFFF00" : "#FF6B6B"; // Yellow for mixed, red for only removals
+    }
+
+    embed.setDescription(description.trim()).setColor(color);
+
+    let message;
+    try {
+        // Check if interaction has already been replied/deferred
+        if (interaction.replied || interaction.deferred) {
+            message = await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
+        } else {
+            message = await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
+    } catch (error) {
+        console.error("Error sending role change notification:", error);
+        // Fallback to followUp
+        try {
+            message = await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        } catch (followUpError) {
+            console.error("Error sending follow-up role notification:", followUpError);
+            return;
+        }
+    }
+
+    // Auto-delete the ephemeral message after 6 seconds if autoDelete is true
+    if (message && autoDelete) {
+        const timeoutId = setTimeout(async () => {
+            try {
+                // For ephemeral messages, we can't fetch them, so just try to delete
+                await interaction.deleteReply().catch(() => {
+                    // Silently fail if already deleted
+                });
+            } catch (e) {
+                // Silently fail if message is already deleted or no permission
+            }
+            
+            // Clean up timeout reference
+            if (ephemeralTimeouts.has(interaction.id)) {
+                ephemeralTimeouts.delete(interaction.id);
+            }
+        }, 6000);
+
+        // Store timeout reference
+        ephemeralTimeouts.set(interaction.id, timeoutId);
+    }
+
+    return message;
+}
+
+/**
  * Sends an ephemeral embed reply or follow-up to an interaction.
  * The message will be automatically deleted after 6 seconds if autoDelete is true.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
@@ -2504,7 +2599,6 @@ async function handleRoleInteraction(interaction) {
         const currentRoles = new Set(member.roles.cache.map(r => r.id));
         
         let newRoles = new Set(currentRoles);
-        let messages = [];
 
         console.log(`[DEBUG] Current roles before interaction:`, Array.from(currentRoles));
 
@@ -2575,8 +2669,7 @@ async function handleRoleInteraction(interaction) {
                     if (newRoles.has(excludedRoleId)) {
                         newRoles.delete(excludedRoleId);
                         const excludedRole = interaction.guild.roles.cache.get(excludedRoleId);
-                        messages.push(`Removed conflicting role: ${excludedRole?.name || 'Unknown Role'}`);
-                        console.log(`[DEBUG] Excluded role due to conflict: ${excludedRoleId}`);
+                        console.log(`[DEBUG] Excluded role due to conflict: ${excludedRoleId} (${excludedRole?.name || 'Unknown Role'})`);
                     }
                 }
             }
@@ -2614,15 +2707,6 @@ async function handleRoleInteraction(interaction) {
         const validRolesToAdd = rolesToAdd.filter(id => interaction.guild.roles.cache.has(id));
         const validRolesToRemove = rolesToRemove.filter(id => interaction.guild.roles.cache.has(id));
 
-        // Generate success messages
-        validRolesToAdd.forEach(id => {
-            messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
-        });
-        
-        validRolesToRemove.forEach(id => {
-            messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
-        });
-
         // Apply role changes
         if (validRolesToAdd.length > 0) {
             await member.roles.add(validRolesToAdd);
@@ -2631,9 +2715,9 @@ async function handleRoleInteraction(interaction) {
             await member.roles.remove(validRolesToRemove);
         }
 
-        // Send feedback
-        if (messages.length > 0) {
-            await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
+        // Send rich embed notification for role changes
+        if (validRolesToAdd.length > 0 || validRolesToRemove.length > 0) {
+            await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
         } else {
             await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
         }
