@@ -1901,9 +1901,9 @@ client.on("interactionCreate", async (interaction) => {
         const allMenuRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const currentMenuRolesHeldByMember = currentMemberRoleIds.filter(id => allMenuRoleIds.includes(id));
 
-        console.log(`[Debug] Current member roles (fresh fetch):`, currentMemberRoleIds.length);
-        console.log(`[Debug] All menu roles:`, allMenuRoleIds);
-        console.log(`[Debug] Current menu roles held by member from this menu:`, currentMenuRolesHeldByMember);
+        console.log(`[Debug] Current member roles (fresh fetch):`, currentMemberRoleIds); // Log full array
+        console.log(`[Debug] All menu roles:`, allMenuRoleIds); // Log full array
+        console.log(`[Debug] Current menu roles held by member from this menu:`, currentMenuRolesHeldByMember); // Log full array
 
         if (interaction.isStringSelectMenu()) {
             // For dropdowns, calculate the difference between current roles and selected roles
@@ -1925,6 +1925,9 @@ client.on("interactionCreate", async (interaction) => {
             }
         }
 
+        console.log(`[Debug] Roles identified for initial add:`, rolesToAdd);
+        console.log(`[Debug] Roles identified for initial remove:`, rolesToRemove);
+
         // Handle exclusions: if a role is being added, check if it excludes any existing roles
         let rolesToRemoveByExclusion = [];
         for (const roleIdBeingAdded of rolesToAdd) {
@@ -1941,8 +1944,8 @@ client.on("interactionCreate", async (interaction) => {
         rolesToRemove.push(...rolesToRemoveByExclusion);
         rolesToRemove = [...new Set(rolesToRemove)]; // Ensure no duplicates in rolesToRemove
 
-        console.log(`[Debug] Final roles to add:`, rolesToAdd);
-        console.log(`[Debug] Final roles to remove:`, rolesToRemove);
+        console.log(`[Debug] Final roles to add (after exclusions check):`, rolesToAdd);
+        console.log(`[Debug] Final roles to remove (after exclusions check):`, rolesToRemove);
 
         // Calculate the potential new set of roles after this interaction for limit checks
         let potentialNewRoleIds = [...currentMemberRoleIds];
@@ -1971,7 +1974,7 @@ client.on("interactionCreate", async (interaction) => {
         // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
         const potentialMenuRoleIds = potentialNewRoleIds.filter(id => allMenuRoleIds.includes(id));
 
-        console.log(`[Debug] Potential menu roles after change:`, potentialMenuRoleIds);
+        console.log(`[Debug] Potential menu roles after change (for limit checks):`, potentialMenuRoleIds);
 
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, potentialMenuRoleIds);
@@ -2079,7 +2082,7 @@ async function promptManageRoles(interaction, menuId, type) {
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(`rr:save_managed_roles:${type}:${menuId}`)
-    .setPlaceholder("Select/Deselect your " + type + " roles...") // Coerce to string
+    .setPlaceholder( (val => { console.log("Setting placeholder for 'select_roles' in promptManageRoles:", val, typeof val); return val; })("Select/Deselect your " + type + " roles...")) // Coerce to string
     .setMinValues(0)
     .setMaxValues(Math.min(allRoles.size, 25))
     .addOptions(roleOptions);
