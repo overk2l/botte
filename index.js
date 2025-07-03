@@ -153,7 +153,6 @@ const db = {
     // Generate a unique ID for the new menu
     const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
     const newMenu = {
-      id: id,
       guildId,
       name,
       desc,
@@ -243,7 +242,7 @@ const db = {
     if (firebaseEnabled) {
       try {
         const menuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/reaction_role_menus`, menuId);
-        await setDoc(menuDocRef, menu); // Overwrite with updated data in Firestore
+        await setDoc(menuDocRef, menu, { merge: true }); // Use merge: true to prevent overwriting fields not in `data`
         console.log(`[Database] Updated menu with ID: ${menuId}`);
       } catch (error) {
         console.error(`[Database] Error updating menu ${menuId} in Firestore:`, error);
@@ -593,7 +592,7 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
     try {
         const originalChannel = await guild.channels.fetch(menu.channelId);
         if (!originalChannel) {
-            console.error(`Channel ${menu.channelId} not found for menu ${menu.id}`);
+            console.error(`Channel ${menu.channelId} not found for menu ${menuId}`);
             return;
         }
 
@@ -620,7 +619,7 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
 
             if (dropdownOptions.length > 0) {
                 const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`rr-role-select:${menu.id}`)
+                    .setCustomId(`rr-role-select:${menuId}`)
                     .setPlaceholder("Select your roles...")
                     .setMinValues(0)
                     .setMaxValues(dropdownOptions.length)
@@ -642,7 +641,7 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                 if (!role) continue;
 
                 const button = new ButtonBuilder()
-                    .setCustomId(`rr-role-button:${menu.id}:${role.id}`)
+                    .setCustomId(`rr-role-button:${menuId}:${role.id}`)
                     .setLabel(role.name)
                     .setStyle(ButtonStyle.Secondary); // Always set to secondary
 
@@ -673,8 +672,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
             await webhook.editMessage(originalMessage.id, {
                 embeds: [publishedEmbed],
                 components,
-                username: menu.webhookName || interaction.guild.me?.displayName || client.user.displayName,
-                avatarURL: menu.webhookAvatar || interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL(),
+                username: menu.webhookName || client.user.displayName,
+                avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
             });
         } else {
             await originalMessage.edit({ embeds: [publishedEmbed], components });
@@ -684,8 +683,8 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
         console.error("Error updating published message components:", error);
         // If the message or channel is gone, clear the message ID from the menu
         if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
-            console.log(`Clearing message ID for menu ${menu.id} due to channel/message access error.`);
-            await db.clearMessageId(menu.id);
+            console.log(`Clearing message ID for menu ${menuId} due to channel/message access error.`);
+            await db.clearMessageId(menuId);
         }
     }
 }
@@ -1850,267 +1849,140 @@ client.on("interactionCreate", async (interaction) => {
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
 
-        console.log(`[Interaction] Role interaction: customId=${interaction.customId}`); // Diagnostic log
-        console.log(`[Interaction] Interaction type: ${interaction.isButton() ? 'Button' : 'Select Menu'}`);
-        
-        const parts = interaction.customId.split(":");
-        console.log(`[Interaction] Custom ID parts: ${JSON.stringify(parts)}`); // Diagnostic log
-        console.log(`[Interaction] Parts length: ${parts.length}`);
-
         // Ensure interaction is deferred if it wasn't already
         if (!interaction.replied && !interaction.deferred) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
         }
 
+        const parts = interaction.customId.split(":");
         const menuId = parts[1];
-        
-        // Enhanced debugging for menuId
-        console.log(`[Debug] Extracted menuId: "${menuId}"`);
-        console.log(`[Debug] MenuId type: ${typeof menuId}`);
-        console.log(`[Debug] MenuId length: ${menuId ? menuId.length : 'undefined/null'}`);
         
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
-            
-            // Try to find which menu this message belongs to
-            const messageId = interaction.message?.id;
-            const channelId = interaction.channel?.id;
-            
-            if (messageId && channelId) {
-                console.log(`[Debug] Attempting to find menu for message ${messageId} in channel ${channelId}`);
-                
-                // Search all menus to find one with this message ID
-                let foundMenuId = null;
-                for (const [id, menuData] of db.menuData.entries()) {
-                    if (menuData.messageId === messageId && menuData.channelId === channelId) {
-                        foundMenuId = id;
-                        console.log(`[Debug] Found menu ID ${id} for orphaned message`);
-                        break;
-                    }
-                }
-                
-                if (foundMenuId) {
-                    await sendEphemeralEmbed(interaction, 
-                        "⚠️ This reaction role message has an invalid configuration. Please ask an administrator to use '/dashboard' and republish this menu to fix it.", 
-                        "#FFA500", 
-                        "Configuration Error"
-                    ); // Auto-delete is default true
-                    return;
-                }
-            }
-            
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error"); // Auto-delete is default true
-        }
-        
-        // Enhanced debugging for menu lookup
-        console.log(`[Debug] Looking up menu with ID: "${menuId}"`);
-        
-        // Try to get all available menus for debugging (if such method exists)
-        try {
-            if (typeof db.getAllMenuIds === 'function') {
-                console.log(`[Debug] Available menu IDs:`, db.getAllMenuIds());
-            } else {
-                console.log(`[Debug] db.getAllMenuIds() method not available for listing all menu IDs.`);
-            }
-        } catch (debugError) {
-            console.log(`[Debug] Could not retrieve all menu IDs:`, debugError.message);
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
         }
         
         const menu = db.getMenu(menuId);
-        console.log(`[Debug] Menu lookup result:`, menu);
-        console.log(`[Debug] Menu exists: ${!!menu}`);
-        console.log(`[Debug] Menu type: ${typeof menu}`);
         
         if (!menu) {
-            console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId} during user interaction. CustomId: ${interaction.customId}`);
-            
-            // Additional debugging info
-            console.error(`[Error] Debug info:`);
-            console.error(`  - Full customId: ${interaction.customId}`);
-            console.error(`  - Split parts: ${JSON.stringify(parts)}`);
-            console.error(`  - Extracted menuId: "${menuId}"`);
-            console.error(`  - Interaction guild: ${interaction.guild.id}`);
-            console.error(`  - Interaction channel: ${interaction.channel.id}`);
-            console.error(`  - Interaction message: ${interaction.message?.id}`);
-            
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted. If this happens after a bot restart, ensure Firebase is configured for data persistence.", "#FF0000", "Error"); // Auto-delete is default true
+            console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
+            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
         }
 
-        // Fetch the member again to ensure we have the absolute latest role cache
         const member = await interaction.guild.members.fetch(interaction.user.id);
-
-        // Log menu structure for debugging
-        console.log(`[Debug] Menu structure:`, {
-            id: menu.id || 'NO ID PROPERTY',
-            guildId: menu.guildId,
-            name: menu.name,
-            dropdownRoles: menu.dropdownRoles?.length || 0,
-            buttonRoles: menu.buttonRoles?.length || 0,
-            hasExclusionMap: !!menu.exclusionMap,
-            maxRolesLimit: menu.maxRolesLimit
-        });
-
-        const selectedInteractionRoleIds = interaction.isStringSelectMenu() ? interaction.values : [interaction.customId.split(":")[2]];
-        console.log(`[Debug] Selected role IDs from interaction:`, selectedInteractionRoleIds);
-
-        let rolesToAdd = [];
-        let rolesToRemove = [];
+        const currentMemberRoleIds = new Set(member.roles.cache.map(r => r.id));
+        let targetRoleIds = new Set(currentMemberRoleIds); // This will be our desired final state
         let messages = [];
 
-        const currentMemberRoleIds = member.roles.cache.map(r => r.id); // All roles the member currently has
-
-        // Determine which set of roles from the menu are relevant to this specific interaction
-        let rolesManagedByThisComponent;
         if (interaction.isStringSelectMenu()) {
-            rolesManagedByThisComponent = menu.dropdownRoles || [];
+            const selectedDropdownRoles = new Set(interaction.values);
+            const allDropdownRolesForMenu = new Set(menu.dropdownRoles || []);
+
+            // **FIXED LOGIC**
+            // 1. Remove all dropdown roles the member currently has to get a clean slate.
+            allDropdownRolesForMenu.forEach(roleId => targetRoleIds.delete(roleId));
+
+            // 2. Add back only the ones that were selected in the dropdown.
+            selectedDropdownRoles.forEach(roleId => targetRoleIds.add(roleId));
+
         } else { // Button interaction
-            rolesManagedByThisComponent = menu.buttonRoles || [];
-        }
-
-        // Filter the member's current roles to only include those that are managed by THIS specific component type
-        const currentRolesHeldByMemberForThisComponent = currentMemberRoleIds.filter(id => rolesManagedByThisComponent.includes(id));
-
-        console.log(`[Debug] Current roles held by member for THIS component type (${interaction.isStringSelectMenu() ? 'dropdown' : 'button'}):`, currentRolesHeldByMemberForThisComponent);
-
-        if (interaction.isStringSelectMenu()) {
-            // For dropdowns, calculate the difference between current roles (relevant to dropdown) and selected roles
-            rolesToAdd = selectedInteractionRoleIds.filter(roleId => !currentRolesHeldByMemberForThisComponent.includes(roleId));
-            rolesToRemove = currentRolesHeldByMemberForThisComponent.filter(roleId => !selectedInteractionRoleIds.includes(roleId));
-
-        } else { // Button interaction (already behaves as a toggle)
-            const clickedRoleId = selectedInteractionRoleIds[0];
-            if (currentMemberRoleIds.includes(clickedRoleId)) { // Check against ALL current member roles
-                rolesToRemove.push(clickedRoleId);
-                console.log(`[Debug] Role will be removed (user has it)`);
+            const clickedRoleId = parts[2];
+            // Toggle the role in the target set
+            if (targetRoleIds.has(clickedRoleId)) {
+                targetRoleIds.delete(clickedRoleId);
             } else {
-                rolesToAdd.push(clickedRoleId);
-                console.log(`[Debug] Role will be added (user doesn't have it)`);
+                targetRoleIds.add(clickedRoleId);
             }
         }
-
-        console.log(`[Debug] Roles identified for initial add:`, rolesToAdd);
-        console.log(`[Debug] Roles identified for initial remove:`, rolesToRemove);
-
-        // Calculate the potential new set of roles after this interaction for limit checks
-        let potentialNewRoleIds = [...currentMemberRoleIds]; // Start with all roles the user currently has
-
-        // Apply roles determined for addition
-        rolesToAdd.forEach(roleId => {
-            if (!potentialNewRoleIds.includes(roleId)) { // Avoid duplicates if already present
-                potentialNewRoleIds.push(roleId);
-            }
-        });
-
-        // Apply roles determined for removal
-        rolesToRemove.forEach(roleId => {
-            potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
-        });
         
+        let potentialNewRoleIds = Array.from(targetRoleIds);
+
         // Handle exclusions: if a role is being added, check if it excludes any existing roles
-        let rolesToRemoveByExclusion = [];
-        for (const roleIdBeingAdded of rolesToAdd) { // Exclusions only happen when a role is added
+        let rolesToRemoveByExclusion = new Set();
+        const rolesAddedInThisInteraction = potentialNewRoleIds.filter(id => !currentMemberRoleIds.has(id));
+
+        for (const roleIdBeingAdded of rolesAddedInThisInteraction) {
             if (menu.exclusionMap && menu.exclusionMap[roleIdBeingAdded]) {
-                const excludedRolesForThisAdd = menu.exclusionMap[roleIdBeingAdded].filter(id => potentialNewRoleIds.includes(id)); // Check against potential roles
-                if (excludedRolesForThisAdd.length > 0) {
-                    rolesToRemoveByExclusion.push(...excludedRolesForThisAdd);
-                    const removedRoleNames = excludedRolesForThisAdd.map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
-                    messages.push(`Removed conflicting roles: ${removedRoleNames}`);
-                    console.log(`[Debug] Exclusions triggered - removing:`, excludedRolesForThisAdd);
-                }
+                menu.exclusionMap[roleIdBeingAdded].forEach(excludedId => {
+                    if (targetRoleIds.has(excludedId)) { // Check if the target set has the role to be excluded
+                        rolesToRemoveByExclusion.add(excludedId);
+                    }
+                });
             }
         }
-        // Apply exclusion removals to potentialNewRoleIds
-        rolesToRemoveByExclusion.forEach(roleId => {
-            potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
-        });
-        rolesToRemove.push(...rolesToRemoveByExclusion); // Add these to the final rolesToRemove list for messages/logging
-        rolesToRemove = [...new Set(rolesToRemove)]; // Deduplicate
 
-        potentialNewRoleIds = [...new Set(potentialNewRoleIds)]; // Final deduplication for limit check
+        if (rolesToRemoveByExclusion.size > 0) {
+            const removedRoleNames = Array.from(rolesToRemoveByExclusion).map(id => interaction.guild.roles.cache.get(id)?.name || 'Unknown Role').join(', ');
+            messages.push(`Removed conflicting roles: ${removedRoleNames}`);
+            // Remove the excluded roles from our target set
+            rolesToRemoveByExclusion.forEach(id => targetRoleIds.delete(id));
+            potentialNewRoleIds = Array.from(targetRoleIds); // Update potential roles
+        }
 
-        // Filter potentialNewRoleIds to only include roles from THIS menu for limit checks
-        // Limits apply to roles *from this menu*, regardless of component type.
         const allMenuRoleIdsForLimitCheck = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         const potentialMenuRoleIdsForLimitCheck = potentialNewRoleIds.filter(id => allMenuRoleIdsForLimitCheck.includes(id));
-
-        console.log(`[Debug] Final roles to add (after exclusions check):`, rolesToAdd);
-        console.log(`[Debug] Final roles to remove (after exclusions check):`, rolesToRemove);
-        console.log(`[Debug] Potential menu roles after change (for limit checks):`, potentialMenuRoleIdsForLimitCheck);
 
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, potentialMenuRoleIdsForLimitCheck);
         if (regionalViolations.length > 0) {
-            console.log(`[Debug] Regional limit violations:`, regionalViolations);
-            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded"); // Auto-delete is default true
-            await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
+            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
+            await updatePublishedMessageComponents(interaction, menu, menuId);
             return;
         }
 
         // Check overall max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (potentialMenuRoleIdsForLimitCheck.length > menu.maxRolesLimit) {
-                console.log(`[Debug] Max roles limit exceeded: ${potentialMenuRoleIdsForLimitCheck.length} > ${menu.maxRolesLimit}`);
-                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded"); // Auto-delete is default true
-                await updatePublishedMessageComponents(interaction, menu, menuId); // Re-sync components on published message
+                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
+                await updatePublishedMessageComponents(interaction, menu, menuId);
                 return;
             }
         }
 
-        // Add success/remove messages for roles based on final add/remove lists
+        // Determine final roles to add and remove by comparing current state with target state
+        const rolesToAdd = potentialNewRoleIds.filter(id => !currentMemberRoleIds.has(id));
+        const rolesToRemove = Array.from(currentMemberRoleIds).filter(id => !targetRoleIds.has(id));
+
+        // Add success/remove messages
         rolesToAdd.forEach(id => {
             messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", id));
         });
         rolesToRemove.forEach(id => {
-            // Only add a remove message if the role was actually removed by the user's action or exclusion
-            if (currentMemberRoleIds.includes(id)) { // Only if the member actually had the role
-                messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
-            }
+            messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", id));
         });
 
         try {
-            if (rolesToAdd.length > 0) {
-                console.log(`[Debug] Adding roles:`, rolesToAdd);
-                await member.roles.add(rolesToAdd);
-            }
-            if (rolesToRemove.length > 0) {
-                console.log(`[Debug] Removing roles:`, rolesToRemove);
-                await member.roles.remove(rolesToRemove);
-            }
+            if (rolesToAdd.length > 0) await member.roles.add(rolesToAdd);
+            if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
 
             if (messages.length > 0) {
-                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update"); // Auto-delete is default true
+                await sendEphemeralEmbed(interaction, messages.join("\n"), "#00FF00", "Role Update");
             } else {
-                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change"); // Auto-delete is default true
+                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
             }
 
-            console.log(`[Debug] About to update published message components`);
-            // Update the original published message components to reflect current selections
             await updatePublishedMessageComponents(interaction, menu, menuId);
-            console.log(`[Debug] Published message components updated successfully`);
 
         } catch (error) {
             console.error("Error updating roles:", error);
-            console.error("Error stack:", error.stack);
-            
             if (error.code === 50013) { // Missing Permissions
-                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error"); // Auto-delete is default true
+                await sendEphemeralEmbed(interaction, "❌ I don't have permission to manage these roles. Please check my role permissions and ensure my role is above the roles I need to manage.", "#FF0000", "Permission Error");
             } else {
-                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error"); // Auto-delete is default true
+                await sendEphemeralEmbed(interaction, "❌ There was an error updating your roles. Please try again later.", "#FF0000", "Error");
             }
         }
     }
 
     } catch (error) {
         console.error("Unhandled error during interaction:", error);
-        // Fallback error reply if no other reply has been sent
         if (!interaction.replied && !interaction.deferred) {
             try {
                 await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
             } catch (replyError) {
-                console.error("Error sending error reply:", replyError);
+                console.error("Error sending fallback error reply:", replyError);
             }
         } else {
-            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error"); // Auto-delete is default true
+            await sendEphemeralEmbed(interaction, "❌ An unexpected error occurred. Please try again.", "#FF0000", "Error");
         }
     }
 });
@@ -2253,14 +2125,11 @@ async function showMenuConfiguration(interaction, menuId) {
     return interaction.editReply({ content: "Menu not found. It might have been deleted.", flags: MessageFlags.Ephemeral });
   }
 
-  // Fixed the invalid property reference
-  const menuIdValue = menuId; // Use menuId directly instead of menu.id
-
   const embed = new EmbedBuilder()
     .setTitle(`Configuring: ${menu.name}`)
     .setDescription(menu.desc)
     .addFields(
-      { name: "Menu ID", value: `\`${menuIdValue}\``, inline: true },
+      { name: "Menu ID", value: `\`${menuId}\``, inline: true }, // FIXED: Use menuId variable
       { name: "Selection Type", value: menu.selectionType.join(" & ") || "Not set", inline: true },
       { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
       { name: "Dropdown Roles", value: menu.dropdownRoles.length > 0 ? menu.dropdownRoles.slice(0, 10).map((r) => `<@&${r}>`).join(", ") + (menu.dropdownRoles.length > 10 ? ` (+${menu.dropdownRoles.length - 10} more)` : "") : "None", inline: false },
@@ -2544,8 +2413,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
     let message;
     // Safely get bot's display name and avatar URL
-    const botDisplayName = interaction.guild.me?.displayName || client.user.displayName;
-    const botAvatarURL = interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL();
+    const botDisplayName = client.user.displayName;
+    const botAvatarURL = client.user.displayAvatarURL();
 
     if (messageToEdit) {
       // Edit existing message
