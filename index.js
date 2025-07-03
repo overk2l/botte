@@ -2773,6 +2773,64 @@ client.on("interactionCreate", async (interaction) => {
           return showInfoMenuPageManagement(interaction, infoMenuId);
         }
 
+        if (action === "reorder_pages") {
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          }
+
+          const pages = db.getInfoMenuPages(infoMenuId);
+          if (!pages || pages.length < 2) {
+            return sendEphemeralEmbed(interaction, "❌ You need at least 2 pages to reorder them.", "#FF0000", "Error", false);
+          }
+
+          // Create a user-friendly display of current pages with numbers
+          const pageDisplay = pages.map((page, index) => {
+            return `${index + 1}. ${page.name}`;
+          }).join('\n');
+
+          // Create example showing how to reorder
+          const exampleOrder = pages.length >= 3 
+            ? `Example: "3, 1, 2" would move the 3rd page to first position`
+            : `Example: "2, 1" would reverse the order`;
+
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:reorder_pages:${infoMenuId}`)
+            .setTitle("Reorder Pages")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("current_pages_display")
+                  .setLabel("Current Page Order (for reference)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setValue(pageDisplay)
+                  .setMaxLength(2000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("new_order_numbers")
+                  .setLabel("New Order (comma-separated numbers)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("1, 2, 3, 4...")
+                  .setValue("1, 2, 3, 4, 5".substring(0, pages.length * 3 - 1)) // Default current order
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("example_help")
+                  .setLabel("Help & Example")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(exampleOrder)
+                  .setMaxLength(200)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
+
         // Add more info menu actions here as needed
       }
 
@@ -3128,25 +3186,54 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           if (pageAction === "edit") {
-            const modal = new ModalBuilder()
-              .setCustomId(`info:modal:edit_page:${infoMenuId}:${pageId}`)
-              .setTitle(`Edit Page: ${page.name}`)
-              .addComponents(
-                new ActionRowBuilder().addComponents(
-                  new TextInputBuilder()
-                    .setCustomId("page_json")
-                    .setLabel("Page Configuration (JSON)")
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true)
-                    .setValue(JSON.stringify({
-                      id: page.id,
-                      name: page.name,
-                      content: page.content
-                    }, null, 2))
-                    .setMaxLength(4000)
-                )
-              );
-            return interaction.showModal(modal);
+            try {
+              // Sanitize the page content before serializing to prevent JSON errors
+              const sanitizedContent = {
+                ...page.content,
+                thumbnail: typeof page.content.thumbnail === 'string' ? page.content.thumbnail : 
+                          (page.content.thumbnail?.url || null),
+                image: typeof page.content.image === 'string' ? page.content.image : 
+                       (page.content.image?.url || null),
+                author: page.content.author ? {
+                  name: page.content.author.name,
+                  iconURL: typeof page.content.author.iconURL === 'string' ? page.content.author.iconURL : 
+                          (page.content.author.iconURL?.url || null)
+                } : null,
+                footer: page.content.footer ? {
+                  text: page.content.footer.text,
+                  iconURL: typeof page.content.footer.iconURL === 'string' ? page.content.footer.iconURL : 
+                          (page.content.footer.iconURL?.url || null)
+                } : null
+              };
+
+              const pageJson = JSON.stringify({
+                id: page.id,
+                name: page.name,
+                content: sanitizedContent
+              }, null, 2);
+
+              const modal = new ModalBuilder()
+                .setCustomId(`info:modal:edit_page:${infoMenuId}:${pageId}`)
+                .setTitle(`Edit Page: ${page.name}`)
+                .addComponents(
+                  new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                      .setCustomId("page_json")
+                      .setLabel("Page Configuration (JSON)")
+                      .setStyle(TextInputStyle.Paragraph)
+                      .setRequired(true)
+                      .setValue(pageJson)
+                      .setMaxLength(4000)
+                  )
+                );
+              return interaction.showModal(modal);
+            } catch (jsonError) {
+              console.error("Error serializing page data for edit:", jsonError);
+              return interaction.reply({
+                content: "❌ Error preparing page data for editing. The page data may be corrupted.",
+                flags: MessageFlags.Ephemeral
+              });
+            }
           } 
           
           if (pageAction === "delete") {
@@ -3965,6 +4052,85 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error parsing/updating page JSON:", error);
             return interaction.reply({
               content: "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!",
+              flags: MessageFlags.Ephemeral
+            });
+          }
+        }
+
+        if (modalType === "reorder_pages") {
+          const infoMenuId = parts[3];
+          const newOrderRaw = interaction.fields.getTextInputValue("new_order_numbers");
+
+          try {
+            const menu = db.getInfoMenu(infoMenuId);
+            if (!menu) {
+              return interaction.reply({
+                content: "❌ Information menu not found.",
+                flags: MessageFlags.Ephemeral
+              });
+            }
+
+            const pages = db.getInfoMenuPages(infoMenuId);
+            if (!pages || pages.length < 2) {
+              return interaction.reply({
+                content: "❌ You need at least 2 pages to reorder them.",
+                flags: MessageFlags.Ephemeral
+              });
+            }
+
+            // Parse the new order
+            const orderNumbers = newOrderRaw.split(',').map(num => parseInt(num.trim()));
+            
+            // Validate the order numbers
+            if (orderNumbers.length !== pages.length) {
+              return interaction.reply({
+                content: `❌ You must provide exactly ${pages.length} numbers (one for each page).`,
+                flags: MessageFlags.Ephemeral
+              });
+            }
+
+            // Check that all numbers are valid and within range
+            const validNumbers = new Set();
+            for (const num of orderNumbers) {
+              if (isNaN(num) || num < 1 || num > pages.length) {
+                return interaction.reply({
+                  content: `❌ All numbers must be between 1 and ${pages.length}.`,
+                  flags: MessageFlags.Ephemeral
+                });
+              }
+              if (validNumbers.has(num)) {
+                return interaction.reply({
+                  content: `❌ Each number can only be used once. Duplicate found: ${num}`,
+                  flags: MessageFlags.Ephemeral
+                });
+              }
+              validNumbers.add(num);
+            }
+
+            // Reorder the pages
+            const reorderedPages = orderNumbers.map(num => pages[num - 1]);
+            
+            // Update the menu with the new page order
+            await db.updateInfoMenu(infoMenuId, { pages: reorderedPages });
+            
+            // Reply with success message and a button to go back to page management
+            const backButton = new ButtonBuilder()
+              .setCustomId(`info:manage_pages:${infoMenuId}`)
+              .setLabel("Back to Page Management")
+              .setStyle(ButtonStyle.Secondary)
+              .setEmoji("⬅️");
+            
+            const row = new ActionRowBuilder().addComponents(backButton);
+            
+            return interaction.reply({
+              content: `✅ Pages reordered successfully!`,
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error reordering pages:", error);
+            return interaction.reply({
+              content: "❌ Invalid order format. Please use numbers separated by commas (e.g., 1, 3, 2).",
               flags: MessageFlags.Ephemeral
             });
           }
