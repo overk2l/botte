@@ -35,15 +35,18 @@ try {
     // --- ADDED FOR DEBUGGING ---
     console.log("[Firebase Debug] Raw FIREBASE_CONFIG env var:", process.env.FIREBASE_CONFIG);
     // --- END DEBUGGING ADDITION ---
-    firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+    // Trim any leading/trailing whitespace or invisible characters that might cause JSON parsing errors
+    const rawConfig = process.env.FIREBASE_CONFIG.trim();
+    firebaseConfig = JSON.parse(rawConfig);
     console.log("[Firebase Debug] Parsed firebaseConfig:", firebaseConfig);
-    if (firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
+    // Ensure projectId exists and is a non-empty string
+    if (typeof firebaseConfig.projectId === 'string' && firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
       firebaseApp = initializeApp(firebaseConfig);
       dbFirestore = getFirestore(firebaseApp);
       firebaseEnabled = true;
       console.log("[Firebase] Successfully initialized with project:", firebaseConfig.projectId);
     } else {
-      console.warn("[Firebase] Invalid projectId in FIREBASE_CONFIG. Running without persistence.");
+      console.warn("[Firebase] Invalid FIREBASE_CONFIG.projectId. Running without persistence.");
     }
   } else {
     console.warn("[Firebase] FIREBASE_CONFIG environment variable not set. Running without persistence.");
