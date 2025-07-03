@@ -1275,7 +1275,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("success_add_message")
-                  .setLabel("Success Message (Role Added) - Plain Text")
+                  .setLabel("Success Add Message (Plain Text)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("✅ You now have the role <@&{roleId}>!")
@@ -1284,7 +1284,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("success_add_json")
-                  .setLabel("Success Message (Role Added) - JSON (Overrides Plain)")
+                  .setLabel("Success Add Message (JSON)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"embeds\": [{\"title\": \"Role Added!\", \"description\": \"...\"}]}")
@@ -1293,7 +1293,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("success_remove_message")
-                  .setLabel("Success Message (Role Removed) - Plain Text")
+                  .setLabel("Success Remove Message (Plain Text)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("✅ You removed the role <@&{roleId}>!")
@@ -1302,7 +1302,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("success_remove_json")
-                  .setLabel("Success Message (Role Removed) - JSON (Overrides Plain)")
+                  .setLabel("Success Remove Message (JSON)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"embeds\": [{\"title\": \"Role Removed!\", \"description\": \"...\"}]}")
@@ -1311,7 +1311,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("limit_exceeded_message")
-                  .setLabel("Limit Exceeded Message - Plain Text")
+                  .setLabel("Limit Exceeded Message (Plain Text)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("❌ You have reached the maximum number of roles for this menu or region.")
@@ -1320,7 +1320,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("limit_exceeded_json")
-                  .setLabel("Limit Exceeded Message - JSON (Overrides Plain)")
+                  .setLabel("Limit Exceeded Message (JSON)") // Shortened label
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
                   .setPlaceholder("{\"content\": \"You have too many roles!\", \"embeds\": [...]}")
