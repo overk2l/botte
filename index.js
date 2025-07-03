@@ -33,6 +33,9 @@ let dbFirestore;
 try {
   if (process.env.FIREBASE_CONFIG) {
     firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+    // --- ADDED FOR DEBUGGING ---
+    console.log("[Firebase Debug] Parsed firebaseConfig:", firebaseConfig);
+    // --- END DEBUGGING ADDITION ---
     if (firebaseConfig.projectId && firebaseConfig.projectId !== 'missing-project-id') {
       firebaseApp = initializeApp(firebaseConfig);
       dbFirestore = getFirestore(firebaseApp);
