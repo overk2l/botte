@@ -645,6 +645,132 @@ client.once("ready", async () => {
   }
 });
 
+/**
+ * Updates the components (buttons and dropdowns) on the published reaction role message.
+ * This is called after a user adds or removes a role to reflect their current selections.
+ * @param {import('discord.js').Interaction} interaction - The interaction that triggered the role change.
+ * @param {Object} menu - The menu object.
+ * @param {string} menuId - The ID of the menu.
+ */
+async function updatePublishedMessageComponents(interaction, menu, menuId) {
+  if (!menu.channelId || !menu.messageId) {
+    console.warn(`[updatePublishedMessageComponents] Menu ${menuId} is not published, skipping component update.`);
+    return;
+  }
+
+  const channel = interaction.guild.channels.cache.get(menu.channelId);
+  if (!channel) {
+    console.error(`[updatePublishedMessageComponents] Channel ${menu.channelId} not found for menu ${menuId}.`);
+    return;
+  }
+
+  try {
+    const message = await channel.messages.fetch(menu.messageId);
+
+    const components = [];
+    const currentMemberRoleIds = interaction.member.roles.cache.map(r => r.id);
+
+    // Re-generate dropdown select menu
+    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
+      const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+        ? menu.dropdownRoleOrder
+        : menu.dropdownRoles
+      ).map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        return {
+          label: role.name.substring(0, 100),
+          value: role.id,
+          emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+          description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+          default: currentMemberRoleIds.includes(role.id) // Set default based on member's current roles
+        };
+      }).filter(Boolean);
+
+      if (dropdownOptions.length > 0) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`rr-role-select:${menuId}`)
+          .setPlaceholder("Select your roles...")
+          .setMinValues(0)
+          .setMaxValues(dropdownOptions.length)
+          .addOptions(dropdownOptions);
+        components.push(new ActionRowBuilder().addComponents(selectMenu));
+      }
+    }
+
+    // Re-generate buttons
+    if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
+      const buttonRows = [];
+      let currentRow = new ActionRowBuilder();
+      const orderedButtonRoles = menu.buttonRoleOrder.length > 0
+        ? menu.buttonRoleOrder
+        : menu.buttonRoles;
+
+      for (const roleId of orderedButtonRoles) {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) continue;
+
+        const button = new ButtonBuilder()
+          .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+          .setLabel(role.name.substring(0, 80));
+
+        // Set button style based on whether the user has the role
+        if (currentMemberRoleIds.includes(role.id)) {
+          button.setStyle(ButtonStyle.Success); // Green if user has the role
+        } else {
+          button.setStyle(ButtonStyle.Secondary); // Grey if user doesn't have the role
+        }
+
+        const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+        if (parsedEmoji) {
+          button.setEmoji(parsedEmoji);
+        }
+
+        if (currentRow.components.length < 5) {
+          currentRow.addComponents(button);
+        } else {
+          buttonRows.push(currentRow);
+          currentRow = new ActionRowBuilder().addComponents(button);
+          if (buttonRows.length >= 4) break; // Max 5 rows total, leave 1 for dropdown
+        }
+      }
+      if (currentRow.components.length > 0 && buttonRows.length < 4) {
+        buttonRows.push(currentRow);
+      }
+      components.push(...buttonRows);
+    }
+
+    // Safely get bot's display name and avatar URL for webhook
+    const botDisplayName = interaction.guild.me?.displayName || client.user.displayName;
+    const botAvatarURL = interaction.guild.me?.displayAvatarURL() || client.user.displayAvatarURL();
+
+    if (menu.useWebhook) {
+      const webhook = await getOrCreateWebhook(channel);
+      await webhook.editMessage(message.id, {
+        embeds: message.embeds, // Keep existing embeds
+        components,
+        username: menu.webhookName || botDisplayName,
+        avatarURL: menu.webhookAvatar || botAvatarURL,
+      });
+    } else {
+      await message.edit({
+        embeds: message.embeds, // Keep existing embeds
+        components
+      });
+    }
+    console.log(`[updatePublishedMessageComponents] Components updated for menu ${menuId} on message ${message.id}.`);
+
+  } catch (error) {
+    console.error(`[updatePublishedMessageComponents] Error updating components for menu ${menuId}:`, error);
+    // Ignore "Unknown Message" (error code 10008) if message was deleted
+    if (error.code === 10008) {
+      console.warn(`[updatePublishedMessageComponents] Message ${menu.messageId} for menu ${menuId} not found, clearing message ID.`);
+      await db.clearMessageId(menuId); // Clear message ID if it no longer exists
+    }
+  }
+}
+
+
 client.on("interactionCreate", async (interaction) => {
   // Early return for DMs
   if (!interaction.guild) {
@@ -2025,19 +2151,32 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             // Send success messages based on JSON or plain text
-            if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
-                if (rolesToAdd.length > 0 && menu.successMessageAddJson) {
+            if (rolesToAdd.length > 0 && rolesToRemove.length === 0) { // Only roles added
+                if (menu.successMessageAddJson) {
                     await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else if (rolesToRemove.length > 0 && menu.successMessageRemoveJson) {
-                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else if (rolesToAdd.length > 0) { // Fallback to plain text if no JSON
+                } else { // Fallback to plain text if no JSON
                     messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
-                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else if (rolesToRemove.length > 0) { // Fallback to plain text if no JSON
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Added", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                }
+            } else if (rolesToRemove.length > 0 && rolesToAdd.length === 0) { // Only roles removed
+                if (menu.successMessageRemoveJson) {
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                } else { // Fallback to plain text if no JSON
+                    messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
+                    await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Removed", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                }
+            } else if (rolesToAdd.length > 0 && rolesToRemove.length > 0) { // Both added and removed
+                // This case is tricky with separate JSONs. For simplicity, we'll send a combined message
+                // or prioritize the 'add' message if both are present.
+                // A more robust solution might involve a dedicated 'combined' JSON message.
+                if (menu.successMessageAddJson) { // Prioritize add message if both
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageAddJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                } else if (menu.successMessageRemoveJson) {
+                    await sendEphemeralResponse(interaction, { jsonPayload: JSON.stringify(menu.successMessageRemoveJson), placeholderData, timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
+                } else {
+                    messages.push((menu.successMessageAdd || "✅ You now have the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesadded));
                     messages.push((menu.successMessageRemove || "✅ You removed the role <@&{roleId}>!").replace("{roleId}", placeholderData.rolesremoved));
                     await sendEphemeralResponse(interaction, { description: messages.join("\n"), color: "#00FF00", title: "Role Update", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
-                } else {
-                    await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
                 }
             } else {
                 await sendEphemeralResponse(interaction, { description: "No changes made to your roles.", color: "#FFFF00", title: "No Change", timeout: ROLE_MESSAGE_TIMEOUT_SECONDS });
