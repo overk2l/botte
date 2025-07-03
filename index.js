@@ -2465,9 +2465,24 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "toggle_type") {
-          const newType = menu.selectionType === "dropdown" ? "button" : "dropdown";
-          await db.updateInfoMenu(infoMenuId, { selectionType: newType });
-          await sendEphemeralEmbed(interaction, `✅ Selection type changed to ${newType}!`, "#00FF00", "Success", false);
+          const componentType = parts[3]; // 'dropdown' or 'button'
+          
+          // Initialize selectionTypes as an array if it's not already
+          let selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
+                              (menu.selectionType ? [menu.selectionType] : []);
+          
+          if (selectionTypes.includes(componentType)) {
+            // Remove the type if it's currently enabled
+            selectionTypes = selectionTypes.filter(type => type !== componentType);
+            await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled!`, "#00FF00", "Success", false);
+          } else {
+            // Add the type if it's currently disabled
+            selectionTypes.push(componentType);
+            await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled!`, "#00FF00", "Success", false);
+          }
+          
           return showInfoMenuConfiguration(interaction, infoMenuId);
         }
 
@@ -4400,8 +4415,10 @@ client.on("interactionCreate", async (interaction) => {
 
             // Create interaction components
             const components = [];
+            const selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
+                                  (menu.selectionType ? [menu.selectionType] : []);
 
-            if (menu.selectionType === "dropdown") {
+            if (selectionTypes.includes("dropdown")) {
               const pageOptions = pages.slice(0, 25).map(page => ({
                 label: page.name.substring(0, 100),
                 value: page.id,
@@ -4414,11 +4431,17 @@ client.on("interactionCreate", async (interaction) => {
                 .addOptions(pageOptions);
 
               components.push(new ActionRowBuilder().addComponents(selectMenu));
-            } else {
+            }
+            
+            if (selectionTypes.includes("button")) {
               // Create buttons for pages
               const maxButtons = Math.min(pages.length, 25);
               let currentRow = new ActionRowBuilder();
               let buttonsInRow = 0;
+              let rowCount = 0;
+
+              // If dropdown is already taking a row, we have 4 rows left for buttons
+              const maxRows = selectionTypes.includes("dropdown") ? 4 : 5;
 
               for (let i = 0; i < maxButtons; i++) {
                 const page = pages[i];
@@ -4434,6 +4457,9 @@ client.on("interactionCreate", async (interaction) => {
                   components.push(currentRow);
                   currentRow = new ActionRowBuilder();
                   buttonsInRow = 0;
+                  rowCount++;
+                  
+                  if (rowCount >= maxRows) break; // Discord limit
                 }
               }
             }
@@ -5457,8 +5483,10 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
 
     // Create interaction components based on selection type
     const components = [];
+    const selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
+                          (menu.selectionType ? [menu.selectionType] : []);
 
-    if (menu.selectionType === "dropdown") {
+    if (selectionTypes.includes("dropdown")) {
       // Create dropdown with pages
       const pageOptions = pages.slice(0, 25).map(page => ({
         label: page.name.substring(0, 100),
@@ -5472,11 +5500,17 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         .addOptions(pageOptions);
 
       components.push(new ActionRowBuilder().addComponents(selectMenu));
-    } else {
+    }
+
+    if (selectionTypes.includes("button")) {
       // Create buttons for pages (max 25 buttons across 5 rows)
       const maxButtons = Math.min(pages.length, 25);
       let currentRow = new ActionRowBuilder();
       let buttonsInRow = 0;
+      let rowCount = 0;
+
+      // If dropdown is already taking a row, we have 4 rows left for buttons
+      const maxRows = selectionTypes.includes("dropdown") ? 4 : 5;
 
       for (let i = 0; i < maxButtons; i++) {
         const page = pages[i];
@@ -5493,6 +5527,9 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
           components.push(currentRow);
           currentRow = new ActionRowBuilder();
           buttonsInRow = 0;
+          rowCount++;
+          
+          if (rowCount >= maxRows) break; // Discord limit
         }
       }
     }
@@ -5621,7 +5658,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       .setDescription(menu.desc)
       .addFields(
         { name: "Menu ID", value: `\`${infoMenuId}\``, inline: true },
-        { name: "Selection Type", value: menu.selectionType || "Not set", inline: true },
+        { name: "Selection Type", value: Array.isArray(menu.selectionType) ? menu.selectionType.join(" + ") || "None set" : (menu.selectionType || "None set"), inline: true },
         { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
         { name: "Pages", value: menu.pages.length > 0 ? `${menu.pages.length} pages configured` : "No pages yet", inline: false },
         { name: "Page List", value: menu.pages.length > 0 ? menu.pages.slice(0, 10).map((page, index) => `${index + 1}. ${page.name}`).join("\n") + (menu.pages.length > 10 ? `\n... and ${menu.pages.length - 10} more` : "") : "None", inline: false }
@@ -5661,7 +5698,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setCustomId(`info:publish:${infoMenuId}`)
         .setLabel("Publish Menu")
         .setStyle(ButtonStyle.Success)
-        .setDisabled(menu.pages.length === 0),
+        .setDisabled(menu.pages.length === 0 || (!Array.isArray(menu.selectionType) && !menu.selectionType) || (Array.isArray(menu.selectionType) && menu.selectionType.length === 0)),
       new ButtonBuilder()
         .setCustomId(`info:edit_published:${infoMenuId}`)
         .setLabel("Update Published Menu")
@@ -5685,8 +5722,12 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     const row_selection_and_pages = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`info:toggle_type:dropdown:${infoMenuId}`)
-        .setLabel(menu.selectionType === "dropdown" ? "Switch to Buttons" : "Switch to Dropdown")
-        .setStyle(ButtonStyle.Primary),
+        .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("dropdown") || menu.selectionType === "dropdown" ? "Disable Dropdown" : "Enable Dropdown")
+        .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("dropdown") || menu.selectionType === "dropdown" ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`info:toggle_type:button:${infoMenuId}`)
+        .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? "Disable Buttons" : "Enable Buttons")
+        .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? ButtonStyle.Danger : ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`info:manage_pages:${infoMenuId}`)
         .setLabel("Manage Pages")
@@ -5695,15 +5736,15 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setCustomId(`info:add_page:${infoMenuId}`)
         .setLabel("Add New Page")
         .setStyle(ButtonStyle.Success)
-        .setEmoji("➕"),
+        .setEmoji("➕")
+    );
+
+    const row_customization = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`info:reorder_pages:${infoMenuId}`)
         .setLabel("Reorder Pages")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(menu.pages.length <= 1)
-    );
-
-    const row_customization = new ActionRowBuilder().addComponents(
+        .setDisabled(menu.pages.length <= 1),
       new ButtonBuilder()
         .setCustomId(`info:customize_embed:${infoMenuId}`)
         .setLabel("Customize Embed")
