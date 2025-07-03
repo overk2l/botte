@@ -1900,16 +1900,16 @@ client.on("interactionCreate", async (interaction) => {
 
         // Determine roles to add and remove based on selection and current member roles
         if (interaction.isStringSelectMenu()) {
-            // For dropdowns, the selection represents the FINAL STATE the user wants
-            const dropdownRolesFromMenu = menu.dropdownRoles || [];
-            const currentDropdownRolesHeld = currentMemberRoleIds.filter(id => dropdownRolesFromMenu.includes(id));
-            
-            // Roles to add: roles that are selected but not currently held
-            rolesToAdd = selectedInteractionRoleIds.filter(id => !currentMemberRoleIds.includes(id));
-            
-            // Roles to remove: dropdown roles that are currently held but NOT selected
-            rolesToRemove = currentDropdownRolesHeld.filter(id => !selectedInteractionRoleIds.includes(id));
-            
+            // For dropdowns, implement toggle behavior
+            for (const selectedRoleId of selectedInteractionRoleIds) {
+                // If the member currently has this role, it means they clicked to remove it
+                if (currentMemberRoleIds.includes(selectedRoleId)) {
+                    rolesToRemove.push(selectedRoleId);
+                } else {
+                    // If the member does not have this role, it means they clicked to add it
+                    rolesToAdd.push(selectedRoleId);
+                }
+            }
         } else { // Button interaction (already behaves as a toggle)
             const clickedRoleId = selectedInteractionRoleIds[0];
             console.log(`[Debug] Button clicked - Role ID: ${clickedRoleId}`);
@@ -1945,22 +1945,20 @@ client.on("interactionCreate", async (interaction) => {
         // Calculate the potential new set of roles after this interaction for limit checks
         let potentialNewRoleIds = [...currentMemberRoleIds];
 
-        if (interaction.isStringSelectMenu()) {
-            // For dropdowns: Remove all current dropdown roles, then add the selected ones
-            const dropdownRolesFromMenu = menu.dropdownRoles || [];
-            potentialNewRoleIds = potentialNewRoleIds.filter(id => !dropdownRolesFromMenu.includes(id));
-            potentialNewRoleIds.push(...selectedInteractionRoleIds);
-        } else { // Button interaction
-            const clickedRoleId = selectedInteractionRoleIds[0];
-            if (potentialNewRoleIds.includes(clickedRoleId)) {
-                potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== clickedRoleId);
-            } else {
-                potentialNewRoleIds.push(clickedRoleId);
+        // Apply determined rolesToAdd
+        rolesToAdd.forEach(roleId => {
+            if (!potentialNewRoleIds.includes(roleId)) { // Avoid duplicates if already present
+                potentialNewRoleIds.push(roleId);
             }
-        }
+        });
+
+        // Apply determined rolesToRemove
+        rolesToRemove.forEach(roleId => {
+            potentialNewRoleIds = potentialNewRoleIds.filter(id => id !== roleId);
+        });
         
-        // Handle exclusions for potential new roles
-        for (const roleId of rolesToAdd) {
+        // Handle exclusions for potential new roles (this part remains the same logic)
+        for (const roleId of rolesToAdd) { // Exclusions only happen when a role is added
             if (menu.exclusionMap && menu.exclusionMap[roleId]) {
                 potentialNewRoleIds = potentialNewRoleIds.filter(id => !menu.exclusionMap[roleId].includes(id));
             }
