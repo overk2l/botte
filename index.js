@@ -1741,6 +1741,8 @@ client.on("interactionCreate", async (interaction) => {
             new ActionRowBuilder().addComponents(backButton)
           ];
 
+          console.log(`[Debug] Browse templates components: ${components.length} rows`);
+          
           return interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
         }
 
@@ -2772,10 +2774,15 @@ async function showReactionRolesDashboard(interaction) {
   components.push(new ActionRowBuilder().addComponents(createButton, templateButton, rawJsonButton));
   components.push(new ActionRowBuilder().addComponents(backButton));
 
+  console.log(`[Debug] RR Dashboard components: ${components.length} rows`);
+
   try {
       await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
   } catch (error) {
       console.error("Error displaying reaction roles dashboard:", error);
+      console.error("Dashboard components structure:", JSON.stringify(components.map(row => ({
+        components: row.components.length
+      })), null, 2));
       await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral });
   }
 }
@@ -2959,15 +2966,16 @@ async function showMenuConfiguration(interaction, menuId) {
       new ButtonBuilder()
         .setCustomId(`rr:custom_messages:${menuId}`)
         .setLabel("Custom Messages")
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`rr:toggle_webhook:${menuId}`)
+        .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
+        .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success)
     );
 
+    // Add conditional 5th button based on webhook state
     if (menu.useWebhook) {
       row_customization_webhook.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`rr:toggle_webhook:${menuId}`)
-          .setLabel("Disable Webhook")
-          .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId(`rr:config_webhook:${menuId}`)
           .setLabel("Configure Branding")
@@ -2976,32 +2984,62 @@ async function showMenuConfiguration(interaction, menuId) {
     } else {
       row_customization_webhook.addComponents(
         new ButtonBuilder()
-          .setCustomId(`rr:toggle_webhook:${menuId}`)
-          .setLabel("Enable Webhook")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
           .setCustomId(`rr:save_as_template:${menuId}`)
           .setLabel("Save as Template")
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`rr:clone_menu:${menuId}`)
-          .setLabel("Clone Menu")
           .setStyle(ButtonStyle.Secondary)
       );
     }
 
-    const finalComponents = [
+    // Create a separate row for template actions when webhook is disabled
+    const templateActionsRow = !menu.useWebhook ? new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`rr:clone_menu:${menuId}`)
+        .setLabel("Clone Menu")
+        .setStyle(ButtonStyle.Secondary)
+    ) : null;
+
+    const baseComponents = [
       row_publish_delete,
       row_role_types_and_management,
       row_emojis_reorder,
       row_limits_exclusions_descriptions,
       row_customization_webhook,
-    ].filter(row => row.components.length > 0);
+    ];
+
+    // Add template actions row if it exists and we have room
+    if (templateActionsRow && baseComponents.length < 5) {
+      baseComponents.push(templateActionsRow);
+    }
+
+    const finalComponents = baseComponents.filter(row => row.components.length > 0);
+
+    // Debug logging to identify component issues
+    console.log(`[Debug] Menu ${menuId} components: ${finalComponents.length} rows`);
+    finalComponents.forEach((row, index) => {
+      console.log(`[Debug] Row ${index + 1}: ${row.components.length} buttons`);
+    });
+
+    // Ensure we never exceed Discord's limits
+    if (finalComponents.length > 5) {
+      console.warn(`[Warning] Too many component rows (${finalComponents.length}), trimming to 5`);
+      finalComponents.splice(5); // Remove excess rows
+    }
+
+    // Check each row doesn't exceed 5 buttons
+    finalComponents.forEach((row, index) => {
+      if (row.components.length > 5) {
+        console.warn(`[Warning] Row ${index + 1} has ${row.components.length} buttons, trimming to 5`);
+        row.components.splice(5); // Remove excess buttons
+      }
+    });
 
     try {
       await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
     } catch (error) {
       console.error("Error displaying menu configuration:", error);
+      console.error("Components structure:", JSON.stringify(finalComponents.map(row => ({
+        components: row.components.length
+      })), null, 2));
       await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", flags: MessageFlags.Ephemeral });
     }
 }
