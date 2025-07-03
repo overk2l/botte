@@ -554,6 +554,296 @@ const db = {
       console.log(`[Database] Deleted menu with ID: ${menuId} (memory only)`);
     }
   },
+
+  // ======================= Information Menu Functions =======================
+
+  /**
+   * Map to store guildId -> [infoMenuId, ...] for quick lookup of info menus per guild
+   */
+  infoMenus: new Map(),
+  
+  /**
+   * Map to store infoMenuId -> infoMenuObject for quick access to info menu data
+   */
+  infoMenuData: new Map(),
+
+  /**
+   * Loads all information menus from Firestore into memory.
+   */
+  async loadAllInfoMenus() {
+    console.log("[Database] Loading all info menus...");
+    if (!firebaseEnabled) {
+      console.warn("[Database] Running in memory-only mode for info menus. Data will not persist between restarts.");
+      return;
+    }
+    try {
+      const infoMenusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/info_menus`);
+      const querySnapshot = await getDocs(infoMenusCollectionRef);
+      this.infoMenus.clear();
+      this.infoMenuData.clear();
+
+      querySnapshot.forEach(doc => {
+        const infoMenu = doc.data();
+        const infoMenuId = doc.id;
+        const guildId = infoMenu.guildId;
+
+        if (!this.infoMenus.has(guildId)) {
+          this.infoMenus.set(guildId, []);
+        }
+        this.infoMenus.get(guildId).push(infoMenuId);
+        this.infoMenuData.set(infoMenuId, infoMenu);
+      });
+      console.log(`[Database] Loaded ${this.infoMenuData.size} info menus from Firestore.`);
+    } catch (error) {
+      console.error("[Database] Error loading info menus:", error);
+    }
+  },
+
+  /**
+   * Creates a new information menu and saves it to Firestore.
+   * @param {string} guildId - The ID of the guild where the info menu is created.
+   * @param {string} name - The name of the info menu.
+   * @param {string} desc - The description for the info menu.
+   * @returns {Promise<string>} The ID of the newly created info menu.
+   */
+  async createInfoMenu(guildId, name, desc) {
+    const id = 'info_' + Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+    const newInfoMenu = {
+      guildId,
+      name,
+      desc,
+      selectionType: 'dropdown', // 'dropdown' or 'button'
+      pages: [], // Array of page objects: { id, name, content }
+      channelId: null,
+      messageId: null,
+      useWebhook: false,
+      webhookName: null,
+      webhookAvatar: null,
+      embedColor: '#5865F2',
+      embedThumbnail: null,
+      embedImage: null,
+      embedAuthorName: null,
+      embedAuthorIconURL: null,
+      embedFooterText: null,
+      embedFooterIconURL: null,
+      isTemplate: false,
+      templateName: null,
+      templateDescription: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Save to in-memory storage
+    if (!this.infoMenus.has(guildId)) {
+      this.infoMenus.set(guildId, []);
+    }
+    this.infoMenus.get(guildId).push(id);
+    this.infoMenuData.set(id, newInfoMenu);
+
+    if (firebaseEnabled) {
+      try {
+        const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, id);
+        await setDoc(infoMenuDocRef, newInfoMenu);
+        console.log(`[Database] Created info menu with ID: ${id} in Firestore`);
+      } catch (error) {
+        console.error(`[Database] Error creating info menu ${id} in Firestore:`, error);
+      }
+    } else {
+      console.log(`[Database] Created info menu with ID: ${id} (memory only)`);
+    }
+
+    return id;
+  },
+
+  /**
+   * Gets all information menus for a specific guild.
+   * @param {string} guildId - The guild ID to get info menus for.
+   * @returns {Array} Array of info menu objects.
+   */
+  getInfoMenus(guildId) {
+    if (!guildId) {
+      // Return all templates if no guildId provided
+      return Array.from(this.infoMenuData.values())
+        .filter(menu => menu.isTemplate)
+        .map(menu => ({ id: Array.from(this.infoMenuData.keys()).find(key => this.infoMenuData.get(key) === menu), ...menu }));
+    }
+    const menuIds = this.infoMenus.get(guildId) || [];
+    return menuIds.map(id => ({ id, ...this.infoMenuData.get(id) })).filter(Boolean);
+  },
+
+  /**
+   * Gets a specific information menu by ID.
+   * @param {string} infoMenuId - The ID of the info menu to retrieve.
+   * @returns {Object|null} The info menu object or null if not found.
+   */
+  getInfoMenu(infoMenuId) {
+    return this.infoMenuData.get(infoMenuId) || null;
+  },
+
+  /**
+   * Updates an information menu with new data.
+   * @param {string} infoMenuId - The ID of the info menu to update.
+   * @param {Object} updateData - The data to update.
+   */
+  async updateInfoMenu(infoMenuId, updateData) {
+    if (!infoMenuId || typeof infoMenuId !== 'string') {
+      console.warn(`[Database] Invalid infoMenuId provided to updateInfoMenu: ${infoMenuId}`);
+      return;
+    }
+
+    const existingMenu = this.infoMenuData.get(infoMenuId);
+    if (!existingMenu) {
+      console.warn(`[Database] Attempted to update non-existent info menu: ${infoMenuId}`);
+      return;
+    }
+
+    // Update in-memory data
+    const updatedMenu = { 
+      ...existingMenu, 
+      ...updateData, 
+      updatedAt: new Date().toISOString() 
+    };
+    this.infoMenuData.set(infoMenuId, updatedMenu);
+
+    if (firebaseEnabled) {
+      try {
+        const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, infoMenuId);
+        await setDoc(infoMenuDocRef, updatedMenu);
+        console.log(`[Database] Updated info menu ${infoMenuId} in Firestore`);
+      } catch (error) {
+        console.error(`[Database] Error updating info menu ${infoMenuId} in Firestore:`, error);
+      }
+    } else {
+      console.log(`[Database] Updated info menu ${infoMenuId} (memory only)`);
+    }
+  },
+
+  /**
+   * Saves the message ID and channel ID for a published information menu.
+   * @param {string} infoMenuId - The ID of the info menu.
+   * @param {string} channelId - The channel ID where the menu was published.
+   * @param {string} messageId - The message ID of the published menu.
+   */
+  async saveInfoMenuMessage(infoMenuId, channelId, messageId) {
+    await this.updateInfoMenu(infoMenuId, { channelId, messageId });
+  },
+
+  /**
+   * Adds or updates a page in an information menu.
+   * @param {string} infoMenuId - The ID of the info menu.
+   * @param {Object} pageData - The page data: { id?, name, content }
+   */
+  async saveInfoMenuPage(infoMenuId, pageData) {
+    const menu = this.getInfoMenu(infoMenuId);
+    if (!menu) return;
+
+    const pages = [...(menu.pages || [])];
+    const pageId = pageData.id || `page_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    const existingIndex = pages.findIndex(p => p.id === pageId);
+    const newPage = { id: pageId, ...pageData };
+    
+    if (existingIndex >= 0) {
+      pages[existingIndex] = newPage;
+    } else {
+      pages.push(newPage);
+    }
+
+    await this.updateInfoMenu(infoMenuId, { pages });
+    return pageId;
+  },
+
+  /**
+   * Removes a page from an information menu.
+   * @param {string} infoMenuId - The ID of the info menu.
+   * @param {string} pageId - The ID of the page to remove.
+   */
+  async removeInfoMenuPage(infoMenuId, pageId) {
+    const menu = this.getInfoMenu(infoMenuId);
+    if (!menu) return;
+
+    const pages = (menu.pages || []).filter(p => p.id !== pageId);
+    await this.updateInfoMenu(infoMenuId, { pages });
+  },
+
+  /**
+   * Deletes an information menu from both memory and Firestore.
+   * @param {string} infoMenuId - The ID of the info menu to delete.
+   */
+  async deleteInfoMenu(infoMenuId) {
+    if (!infoMenuId || typeof infoMenuId !== 'string') {
+      console.warn(`[Database] Invalid infoMenuId provided to deleteInfoMenu: ${infoMenuId}`);
+      return;
+    }
+
+    const menu = this.infoMenuData.get(infoMenuId);
+    if (!menu) {
+      console.warn(`[Database] Attempted to delete non-existent info menu: ${infoMenuId}`);
+      return;
+    }
+
+    // Remove from in-memory maps
+    const guildMenus = this.infoMenus.get(menu.guildId);
+    if (guildMenus) {
+      const index = guildMenus.indexOf(infoMenuId);
+      if (index > -1) {
+        guildMenus.splice(index, 1);
+      }
+      // Clean up empty guild arrays
+      if (guildMenus.length === 0) {
+        this.infoMenus.delete(menu.guildId);
+      }
+    }
+    this.infoMenuData.delete(infoMenuId);
+
+    if (firebaseEnabled) {
+      try {
+        const infoMenuDocRef = doc(dbFirestore, `artifacts/${appId}/public/data/info_menus`, infoMenuId);
+        await deleteDoc(infoMenuDocRef);
+        console.log(`[Database] Deleted info menu with ID: ${infoMenuId} from Firestore`);
+      } catch (error) {
+        console.error(`[Database] Error deleting info menu ${infoMenuId} in Firestore:`, error);
+      }
+    } else {
+      console.log(`[Database] Deleted info menu with ID: ${infoMenuId} (memory only)`);
+    }
+  },
+
+  /**
+   * Creates an info menu from a template.
+   * @param {string} templateId - The ID of the template to copy from.
+   * @param {string} guildId - The guild ID for the new menu.
+   * @param {string} name - The name for the new menu.
+   * @param {string} desc - The description for the new menu.
+   * @returns {Promise<string>} The ID of the newly created menu.
+   */
+  async createInfoMenuFromTemplate(templateId, guildId, name, desc) {
+    const template = this.getInfoMenu(templateId);
+    if (!template || !template.isTemplate) {
+      throw new Error('Template not found or invalid');
+    }
+
+    const newId = await this.createInfoMenu(guildId, name, desc);
+    
+    // Copy template data (excluding guild-specific and ID fields)
+    const templateData = {
+      selectionType: template.selectionType,
+      pages: template.pages ? template.pages.map(page => ({ ...page })) : [],
+      useWebhook: template.useWebhook,
+      webhookName: template.webhookName,
+      webhookAvatar: template.webhookAvatar,
+      embedColor: template.embedColor,
+      embedThumbnail: template.embedThumbnail,
+      embedImage: template.embedImage,
+      embedAuthorName: template.embedAuthorName,
+      embedAuthorIconURL: template.embedAuthorIconURL,
+      embedFooterText: template.embedFooterText,
+      embedFooterIconURL: template.embedFooterIconURL
+    };
+
+    await this.updateInfoMenu(newId, templateData);
+    return newId;
+  }
 };
 
 /**
