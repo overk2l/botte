@@ -1957,6 +1957,51 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
           return;
         }
+        
+        if (action === "webhook") {
+          const scheduleId = parts[2];
+          const schedule = scheduledMessages.get(scheduleId);
+          if (!schedule) {
+            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Show webhook configuration modal
+          const modal = new ModalBuilder()
+            .setCustomId(`schedule:modal:webhook:${scheduleId}`)
+            .setTitle("Configure Webhook Settings")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("use_webhook")
+                  .setLabel("Use Webhook (yes/no)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setValue(schedule.useWebhook ? "yes" : "no")
+                  .setPlaceholder("Enter 'yes' to enable webhook or 'no' to disable")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("webhook_name")
+                  .setLabel("Webhook Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(schedule.webhookName || "")
+                  .setPlaceholder("Custom name for the webhook (optional)")
+                  .setMaxLength(80)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("webhook_avatar")
+                  .setLabel("Webhook Avatar URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(schedule.webhookAvatar || "")
+                  .setPlaceholder("Custom avatar URL for the webhook (optional)")
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
       }
 
       if (ctx === "dynamic") {
@@ -4657,6 +4702,61 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error saving scheduled message:", error);
             await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
           }
+        }
+
+        if (modalType === "webhook") {
+          const scheduleId = parts[3];
+          const schedule = scheduledMessages.get(scheduleId);
+          if (!schedule) {
+            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+          }
+          
+          const useWebhookInput = interaction.fields.getTextInputValue("use_webhook").toLowerCase().trim();
+          const webhookName = interaction.fields.getTextInputValue("webhook_name").trim();
+          const webhookAvatar = interaction.fields.getTextInputValue("webhook_avatar").trim();
+          
+          // Validate webhook toggle
+          if (useWebhookInput !== "yes" && useWebhookInput !== "no") {
+            return interaction.editReply({ content: "❌ Invalid webhook setting. Please enter 'yes' or 'no'.", flags: MessageFlags.Ephemeral });
+          }
+          
+          const useWebhook = useWebhookInput === "yes";
+          
+          // Validate webhook name (if provided)
+          if (webhookName && webhookName.length > 80) {
+            return interaction.editReply({ content: "❌ Webhook name too long. Maximum 80 characters.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Validate webhook avatar URL (if provided)
+          if (webhookAvatar && webhookAvatar.length > 0) {
+            try {
+              new URL(webhookAvatar);
+            } catch {
+              return interaction.editReply({ content: "❌ Invalid webhook avatar URL. Please provide a valid URL.", flags: MessageFlags.Ephemeral });
+            }
+          }
+          
+          // Update schedule with webhook settings
+          schedule.useWebhook = useWebhook;
+          schedule.webhookName = webhookName || null;
+          schedule.webhookAvatar = webhookAvatar || null;
+          
+          // Save updated schedule
+          scheduledMessages.set(scheduleId, schedule);
+          db.saveScheduledMessage(schedule);
+          
+          const embed = new EmbedBuilder()
+            .setTitle("✅ Webhook Settings Updated")
+            .setDescription("The webhook settings for this scheduled message have been updated.")
+            .setColor("#00FF00")
+            .addFields([
+              { name: "Use Webhook", value: useWebhook ? "Yes" : "No", inline: true },
+              { name: "Webhook Name", value: webhookName || "Default", inline: true },
+              { name: "Webhook Avatar", value: webhookAvatar ? "Custom URL" : "Default", inline: true }
+            ]);
+          
+          await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+          return;
         }
       } else if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
