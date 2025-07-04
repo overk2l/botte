@@ -2076,6 +2076,7 @@ client.on("interactionCreate", async (interaction) => {
     // Hybrid menu modal triggers
     (interaction.isButton() && interaction.customId === "hybrid:create") ||
     (interaction.isButton() && interaction.customId === "hybrid:create_from_json") ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -2437,6 +2438,64 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "selectmenu") {
           const hybridMenuId = interaction.values[0];
           return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "config_info") {
+          const hybridMenuId = parts[2];
+          return showHybridInfoConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "config_roles") {
+          const hybridMenuId = parts[2];
+          return showHybridRolesConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "customize_embed") {
+          const hybridMenuId = parts[2];
+          return showHybridEmbedCustomization(interaction, hybridMenuId);
+        }
+
+        if (action === "publish") {
+          const hybridMenuId = parts[2];
+          return publishHybridMenu(interaction, hybridMenuId);
+        }
+
+        if (action === "preview") {
+          const hybridMenuId = parts[2];
+          return previewHybridMenu(interaction, hybridMenuId);
+        }
+
+        if (action === "back_to_config") {
+          const hybridMenuId = parts[2];
+          return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "add_info_page") {
+          const hybridMenuId = parts[2];
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:add_info_page:${hybridMenuId}`)
+            .setTitle("Add Information Page")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_name")
+                  .setLabel("Page Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter page name (e.g., 'Server Rules')")
+                  .setMaxLength(80)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_content")
+                  .setLabel("Page Content")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Enter the content for this page...")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
         }
       }
 
@@ -6423,6 +6482,42 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to create hybrid menu from JSON. Please check the logs for details.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "add_info_page") {
+          try {
+            const hybridMenuId = parts[3];
+            const pageName = interaction.fields.getTextInputValue("page_name");
+            const pageContent = interaction.fields.getTextInputValue("page_content");
+            
+            console.log(`[Hybrid Menu] Adding info page "${pageName}" to menu ${hybridMenuId}`);
+            
+            // Add the page to the hybrid menu
+            const pageId = generateId();
+            const newPage = {
+              id: pageId,
+              name: pageName,
+              content: pageContent,
+              createdAt: new Date().toISOString()
+            };
+            
+            // Get current menu and add the page
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+            
+            const currentPages = menu.pages || [];
+            currentPages.push(newPage);
+            
+            await db.updateHybridMenu(hybridMenuId, { pages: currentPages });
+            
+            await sendEphemeralEmbed(interaction, `✅ Information page "${pageName}" added successfully!`, "#00FF00", "Success", false);
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error adding info page:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to add information page. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -9040,76 +9135,194 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     }
 }
 
-async function showHybridMenuConfiguration(interaction, hybridMenuId) {
+// Hybrid Menu Info Pages Configuration
+async function showHybridInfoConfiguration(interaction, hybridMenuId) {
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
     return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
   }
 
+  const pages = menu.pages || [];
+  
   const embed = new EmbedBuilder()
-    .setTitle(`🔀 Hybrid Menu: ${menu.name}`)
-    .setDescription(`**Description:** ${menu.desc}\n\n**Configuration Status:**`)
-    .setColor("#00D084")
+    .setTitle(`📋 Info Pages: ${menu.name}`)
+    .setDescription("Configure information pages for your hybrid menu. These will appear as buttons or dropdown options alongside reaction roles.")
+    .setColor("#5865F2")
     .addFields([
       { 
-        name: "📋 Information Pages", 
-        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.infoSelectionType.length > 0 ? menu.infoSelectionType.join(', ') : 'None'}`, 
-        inline: true 
+        name: "📄 Current Pages", 
+        value: pages.length > 0 
+          ? pages.map((page, index) => `${index + 1}. ${page.name}`).join('\n')
+          : "No pages configured yet", 
+        inline: false 
       },
       { 
-        name: "🎭 Reaction Roles", 
-        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType.length > 0 ? menu.roleSelectionType.join(', ') : 'None'}`, 
-        inline: true 
-      },
-      { 
-        name: "📊 Status", 
-        value: menu.channelId ? `Published in <#${menu.channelId}>` : "Not published", 
+        name: "🎯 Display Options", 
+        value: menu.infoSelectionType?.length > 0 
+          ? menu.infoSelectionType.join(', ')
+          : "Not configured", 
         inline: true 
       }
     ]);
 
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`hybrid:config_info:${hybridMenuId}`)
-      .setLabel("Configure Info Pages")
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji("📋"),
-    new ButtonBuilder()
-      .setCustomId(`hybrid:config_roles:${hybridMenuId}`)
-      .setLabel("Configure Roles")
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji("🎭"),
-    new ButtonBuilder()
-      .setCustomId(`hybrid:customize_embed:${hybridMenuId}`)
-      .setLabel("Customize Embed")
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji("🎨")
-  );
+  const components = [];
 
-  const row2 = new ActionRowBuilder().addComponents(
+  // Add page button
+  const addPageRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`hybrid:publish:${hybridMenuId}`)
-      .setLabel("Publish Menu")
+      .setCustomId(`hybrid:add_info_page:${hybridMenuId}`)
+      .setLabel("Add Page")
       .setStyle(ButtonStyle.Success)
-      .setEmoji("🚀"),
+      .setEmoji("➕"),
     new ButtonBuilder()
-      .setCustomId(`hybrid:preview:${hybridMenuId}`)
-      .setLabel("Preview")
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji("👀"),
+      .setCustomId(`hybrid:set_info_display:${hybridMenuId}`)
+      .setLabel("Set Display Type")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎯")
+  );
+  components.push(addPageRow);
+
+  // Page management if pages exist
+  if (pages.length > 0) {
+    const pageOptions = pages.slice(0, 25).map((page, index) => ({
+      label: page.name.substring(0, 100),
+      value: page.id,
+      description: `Page ${index + 1}: ${page.content?.substring(0, 50) || 'No content'}...`
+    }));
+
+    const pageSelectRow = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`hybrid:manage_info_page:${hybridMenuId}`)
+        .setPlaceholder("Select a page to edit or delete...")
+        .addOptions(pageOptions)
+    );
+    components.push(pageSelectRow);
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`dash:hybrid-menus`)
-      .setLabel("Back to Hybrid Menus")
+      .setCustomId(`hybrid:back_to_config:${hybridMenuId}`)
+      .setLabel("Back to Menu Config")
       .setStyle(ButtonStyle.Secondary)
       .setEmoji("⬅️")
   );
+  components.push(backRow);
 
-  try {
-    await interaction.editReply({ embeds: [embed], components: [row1, row2], flags: MessageFlags.Ephemeral });
-  } catch (error) {
-    console.error("Error displaying hybrid menu configuration:", error);
-    await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral });
+  await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+}
+
+// Hybrid Menu Roles Configuration
+async function showHybridRolesConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
   }
+
+  const dropdownRoles = menu.dropdownRoles || [];
+  const buttonRoles = menu.buttonRoles || [];
+  const totalRoles = dropdownRoles.length + buttonRoles.length;
+  
+  const embed = new EmbedBuilder()
+    .setTitle(`🎭 Reaction Roles: ${menu.name}`)
+    .setDescription("Configure reaction roles for your hybrid menu. These will appear alongside information pages.")
+    .setColor("#FF6B6B")
+    .addFields([
+      { 
+        name: "📊 Current Roles", 
+        value: totalRoles > 0 
+          ? `Dropdown Roles: ${dropdownRoles.length}\nButton Roles: ${buttonRoles.length}\nTotal: ${totalRoles}`
+          : "No roles configured yet", 
+        inline: false 
+      },
+      { 
+        name: "🎯 Display Options", 
+        value: menu.roleSelectionType?.length > 0 
+          ? menu.roleSelectionType.join(', ')
+          : "Not configured", 
+        inline: true 
+      }
+    ]);
+
+  const components = [];
+
+  // Add role buttons
+  const addRoleRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:add_dropdown_role:${hybridMenuId}`)
+      .setLabel("Add Dropdown Role")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("📝"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:add_button_role:${hybridMenuId}`)
+      .setLabel("Add Button Role")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("🔘"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:set_role_display:${hybridMenuId}`)
+      .setLabel("Set Display Type")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎯")
+  );
+  components.push(addRoleRow);
+
+  // Role management if roles exist
+  if (totalRoles > 0) {
+    const roleOptions = [];
+    
+    dropdownRoles.forEach(role => {
+      roleOptions.push({
+        label: `[Dropdown] ${role.name || 'Unnamed Role'}`,
+        value: `dropdown_${role.id}`,
+        description: `Role: ${role.roleId} - ${role.description?.substring(0, 50) || 'No description'}`
+      });
+    });
+    
+    buttonRoles.forEach(role => {
+      roleOptions.push({
+        label: `[Button] ${role.name || 'Unnamed Role'}`,
+        value: `button_${role.id}`,
+        description: `Role: ${role.roleId} - ${role.description?.substring(0, 50) || 'No description'}`
+      });
+    });
+
+    if (roleOptions.length > 0) {
+      const roleSelectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`hybrid:manage_role:${hybridMenuId}`)
+          .setPlaceholder("Select a role to edit or delete...")
+          .addOptions(roleOptions.slice(0, 25))
+      );
+      components.push(roleSelectRow);
+    }
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:back_to_config:${hybridMenuId}`)
+      .setLabel("Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+  components.push(backRow);
+
+  await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+}
+
+// Hybrid Menu Embed Customization (placeholder)
+async function showHybridEmbedCustomization(interaction, hybridMenuId) {
+  return sendEphemeralEmbed(interaction, "🚧 Embed customization coming soon! This will let you customize the appearance of your hybrid menu.", "#FFA500", "Coming Soon", false);
+}
+
+// Hybrid Menu Publishing (placeholder)
+async function publishHybridMenu(interaction, hybridMenuId) {
+  return sendEphemeralEmbed(interaction, "🚧 Publishing coming soon! This will publish your hybrid menu with both info pages and roles.", "#FFA500", "Coming Soon", false);
+}
+
+// Hybrid Menu Preview (placeholder)
+async function previewHybridMenu(interaction, hybridMenuId) {
+  return sendEphemeralEmbed(interaction, "🚧 Preview coming soon! This will show you how your hybrid menu will look when published.", "#FFA500", "Coming Soon", false);
 }
 
 // Bot login
