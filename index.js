@@ -10524,6 +10524,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
     // Check what display types are actually used by pages
     const dropdownPages = pages.filter(page => {
       const displayIn = page.displayIn || [];
+      console.log(`[Debug] Page "${page.name}" displayIn:`, displayIn);
       return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
     });
     
@@ -10531,6 +10532,10 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
       const displayIn = page.displayIn || [];
       return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
     });
+    
+    console.log(`[Debug] Publishing menu - ${dropdownPages.length} dropdown pages, ${buttonPages.length} button pages`);
+    console.log(`[Debug] Dropdown pages:`, dropdownPages.map(p => p.name));
+    console.log(`[Debug] Button pages:`, buttonPages.map(p => p.name));
 
     // Add dropdown component if there are pages configured for dropdown
     if (dropdownPages.length > 0) {
