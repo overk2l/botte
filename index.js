@@ -1401,6 +1401,40 @@ async function loadInfoMenusFromLocalFile() {
 }
 
 /**
+ * Loads hybrid menus from local file backup
+ */
+async function loadHybridMenusFromLocalFile() {
+  try {
+    const data = await fs.readFile(HYBRID_MENUS_BACKUP_FILE, 'utf8');
+    const backupData = JSON.parse(data);
+    
+    // Restore Maps from objects
+    db.hybridMenus.clear();
+    db.hybridMenuData.clear();
+    
+    if (backupData.hybridMenus) {
+      Object.entries(backupData.hybridMenus).forEach(([key, value]) => {
+        db.hybridMenus.set(key, value);
+      });
+    }
+    
+    if (backupData.hybridMenuData) {
+      Object.entries(backupData.hybridMenuData).forEach(([key, value]) => {
+        db.hybridMenuData.set(key, value);
+      });
+    }
+    
+    console.log(`[Local Backup] Loaded ${db.hybridMenuData.size} hybrid menus from local file (backup from ${backupData.timestamp})`);
+    return true;
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('[Local Backup] Error loading hybrid menus from local file:', error);
+    }
+    return false;
+  }
+}
+
+/**
  * Helper function to parse emoji strings for Discord components.
  * Handles both custom emojis (<:name:id>, <a:name:id>) and unicode emojis.
  * @param {string} emoji - The emoji string.
