@@ -2133,11 +2133,6 @@ client.on("interactionCreate", async (interaction) => {
   // Defer non-modal-trigger interactions, but handle dashboard navigation differently
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // Debug logging for webhook buttons
-      if (interaction.customId?.startsWith("schedule:webhook:")) {
-        console.log(`[DEBUG] Webhook button detected but not in modal trigger list: ${interaction.customId}`);
-        console.log(`[DEBUG] isModalTrigger: ${isModalTrigger}`);
-      }
       // Always defer interactions that need responses
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
@@ -3180,44 +3175,33 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "webhook_branding") {
           const hybridMenuId = parts[2];
           
-          console.log(`[Hybrid Debug] Showing webhook branding for menu: ${hybridMenuId}`);
-          
           const menu = db.getHybridMenu(hybridMenuId);
           if (!menu) {
             return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
           }
 
-          // Check if interaction was deferred/replied - modal can't be shown
-          if (interaction.deferred || interaction.replied) {
-            return interaction.editReply({ 
-              content: "❌ Cannot show webhook branding configuration at this time. Please try clicking the Webhook Branding button again.",
-              flags: MessageFlags.Ephemeral 
-            });
-          }
-
+          // Use the working pattern from reaction role system
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:webhook_branding:${hybridMenuId}`)
             .setTitle("Webhook Branding Settings")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("webhook_name")
-                  .setLabel("Webhook Name")
+                  .setCustomId("name")
+                  .setLabel("Display Name")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setValue(menu.webhookName || "")
-                  .setPlaceholder("Custom name for the webhook (leave empty for default)")
-                  .setMaxLength(80)
+                  .setPlaceholder("My Bot Name")
+                  .setValue(String(menu.webhookName || ""))
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("webhook_avatar")
-                  .setLabel("Webhook Avatar URL")
+                  .setCustomId("avatar")
+                  .setLabel("Avatar URL")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setValue(menu.webhookAvatar || "")
-                  .setPlaceholder("https://example.com/avatar.png (leave empty for default)")
-                  .setMaxLength(2000)
+                  .setPlaceholder("https://example.com/avatar.png")
+                  .setValue(String(menu.webhookAvatar || ""))
               )
             );
           
@@ -3245,6 +3229,47 @@ client.on("interactionCreate", async (interaction) => {
             } catch (error) {
               console.error(`[Hybrid Debug] Error toggling webhook:`, error);
               return sendEphemeralEmbed(interaction, "❌ Error toggling webhook. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "toggle_member_counts") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Toggling member counts for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const newCountState = !menu.showMemberCounts;
+              await db.updateHybridMenu(hybridMenuId, { showMemberCounts: newCountState });
+
+              // Update the published message if it exists (force update when toggling)
+              if (menu.channelId && menu.messageId) {
+                // Get the updated menu data
+                const updatedMenu = db.getHybridMenu(hybridMenuId);
+                if (updatedMenu) {
+                  // Force update the published message when toggling member counts
+                  // This ensures the message is updated to show/hide counts as needed
+                  try {
+                    await updatePublishedHybridMenuComponents(interaction, updatedMenu, hybridMenuId, true);
+                  } catch (updateError) {
+                    console.error(`[Hybrid Debug] Error updating published message:`, updateError);
+                    // Continue with success message even if update fails
+                  }
+                }
+              }
+
+              const statusMessage = newCountState ? "✅ Member counts are now shown on roles!" : "✅ Member counts are now hidden on roles!";
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+              return showHybridMenuConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error toggling member counts:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error toggling member counts. Please try again.", "#FF0000", "Error", false);
             }
           });
         }
@@ -7657,19 +7682,14 @@ client.on("interactionCreate", async (interaction) => {
             
             console.log(`[Hybrid Menu] Setting webhook branding for menu ${hybridMenuId}`);
             
-            const webhookName = interaction.fields.getTextInputValue("webhook_name");
-            const webhookAvatar = interaction.fields.getTextInputValue("webhook_avatar");
-            
-            // Validate webhook avatar URL if provided
-            if (webhookAvatar && !webhookAvatar.startsWith("http")) {
-              return sendEphemeralEmbed(interaction, "❌ Webhook avatar must be a valid URL starting with http:// or https://", "#FF0000", "Invalid URL", false);
-            }
+            // Use the working pattern from reaction role system
+            const name = interaction.fields.getTextInputValue("name");
+            const avatar = interaction.fields.getTextInputValue("avatar");
             
             // Update the hybrid menu with the new webhook branding settings
             await db.updateHybridMenu(hybridMenuId, {
-              webhookName: webhookName || "",
-              webhookAvatar: webhookAvatar || "",
-              useWebhook: true // Enable webhook when branding is set
+              webhookName: name || null,
+              webhookAvatar: avatar || null
             });
             
             await sendEphemeralEmbed(interaction, `✅ Webhook branding configured successfully!`, "#00FF00", "Success", false);
@@ -8679,6 +8699,81 @@ function getStatusDisplay(status) {
   }
 }
 
+/**
+ * Updates the components of a published hybrid menu message.
+ * Only updates if "Show Counts" is enabled to prevent "edited" indicator.
+ * @param {Object} interaction - The Discord interaction object.
+ * @param {Object} menu - The hybrid menu object.
+ * @param {string} hybridMenuId - The ID of the hybrid menu.
+ */
+async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, forceUpdate = false) {
+    // Only update components if "Show Counts" is enabled OR if this is a forced update (e.g., toggling the setting)
+    // This prevents the "edited" indicator unless member counts need to be updated or the setting is being toggled
+    if (!menu.showMemberCounts && !forceUpdate) {
+        console.log(`[updatePublishedHybridMenuComponents] Skipping update for menu ${hybridMenuId} - Show Counts disabled and not forced`);
+        return;
+    }
+    
+    if (!menu || !menu.channelId || !menu.messageId) {
+        console.warn(`[updatePublishedHybridMenuComponents] Invalid menu or missing channel/message ID for menu ${hybridMenuId}`);
+        return;
+    }
+
+    if (!interaction || !interaction.guild) {
+        console.warn(`[updatePublishedHybridMenuComponents] Invalid interaction for menu ${hybridMenuId}`);
+        return;
+    }
+
+    const guild = interaction.guild;
+
+    try {
+        const originalChannel = await guild.channels.fetch(menu.channelId).catch(() => null);
+        if (!originalChannel || !originalChannel.isTextBased()) {
+            console.error(`Channel ${menu.channelId} not found or not text-based for hybrid menu ${hybridMenuId}`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            return;
+        }
+
+        const originalMessage = await originalChannel.messages.fetch(menu.messageId).catch(() => null);
+        if (!originalMessage) {
+            console.error(`Message ${menu.messageId} not found for hybrid menu ${hybridMenuId}`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            return;
+        }
+
+        // Rebuild the hybrid menu components with updated member counts
+        const embed = await createHybridMenuEmbed(interaction.guild, menu);
+        const components = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+
+        // Update the message
+        if (menu.useWebhook) {
+            try {
+                const webhook = await getOrCreateWebhook(originalChannel);
+                await webhook.editMessage(originalMessage.id, {
+                    embeds: [embed],
+                    components,
+                    username: menu.webhookName || client.user.displayName,
+                    avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
+                });
+            } catch (webhookError) {
+                console.error("Error updating hybrid menu via webhook:", webhookError);
+                // Fallback to regular bot message edit
+                await originalMessage.edit({ embeds: [embed], components });
+            }
+        } else {
+            await originalMessage.edit({ embeds: [embed], components });
+        }
+
+    } catch (error) {
+        console.error("Error updating published hybrid menu components:", error);
+        // If the message or channel is gone, clear the message ID from the menu
+        if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
+            console.log(`Clearing message ID for hybrid menu ${hybridMenuId} due to channel/message access error.`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+        }
+    }
+}
+
 // ...existing code...
 
 // Add timeout handling for hybrid menu interactions to prevent infinite thinking
@@ -8850,8 +8945,14 @@ async function handleHybridMenuInteraction(interaction) {
                   const role = interaction.guild.roles.cache.get(roleId);
                   if (!role) return null;
                   
+                  // Get member count if enabled
+                  const memberCount = hybridMenu.showMemberCounts ? role.members.size : null;
+                  const labelText = memberCount !== null 
+                      ? `${role.name} (${memberCount})` 
+                      : role.name;
+                  
                   return {
-                    label: role.name.substring(0, 100),
+                    label: labelText.substring(0, 100),
                     value: role.id,
                     emoji: parseEmoji(hybridMenu.dropdownEmojis?.[role.id]),
                     description: hybridMenu.dropdownRoleDescriptions?.[role.id] ? hybridMenu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
@@ -10230,6 +10331,11 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
             : "Not configured")
           : "N/A (Webhook Disabled)",
         inline: true
+      },
+      {
+        name: "📊 Member Counts",
+        value: menu.showMemberCounts ? "✅ Shown" : "❌ Hidden",
+        inline: true
       }
     ]);
 
@@ -10275,6 +10381,11 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
       .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success)
       .setEmoji("🌐"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:toggle_member_counts:${hybridMenuId}`)
+      .setLabel(menu.showMemberCounts ? "Hide Counts" : "Show Counts")
+      .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setEmoji("📊"),
     new ButtonBuilder()
       .setCustomId(`hybrid:publish:${hybridMenuId}`)
       .setLabel("Publish Menu")
@@ -11060,8 +11171,14 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         const role = interaction.guild.roles.cache.get(roleId);
         if (!role) return null;
         
+        // Get member count if enabled
+        const memberCount = menu.showMemberCounts ? role.members.size : null;
+        const labelText = memberCount !== null 
+            ? `${role.name} (${memberCount})` 
+            : role.name;
+        
         return {
-          label: role.name.substring(0, 100),
+          label: labelText.substring(0, 100),
           value: role.id,
           emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
           description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
@@ -11141,9 +11258,15 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
         const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
 
+        // Get member count if enabled
+        const memberCount = menu.showMemberCounts ? role.members.size : null;
+        const labelText = memberCount !== null 
+            ? `${role.name} (${memberCount})` 
+            : role.name;
+
         const button = new ButtonBuilder()
           .setCustomId(`hybrid-role-button:${hybridMenuId}:${role.id}`)
-          .setLabel(role.name.substring(0, 80))
+          .setLabel(labelText.substring(0, 80))
           .setStyle(buttonStyle);
 
         if (menu.buttonEmojis?.[role.id]) {
