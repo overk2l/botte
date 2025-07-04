@@ -2075,6 +2075,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
     // Hybrid menu modal triggers
     (interaction.isButton() && interaction.customId === "hybrid:create") ||
+    (interaction.isButton() && interaction.customId === "hybrid:create_from_json") ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -2405,6 +2406,31 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
             return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "create_from_json") {
+          console.log(`[Hybrid Debug] Creating JSON modal for new hybrid menu`);
+          try {
+            const modal = new ModalBuilder()
+              .setCustomId("hybrid:modal:create_from_json")
+              .setTitle("Create Hybrid Menu from JSON")
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("json_data")
+                    .setLabel("Raw JSON Data")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder('Paste your JSON from Discohook here...\n{"title": "Menu Title", "description": "Menu description", "color": 5814783, "fields": [...]}')
+                    .setMaxLength(4000)
+                )
+              );
+            console.log(`[Hybrid Debug] JSON modal created, showing to user`);
+            return interaction.showModal(modal);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error creating or showing JSON modal:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error creating JSON form. Please try again.", "#FF0000", "Error", false);
           }
         }
 
@@ -6358,6 +6384,45 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to create hybrid menu. Please check the logs for details.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "create_from_json") {
+          try {
+            console.log(`[Hybrid Menu] Starting JSON creation process for guild ${interaction.guild.id}`);
+            const jsonData = interaction.fields.getTextInputValue("json_data");
+            console.log(`[Hybrid Menu] Processing JSON data`);
+            
+            // Parse and validate JSON
+            let embedData;
+            try {
+              embedData = JSON.parse(jsonData);
+            } catch (parseError) {
+              console.error(`[Hybrid Menu] JSON parse error:`, parseError);
+              return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON and try again.", "#FF0000", "JSON Error", false);
+            }
+            
+            // Extract title and description from JSON
+            const title = embedData.title || "Hybrid Menu";
+            const description = embedData.description || "A new hybrid menu";
+            
+            console.log(`[Hybrid Menu] Creating menu from JSON with title: "${title}"`);
+            
+            // Create the hybrid menu
+            const newHybridMenuId = await db.createHybridMenu(interaction.guild.id, title, description);
+            console.log(`[Hybrid Menu] Successfully created menu with ID: ${newHybridMenuId}`);
+            
+            // Update the menu with the full JSON data
+            await db.updateHybridMenu(newHybridMenuId, { 
+              embedData: embedData,
+              jsonImported: true
+            });
+            
+            await sendEphemeralEmbed(interaction, `✅ Hybrid menu "${title}" created successfully from JSON!`, "#00FF00", "Success", false);
+            return showHybridMenuConfiguration(interaction, newHybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error creating hybrid menu from JSON:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to create hybrid menu from JSON. Please check the logs for details.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -8586,13 +8651,19 @@ async function showHybridMenusDashboard(interaction) {
       .setStyle(ButtonStyle.Success)
       .setEmoji("🔀");
 
+  const createFromJsonButton = new ButtonBuilder()
+      .setCustomId("hybrid:create_from_json")
+      .setLabel("Create from Raw JSON")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📄");
+
   const backButton = new ButtonBuilder()
       .setCustomId("dash:back")
       .setLabel("Back to Dashboard")
       .setStyle(ButtonStyle.Secondary)
       .setEmoji("⬅️");
 
-  const buttonRow = new ActionRowBuilder().addComponents(createButton, backButton);
+  const buttonRow = new ActionRowBuilder().addComponents(createButton, createFromJsonButton, backButton);
   components.push(buttonRow);
 
   try {
