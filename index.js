@@ -686,6 +686,16 @@ const db = {
   infoMenuData: new Map(),
 
   /**
+   * Map to store guildId -> [hybridMenuId, ...] for quick lookup of hybrid menus per guild
+   */
+  hybridMenus: new Map(),
+  
+  /**
+   * Map to store hybridMenuId -> hybridMenuObject for quick access to hybrid menu data
+   */
+  hybridMenuData: new Map(),
+
+  /**
    * Loads all information menus from Firestore into memory.
    */
   async loadAllInfoMenus() {
@@ -1343,6 +1353,7 @@ async deleteHybridMenu(hybridMenuId) {
 // Local file backup system for info menus (fallback when Firebase fails)
 const LOCAL_BACKUP_DIR = path.join(__dirname, 'data');
 const INFO_MENUS_BACKUP_FILE = path.join(LOCAL_BACKUP_DIR, 'info_menus_backup.json');
+const HYBRID_MENUS_BACKUP_FILE = path.join(LOCAL_BACKUP_DIR, 'hybrid_menus_backup.json');
 
 /**
  * Saves info menus to local file as backup
