@@ -184,7 +184,8 @@ async function getOrCreateWebhook(channel, name = "Role Menu Webhook") {
 
   try {
     const webhooks = await channel.fetchWebhooks();
-    const existing = webhooks.find(w => w.owner && w.owner.id === channel.client.user.id);
+    // Look for existing webhook with the same name and owned by the bot
+    const existing = webhooks.find(w => w.owner && w.owner.id === channel.client.user.id && w.name === name);
 
     if (existing) return existing;
     
@@ -1942,12 +1943,11 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
         // Edit the message
         if (menu.useWebhook) {
             try {
-                const webhook = await getOrCreateWebhook(originalChannel);
+                const webhookName = menu.webhookName || "Reaction Role Webhook";
+                const webhook = await getOrCreateWebhook(originalChannel, webhookName);
                 await webhook.editMessage(originalMessage.id, {
                     embeds: [publishedEmbed],
                     components,
-                    username: menu.webhookName || client.user.displayName,
-                    avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
                 });
             } catch (webhookError) {
                 console.error("Error updating via webhook:", webhookError);
@@ -2079,6 +2079,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr:configure_button_colors:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:save_as_template:")) ||
     (interaction.isButton() && interaction.customId.startsWith("rr:clone_menu:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr:toggle_member_counts:")) ||
     (interaction.isButton() && interaction.customId === "rr:prompt_raw_embed_json") ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_role_for_description:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr:select_template")) ||
@@ -2111,6 +2112,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_info_page:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:customize_dropdown_text:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:webhook_branding:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:toggle_member_counts:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -2413,7 +2415,8 @@ client.on("interactionCreate", async (interaction) => {
             action.startsWith("add_info_page") ||
             action.startsWith("edit_info_page") ||
             action === "customize_dropdown_text" ||
-            action === "webhook_branding"
+            action === "webhook_branding" ||
+            action === "toggle_member_counts"
           );
 
           // Set up timeout handler to prevent infinite thinking (only for non-modal triggers)
@@ -3861,9 +3864,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "toggle_member_counts") {
-          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          if (!menuId) return interaction.reply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
           const menu = db.getMenu(menuId);
-          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+          if (!menu) return interaction.reply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
           const modal = new ModalBuilder()
             .setCustomId(`rr:modal:configure_member_counts:${menuId}`)
@@ -8784,12 +8787,11 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
         // Update the message
         if (menu.useWebhook) {
             try {
-                const webhook = await getOrCreateWebhook(originalChannel);
+                const webhookName = menu.webhookName || "Hybrid Menu Webhook";
+                const webhook = await getOrCreateWebhook(originalChannel, webhookName);
                 await webhook.editMessage(originalMessage.id, {
                     embeds: [embed],
                     components,
-                    username: menu.webhookName || client.user.displayName,
-                    avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
                 });
             } catch (webhookError) {
                 console.error("Error updating hybrid menu via webhook:", webhookError);
@@ -9641,8 +9643,6 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
                     await webhook.editMessage(messageToEdit.id, {
                         embeds: [embed],
                         components,
-                        username: menu.webhookName || botDisplayName,
-                        avatarURL: menu.webhookAvatar || botAvatarURL,
                     });
                     message = messageToEdit;
                 } catch (webhookError) {
@@ -9654,7 +9654,8 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
             }
         } else if (menu.useWebhook) {
             try {
-                const webhook = await getOrCreateWebhook(channel);
+                const webhookName = menu.webhookName || "Reaction Role Webhook";
+                const webhook = await getOrCreateWebhook(channel, webhookName);
                 message = await webhook.send({
                     embeds: [embed],
                     components,
@@ -11170,209 +11171,30 @@ async function publishHybridMenu(interaction, hybridMenuId) {
   }
 
   try {
-    // Create the main embed
-    const embed = new EmbedBuilder()
-      .setTitle(menu.name)
-      .setDescription(menu.desc)
-      .setColor(menu.embedColor || "#5865F2");
-
-    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
-    if (menu.embedImage) embed.setImage(menu.embedImage);
-    
-    if (menu.embedAuthorName) {
-      embed.setAuthor({
-        name: menu.embedAuthorName,
-        iconURL: menu.embedAuthorIconURL
-      });
-    }
-
-    if (menu.embedFooterText) {
-      embed.setFooter({
-        text: menu.embedFooterText,
-        iconURL: menu.embedFooterIconURL
-      });
-    }
-
-    const components = [];
-
-    // Get component order (default: dropdowns first, then buttons)
-    const componentOrder = menu.componentOrder || {
-      infoDropdown: 1,
-      roleDropdown: 2,
-      infoButtons: 3,
-      roleButtons: 4
-    };
-
-    // Create component objects with their order
-    const componentParts = [];
-
-    // Add info pages dropdown if configured
-    if (menu.pages && menu.pages.length > 0 && 
-        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
-      const infoOptions = menu.pages.slice(0, 25).map(page => ({
-        label: page.name.substring(0, 100),
-        value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
-        description: page.content?.substring(0, 100) || 'No description',
-        emoji: page.emoji || '📋'
-      }));
-
-      if (infoOptions.length > 0) {
-        const infoDropdown = new StringSelectMenuBuilder()
-          .setCustomId(`hybrid-info-select:${hybridMenuId}`)
-          .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
-          .addOptions(infoOptions);
-        
-        componentParts.push({
-          order: componentOrder.infoDropdown || 1,
-          type: 'infoDropdown',
-          component: new ActionRowBuilder().addComponents(infoDropdown)
-        });
-      }
-    }
-
-    // Add roles dropdown if configured
-    if (menu.dropdownRoles && menu.dropdownRoles.length > 0 && 
-        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
-      const roleOptions = menu.dropdownRoles.map(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) return null;
-        
-        // Get member count if enabled for dropdowns
-        const memberCountOptions = menu.memberCountOptions || {};
-        const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
-        const memberCount = showCountsInDropdowns ? role.members.size : null;
-        const labelText = memberCount !== null 
-            ? `${role.name} (${memberCount})` 
-            : role.name;
-        
-        return {
-          label: labelText.substring(0, 100),
-          value: role.id,
-          emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
-          description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
-          default: false
-        };
-      }).filter(Boolean);
-
-      if (roleOptions.length > 0) {
-        const roleDropdown = new StringSelectMenuBuilder()
-          .setCustomId(`hybrid-role-select:${hybridMenuId}`)
-          .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
-          .setMinValues(1)
-          .setMaxValues(roleOptions.length)
-          .addOptions(roleOptions);
-        
-        componentParts.push({
-          order: componentOrder.roleDropdown || 2,
-          type: 'roleDropdown',
-          component: new ActionRowBuilder().addComponents(roleDropdown)
-        });
-      }
-    }
-
-    // Add info pages buttons if configured
-    if (menu.pages && menu.pages.length > 0 && 
-        menu.infoSelectionType?.includes("button")) {
-      const buttonRows = [];
-      let currentRow = new ActionRowBuilder();
-      let buttonsInRow = 0;
-
-      menu.pages.forEach(page => {
-        if (buttonsInRow >= 5) {
-          buttonRows.push(currentRow);
-          currentRow = new ActionRowBuilder();
-          buttonsInRow = 0;
-        }
-
-        const button = new ButtonBuilder()
-          .setCustomId(`hybrid-info-page:${hybridMenuId}:${page.id}`)
-          .setLabel(page.name.substring(0, 80))
-          .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary);
-
-        if (page.emoji) button.setEmoji(page.emoji);
-
-        currentRow.addComponents(button);
-        buttonsInRow++;
-      });
-
-      if (buttonsInRow > 0) {
-        buttonRows.push(currentRow);
-      }
-
-      componentParts.push({
-        order: componentOrder.infoButtons || 3,
-        type: 'infoButtons',
-        components: buttonRows
-      });
-    }
-
-    // Add role buttons if configured
-    if (menu.buttonRoles && menu.buttonRoles.length > 0 && 
-        menu.roleSelectionType?.includes("button")) {
-      const buttonRows = [];
-      let currentRow = new ActionRowBuilder();
-      let buttonsInRow = 0;
-
-      menu.buttonRoles.forEach(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) return;
-
-        if (buttonsInRow >= 5) {
-          buttonRows.push(currentRow);
-          currentRow = new ActionRowBuilder();
-          buttonsInRow = 0;
-        }
-
-        const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
-        const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
-
-        // Get member count if enabled for buttons
-        const memberCountOptions = menu.memberCountOptions || {};
-        const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
-        const memberCount = showCountsInButtons ? role.members.size : null;
-        const labelText = memberCount !== null 
-            ? `${role.name} (${memberCount})` 
-            : role.name;
-
-        const button = new ButtonBuilder()
-          .setCustomId(`hybrid-role-button:${hybridMenuId}:${role.id}`)
-          .setLabel(labelText.substring(0, 80))
-          .setStyle(buttonStyle);
-
-        if (menu.buttonEmojis?.[role.id]) {
-          button.setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
-        }
-
-        currentRow.addComponents(button);
-        buttonsInRow++;
-      });
-
-      if (buttonsInRow > 0) {
-        buttonRows.push(currentRow);
-      }
-
-      componentParts.push({
-        order: componentOrder.roleButtons || 4,
-        type: 'roleButtons',
-        components: buttonRows
-      });
-    }
-
-    // Sort components by order and add to final components array
-    componentParts.sort((a, b) => a.order - b.order);
-    
-    componentParts.forEach(part => {
-      if (part.component) {
-        // Single component (dropdowns)
-        components.push(part.component);
-      } else if (part.components) {
-        // Multiple components (button rows)
-        components.push(...part.components);
-      }
-    });
+    // Create the main embed and components using helper functions
+    const embed = await createHybridMenuEmbed(interaction.guild, menu);
+    const components = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
 
     // Send the hybrid menu
-    const sentMessage = await channel.send({ embeds: [embed], components });
+    let sentMessage;
+    if (menu.useWebhook) {
+      try {
+        const webhookName = menu.webhookName || "Hybrid Menu Webhook";
+        const webhook = await getOrCreateWebhook(channel, webhookName);
+        sentMessage = await webhook.send({
+          embeds: [embed],
+          components,
+          username: menu.webhookName || client.user.displayName,
+          avatarURL: menu.webhookAvatar || client.user.displayAvatarURL(),
+        });
+      } catch (webhookError) {
+        console.error("Error publishing hybrid menu via webhook:", webhookError);
+        // Fallback to regular bot message
+        sentMessage = await channel.send({ embeds: [embed], components });
+      }
+    } else {
+      sentMessage = await channel.send({ embeds: [embed], components });
+    }
 
     // Update the hybrid menu with channel and message info
     await db.updateHybridMenu(hybridMenuId, {
