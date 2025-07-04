@@ -627,7 +627,7 @@ const db = {
       guildId,
       name,
       desc,
-      selectionType: 'dropdown', // 'dropdown' or 'button'
+      selectionType: [], // Array of 'dropdown' and/or 'button'
       pages: [], // Array of page objects: { id, name, content }
       channelId: null,
       messageId: null,
@@ -1544,10 +1544,23 @@ client.on("interactionCreate", async (interaction) => {
   // Check if it's a modal submission - these need deferUpdate
   const isModalSubmission = interaction.isModalSubmit();
 
+  // Check if it's a published menu interaction (users interacting with published menus)
+  const isPublishedMenuInteraction = (
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info-menu-select:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info-page:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))
+  );
+
   // Defer non-modal-trigger interactions
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission) {
     try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      // For published menu interactions, defer the reply immediately
+      if (isPublishedMenuInteraction) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      } else {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      }
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
@@ -3252,7 +3265,7 @@ client.on("interactionCreate", async (interaction) => {
               return interaction.showModal(modal);
             } catch (jsonError) {
               console.error("Error serializing page data for edit:", jsonError);
-              return interaction.reply({
+              return interaction.editReply({
                 content: "❌ Error preparing page data for editing. The page data may be corrupted.",
                 flags: MessageFlags.Ephemeral
               });
@@ -3270,7 +3283,7 @@ client.on("interactionCreate", async (interaction) => {
               .setStyle(ButtonStyle.Secondary);
             const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
-            return interaction.reply({
+            return interaction.editReply({
               content: `⚠️ Are you sure you want to delete the page "${page.name}"? This cannot be undone.`,
               components: [row],
               flags: MessageFlags.Ephemeral
@@ -3399,11 +3412,8 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           try {
-            if (interaction.replied || interaction.deferred) {
-              await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-            } else {
-              await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-            }
+            // Since published menu interactions are always deferred, use editReply
+            await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 
             // Update the original message to reset the dropdown so users can select again
             try {
@@ -3440,6 +3450,261 @@ client.on("interactionCreate", async (interaction) => {
           console.error("Error displaying info page from dropdown:", error);
           console.error("Page data:", JSON.stringify(page, null, 2));
           console.error("Menu data:", JSON.stringify(menu, null, 2));
+          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+        }
+      } else if (interaction.customId.startsWith("info-page:")) {
+        // Handle user selecting a page from published info menu button
+        const parts = interaction.customId.split(":");
+        const infoMenuId = parts[1];
+        const selectedPageId = parts[2];
+
+        if (!infoMenuId || !selectedPageId) {
+          return sendEphemeralEmbed(interaction, "❌ Invalid menu or page selection.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+        }
+
+        const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+        if (!page) {
+          return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+        }
+
+        try {
+          // Create embed for the page content
+          const embed = new EmbedBuilder();
+          
+          // Helper function to validate URLs
+          const isValidUrl = (url) => {
+            if (!url || typeof url !== 'string' || url.trim() === '') return false;
+            try {
+              new URL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          };
+
+          // Helper function to validate color
+          const isValidColor = (color) => {
+            if (!color || typeof color !== 'string') return false;
+            return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+          };
+          
+          if (page.content.title && page.content.title.trim()) {
+            embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
+          }
+          
+          if (page.content.description && page.content.description.trim()) {
+            embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
+          }
+          
+          // Handle color with validation
+          const color = page.content.color || menu.embedColor;
+          if (color && isValidColor(color)) {
+            embed.setColor(color);
+          }
+          
+          // Handle thumbnail with URL validation
+          const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+          if (thumbnail && isValidUrl(thumbnail)) {
+            embed.setThumbnail(thumbnail);
+          }
+          
+          // Handle image with URL validation
+          const image = page.content.image || menu.embedImage;
+          if (image && isValidUrl(image)) {
+            embed.setImage(image);
+          }
+          
+          // Handle author with validation
+          if (page.content.author && page.content.author.name) {
+            const authorData = {
+              name: page.content.author.name.slice(0, 256) // Discord author name limit
+            };
+            if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+              authorData.iconURL = page.content.author.iconURL;
+            }
+            embed.setAuthor(authorData);
+          } else if (menu.embedAuthorName) {
+            const authorData = {
+              name: menu.embedAuthorName.slice(0, 256)
+            };
+            if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+              authorData.iconURL = menu.embedAuthorIconURL;
+            }
+            embed.setAuthor(authorData);
+          }
+
+          // Handle footer with validation
+          if (page.content.footer && page.content.footer.text) {
+            const footerData = {
+              text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+            };
+            if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+              footerData.iconURL = page.content.footer.iconURL;
+            }
+            embed.setFooter(footerData);
+          } else if (menu.embedFooterText) {
+            const footerData = {
+              text: menu.embedFooterText.slice(0, 2048)
+            };
+            if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+              footerData.iconURL = menu.embedFooterIconURL;
+            }
+            embed.setFooter(footerData);
+          }
+
+          // Handle fields with validation
+          if (page.content.fields && Array.isArray(page.content.fields)) {
+            const validFields = page.content.fields
+              .filter(field => field && field.name && field.value)
+              .slice(0, 25) // Discord field limit
+              .map(field => ({
+                name: field.name.slice(0, 256), // Discord field name limit
+                value: field.value.slice(0, 1024), // Discord field value limit
+                inline: Boolean(field.inline)
+              }));
+            
+            if (validFields.length > 0) {
+              embed.addFields(validFields);
+            }
+          }
+
+          // Since published menu interactions are always deferred, use editReply
+          await sendEphemeralEmbed(interaction, embed, null, null, false);
+        } catch (error) {
+          console.error("Error displaying info page from button:", error);
+          console.error("Page data:", JSON.stringify(page, null, 2));
+          console.error("Menu data:", JSON.stringify(menu, null, 2));
+          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+        }
+      } else if (interaction.customId.startsWith("info-page:")) {
+        // Handle user clicking a page button from published info menu
+        const parts = interaction.customId.split(":");
+        const infoMenuId = parts[1];
+        const selectedPageId = parts[2];
+
+        if (!infoMenuId || !selectedPageId) {
+          return sendEphemeralEmbed(interaction, "❌ Invalid menu or page selection.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+        }
+
+        const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+        if (!page) {
+          return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+        }
+
+        try {
+          // Create embed for the page content
+          const embed = new EmbedBuilder();
+          
+          // Helper function to validate URLs
+          const isValidUrl = (url) => {
+            if (!url || typeof url !== 'string' || url.trim() === '') return false;
+            try {
+              new URL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          };
+
+          // Helper function to validate color
+          const isValidColor = (color) => {
+            if (!color || typeof color !== 'string') return false;
+            return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+          };
+          
+          if (page.content.title && page.content.title.trim()) {
+            embed.setTitle(page.content.title.slice(0, 256));
+          }
+          
+          if (page.content.description && page.content.description.trim()) {
+            embed.setDescription(page.content.description.slice(0, 4096));
+          }
+          
+          // Handle color with validation
+          const color = page.content.color || menu.embedColor;
+          if (color && isValidColor(color)) {
+            embed.setColor(color);
+          }
+          
+          // Handle thumbnail with URL validation
+          const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+          if (thumbnail && isValidUrl(thumbnail)) {
+            embed.setThumbnail(thumbnail);
+          }
+          
+          // Handle image with URL validation
+          const image = page.content.image || menu.embedImage;
+          if (image && isValidUrl(image)) {
+            embed.setImage(image);
+          }
+          
+          // Handle author with validation
+          if (page.content.author && page.content.author.name) {
+            const authorData = {
+              name: page.content.author.name.slice(0, 256)
+            };
+            if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+              authorData.iconURL = page.content.author.iconURL;
+            }
+            embed.setAuthor(authorData);
+          } else if (menu.embedAuthorName) {
+            const authorData = {
+              name: menu.embedAuthorName.slice(0, 256)
+            };
+            if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+              authorData.iconURL = menu.embedAuthorIconURL;
+            }
+            embed.setAuthor(authorData);
+          }
+
+          // Handle footer with validation
+          if (page.content.footer && page.content.footer.text) {
+            const footerData = {
+              text: page.content.footer.text.slice(0, 2048)
+            };
+            if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+              footerData.iconURL = page.content.footer.iconURL;
+            }
+            embed.setFooter(footerData);
+          } else if (menu.embedFooterText) {
+            const footerData = {
+              text: menu.embedFooterText.slice(0, 2048)
+            };
+            if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+              footerData.iconURL = menu.embedFooterIconURL;
+            }
+            embed.setFooter(footerData);
+          }
+
+          // Handle fields with validation
+          if (page.content.fields && Array.isArray(page.content.fields)) {
+            const validFields = page.content.fields
+              .filter(field => field && field.name && field.value)
+              .slice(0, 25)
+              .map(field => ({
+                name: field.name.slice(0, 256),
+                value: field.value.slice(0, 1024),
+                inline: Boolean(field.inline)
+              }));
+            
+            if (validFields.length > 0) {
+              embed.addFields(validFields);
+            }
+          }
+
+          await sendEphemeralEmbed(interaction, embed, null, null, false);
+        } catch (error) {
+          console.error("Error displaying info page from button:", error);
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
