@@ -4242,12 +4242,32 @@ client.on("interactionCreate", async (interaction) => {
             // Remove the type if it's currently enabled
             selectionTypes = selectionTypes.filter(type => type !== componentType);
             await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled!`, "#00FF00", "Success", false);
+            
+            // Update all existing pages to match the new selection types
+            const pages = db.getInfoMenuPages(infoMenuId);
+            if (pages && pages.length > 0) {
+              for (const page of pages) {
+                const updatedPage = { ...page, displayIn: selectionTypes };
+                await db.saveInfoMenuPage(infoMenuId, updatedPage);
+              }
+            }
+            
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled! All pages updated.`, "#00FF00", "Success", false);
           } else {
             // Add the type if it's currently disabled
             selectionTypes.push(componentType);
             await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled!`, "#00FF00", "Success", false);
+            
+            // Update all existing pages to match the new selection types
+            const pages = db.getInfoMenuPages(infoMenuId);
+            if (pages && pages.length > 0) {
+              for (const page of pages) {
+                const updatedPage = { ...page, displayIn: selectionTypes };
+                await db.saveInfoMenuPage(infoMenuId, updatedPage);
+              }
+            }
+            
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled! All pages updated.`, "#00FF00", "Success", false);
           }
           
           return showInfoMenuConfiguration(interaction, infoMenuId);
@@ -4602,7 +4622,7 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           // Cycle through display options: Both → Dropdown Only → Button Only → Hidden → Both
-          const currentDisplay = page.displayIn || ['dropdown', 'button'];
+          const currentDisplay = page.displayIn || [];
           let newDisplay;
           let statusMessage;
 
@@ -4743,7 +4763,7 @@ client.on("interactionCreate", async (interaction) => {
 
           // Filter pages that can appear as buttons
           const buttonPages = pages.filter(page => {
-            const displayIn = page.displayIn || ['dropdown', 'button'];
+            const displayIn = page.displayIn || [];
             return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
           });
 
@@ -5761,33 +5781,8 @@ client.on("interactionCreate", async (interaction) => {
             // Since published menu interactions are always deferred, use editReply
             await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 
-            // Update the original message to reset the dropdown so users can select again
-            try {
-              const pages = db.getInfoMenuPages(infoMenuId);
-              if (pages && pages.length > 0) {
-                const selectMenu = new StringSelectMenuBuilder()
-                  .setCustomId(`info-menu-select:${infoMenuId}`)
-                  .setPlaceholder(menu.dropdownPlaceholder || '📚 Select a page to view...')
-                  .addOptions(
-                    pages.map(page => ({
-                      label: page.name.slice(0, 100),
-                      value: page.id,
-                      description: page.dropdownDescription || (page.content.description ? page.content.description.slice(0, 100) : undefined),
-                      emoji: page.emoji || '📄'
-                    }))
-                  );
-
-                const row = new ActionRowBuilder().addComponents(selectMenu);
-                
-                // Update the original message to refresh the dropdown
-                await interaction.message.edit({
-                  components: [row]
-                });
-              }
-            } catch (updateError) {
-              console.error("Error updating dropdown after selection:", updateError);
-              // Don't fail the whole interaction if we can't update the dropdown
-            }
+            // No need to update the message - dropdown selections clear automatically
+            // Updating the message causes "edited" marks and can remove other components
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
             console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
@@ -7134,6 +7129,11 @@ client.on("interactionCreate", async (interaction) => {
 
           // Create the new page
           const pageId = `page_${Date.now()}`;
+          
+          // Get the current menu to determine where pages should display
+          const currentMenu = db.getInfoMenu(infoMenuId);
+          const selectionTypes = currentMenu?.selectionType || [];
+          
           const newPage = {
             id: pageId,
             name: pageName.trim(),
@@ -7142,7 +7142,7 @@ client.on("interactionCreate", async (interaction) => {
               description: pageDescription.trim(),
               color: validColor
             },
-            displayIn: ['dropdown', 'button'], // Default to both
+            displayIn: selectionTypes, // Use the menu's current selection types
             emoji: pageEmoji.trim() || null,
             category: "Custom",
             order: Date.now(),
@@ -10285,6 +10285,11 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
 
   // Create page with template data
   const pageId = `page_${Date.now()}`;
+  
+  // Get the current menu to determine where pages should display
+  const currentMenu = db.getInfoMenu(infoMenuId);
+  const selectionTypes = currentMenu?.selectionType || [];
+  
   const newPage = {
     id: pageId,
     name: template.name,
@@ -10293,7 +10298,7 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
       description: template.description,
       color: template.color
     },
-    displayIn: ['dropdown', 'button'], // Default to both
+    displayIn: selectionTypes, // Use the menu's current selection types
     emoji: template.emoji,
     category: template.category,
     order: Date.now(), // Use timestamp for ordering
@@ -10580,7 +10585,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
     if (selectionTypes.includes("dropdown")) {
       // Filter pages that should appear in dropdown
       const dropdownPages = pages.filter(page => {
-        const displayIn = page.displayIn || ['dropdown', 'button']; // Default to both for backward compatibility
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
         return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
       });
 
@@ -10604,7 +10609,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
     if (selectionTypes.includes("button")) {
       // Filter pages that should appear as buttons
       const buttonPages = pages.filter(page => {
-        const displayIn = page.displayIn || ['dropdown', 'button']; // Default to both for backward compatibility
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
         return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
       });
 
