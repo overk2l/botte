@@ -1095,7 +1095,249 @@ addInfoMenuPage(infoMenuId, pageData) {
   saveInfoMenusToLocalFile();
   
   return true;
+},
+
+// ======================= Hybrid Menu Functions =======================
+
+/**
+ * Loads all hybrid menus from Firestore into memory.
+ */
+async loadAllHybridMenus() {
+  console.log("[Database] Loading all hybrid menus...");
+  if (!firebaseEnabled) {
+    console.warn("[Database] Running in memory-only mode for hybrid menus. Data will not persist between restarts.");
+    return;
+  }
+  try {
+    const hybridMenusCollectionRef = collection(dbFirestore, `artifacts/${appId}/public/data/hybrid_menus`);
+    const querySnapshot = await getDocs(hybridMenusCollectionRef);
+    this.hybridMenus.clear();
+    this.hybridMenuData.clear();
+
+    querySnapshot.forEach(doc => {
+      const hybridMenuData = doc.data();
+      const hybridMenuId = doc.id;
+      const guildId = hybridMenuData.guildId;
+
+      if (!this.hybridMenus.has(guildId)) {
+        this.hybridMenus.set(guildId, []);
+      }
+      this.hybridMenus.get(guildId).push(hybridMenuId);
+      this.hybridMenuData.set(hybridMenuId, hybridMenuData);
+    });
+    console.log(`[Database] Loaded ${this.hybridMenuData.size} hybrid menus from Firestore.`);
+  } catch (error) {
+    if (error.code === 'permission-denied') {
+      console.warn("[Database] Permission denied when loading hybrid menus from Firestore. Using local fallback.");
+    } else {
+      console.error("[Database] Error loading hybrid menus from Firestore:", error);
+    }
+    
+    // Try to load from local backup file
+    const loadedFromBackup = await loadHybridMenusFromLocalFile();
+    if (!loadedFromBackup) {
+      console.warn("[Database] No local backup found. Starting with empty hybrid menus.");
+    }
+  }
+},
+
+/**
+ * Creates a new hybrid menu and saves it to Firestore.
+ * @param {string} guildId - The ID of the guild where the hybrid menu is created.
+ * @param {string} name - The name of the hybrid menu.
+ * @param {string} desc - The description for the hybrid menu.
+ * @returns {Promise<string>} The ID of the newly created hybrid menu.
+ */
+async createHybridMenu(guildId, name, desc) {
+  const id = 'hybrid_' + Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+  const newHybridMenu = {
+    guildId,
+    name,
+    desc,
+    // Information menu properties
+    infoSelectionType: [], // Array of 'dropdown' and/or 'button' for info
+    pages: [], // Array of page objects: { id, name, content }
+    // Reaction role properties
+    roleSelectionType: [], // Array of 'dropdown' and/or 'button' for roles
+    dropdownRoles: [],
+    buttonRoles: [],
+    dropdownEmojis: {},
+    buttonEmojis: {},
+    buttonColors: {},
+    regionalLimits: {},
+    exclusionMap: {},
+    maxRolesLimit: null,
+    successMessageAdd: "✅ You now have the role <@&{roleId}>!",
+    successMessageRemove: "✅ You removed the role <@&{roleId}>!",
+    limitExceededMessage: "❌ You have reached the maximum number of roles for this menu or region.",
+    dropdownRoleOrder: [],
+    buttonRoleOrder: [],
+    dropdownRoleDescriptions: {},
+    // Common properties
+    channelId: null,
+    messageId: null,
+    useWebhook: false,
+    webhookName: null,
+    webhookAvatar: null,
+    embedColor: '#5865F2',
+    embedThumbnail: null,
+    embedImage: null,
+    embedAuthorName: null,
+    embedAuthorIconURL: null,
+    embedFooterText: null,
+    embedFooterIconURL: null,
+    showMemberCounts: false,
+    isTemplate: false,
+    templateName: null,
+    templateDescription: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  // Save to in-memory storage
+  if (!this.hybridMenus.has(guildId)) {
+    this.hybridMenus.set(guildId, []);
+  }
+  this.hybridMenus.get(guildId).push(id);
+  this.hybridMenuData.set(id, newHybridMenu);
+
+  if (firebaseEnabled) {
+    try {
+      const hybridMenuRef = doc(dbFirestore, `artifacts/${appId}/public/data/hybrid_menus`, id);
+      await setDoc(hybridMenuRef, newHybridMenu);
+      console.log(`[Database] Created hybrid menu with ID: ${id}`);
+    } catch (error) {
+      console.error(`[Database] Error creating hybrid menu in Firestore:`, error);
+    }
+  } else {
+    console.log(`[Database] Created hybrid menu with ID: ${id} (memory only)`);
+    // Save to local file as backup when Firebase is disabled
+    await saveHybridMenusToLocalFile();
+  }
+
+  return id;
+},
+
+/**
+ * Gets all hybrid menus for a specific guild.
+ * @param {string} guildId - The guild ID to get hybrid menus for.
+ * @returns {Array} Array of hybrid menu objects.
+ */
+getHybridMenus(guildId) {
+  if (!guildId) {
+    // Return all templates if no guildId provided
+    return Array.from(this.hybridMenuData.values())
+      .filter(menu => menu.isTemplate)
+      .map(menu => ({ id: Array.from(this.hybridMenuData.keys()).find(key => this.hybridMenuData.get(key) === menu), ...menu }));
+  }
+  const menuIds = this.hybridMenus.get(guildId) || [];
+  return menuIds.map(id => ({ id, ...this.hybridMenuData.get(id) })).filter(Boolean);
+},
+
+/**
+ * Gets a specific hybrid menu by ID.
+ * @param {string} hybridMenuId - The ID of the hybrid menu to retrieve.
+ * @returns {Object|null} The hybrid menu object or null if not found.
+ */
+getHybridMenu(hybridMenuId) {
+  return this.hybridMenuData.get(hybridMenuId) || null;
+},
+
+/**
+ * Updates a hybrid menu with new data.
+ * @param {string} hybridMenuId - The ID of the hybrid menu to update.
+ * @param {Object} updateData - The data to update.
+ */
+async updateHybridMenu(hybridMenuId, updateData) {
+  if (!hybridMenuId || typeof hybridMenuId !== 'string') {
+    console.warn(`[Database] Invalid hybridMenuId provided to updateHybridMenu: ${hybridMenuId}`);
+    return;
+  }
+
+  const existingMenu = this.hybridMenuData.get(hybridMenuId);
+  if (!existingMenu) {
+    console.warn(`[Database] Attempted to update non-existent hybrid menu: ${hybridMenuId}`);
+    return;
+  }
+
+  // Update in-memory data
+  const updatedMenu = { 
+    ...existingMenu, 
+    ...updateData, 
+    updatedAt: new Date().toISOString() 
+  };
+  this.hybridMenuData.set(hybridMenuId, updatedMenu);
+
+  if (firebaseEnabled) {
+    try {
+      const hybridMenuRef = doc(dbFirestore, `artifacts/${appId}/public/data/hybrid_menus`, hybridMenuId);
+      await setDoc(hybridMenuRef, updatedMenu, { merge: true });
+      console.log(`[Database] Updated hybrid menu ${hybridMenuId} in Firestore.`);
+    } catch (error) {
+      console.error(`[Database] Error updating hybrid menu in Firestore:`, error);
+    }
+  } else {
+    console.log(`[Database] Updated hybrid menu ${hybridMenuId} (memory only)`);
+    // Save to local file as backup when Firebase is disabled
+    await saveHybridMenusToLocalFile();
+  }
+},
+
+/**
+ * Saves the message ID and channel ID for a published hybrid menu.
+ * @param {string} hybridMenuId - The ID of the hybrid menu.
+ * @param {string} channelId - The channel ID where the menu was published.
+ * @param {string} messageId - The message ID of the published menu.
+ */
+async saveHybridMenuMessage(hybridMenuId, channelId, messageId) {
+  await this.updateHybridMenu(hybridMenuId, { channelId, messageId });
+},
+
+/**
+ * Deletes a hybrid menu from both memory and Firestore.
+ * @param {string} hybridMenuId - The ID of the hybrid menu to delete.
+ */
+async deleteHybridMenu(hybridMenuId) {
+  if (!hybridMenuId || typeof hybridMenuId !== 'string') {
+    console.warn(`[Database] Invalid hybridMenuId provided to deleteHybridMenu: ${hybridMenuId}`);
+    return;
+  }
+
+  const menu = this.hybridMenuData.get(hybridMenuId);
+  if (!menu) {
+    console.warn(`[Database] Attempted to delete non-existent hybrid menu: ${hybridMenuId}`);
+    return;
+  }
+
+  // Remove from in-memory maps
+  const guildMenus = this.hybridMenus.get(menu.guildId);
+  if (guildMenus) {
+    const index = guildMenus.indexOf(hybridMenuId);
+    if (index > -1) {
+      guildMenus.splice(index, 1);
+    }
+    // Clean up empty guild arrays
+    if (guildMenus.length === 0) {
+      this.hybridMenus.delete(menu.guildId);
+    }
+  }
+  this.hybridMenuData.delete(hybridMenuId);
+
+  if (firebaseEnabled) {
+    try {
+      const hybridMenuRef = doc(dbFirestore, `artifacts/${appId}/public/data/hybrid_menus`, hybridMenuId);
+      await deleteDoc(hybridMenuRef);
+      console.log(`[Database] Deleted hybrid menu with ID: ${hybridMenuId} from Firestore.`);
+    } catch (error) {
+      console.error(`[Database] Error deleting hybrid menu from Firestore:`, error);
+    }
+  } else {
+    console.log(`[Database] Deleted hybrid menu with ID: ${hybridMenuId} (memory only)`);
+    // Save to local file as backup when Firebase is disabled
+    await saveHybridMenusToLocalFile();
+  }
 }
+
 };
 
 // Local file backup system for info menus (fallback when Firebase fails)
@@ -1630,6 +1872,7 @@ client.once("ready", async () => {
   // Load all menus from Firestore when the bot starts
   await db.loadAllMenus();
   await db.loadAllInfoMenus();
+  await db.loadAllHybridMenus();
 
   // Initialize new features
   initializeScheduledMessages().catch(console.error);
@@ -1745,6 +1988,18 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
+    // Hybrid menu modal triggers
+    (interaction.isButton() && interaction.customId === "hybrid:create") ||
+    (interaction.isButton() && interaction.customId.startsWith("info:toggle_webhook:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:config_webhook:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:clone_menu:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -1843,6 +2098,7 @@ client.on("interactionCreate", async (interaction) => {
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
         if (action === "info-menus") return showInfoMenusDashboard(interaction);
+        if (action === "hybrid-menus") return showHybridMenusDashboard(interaction);
         if (action === "scheduled-messages") return showScheduledMessagesDashboard(interaction);
         if (action === "performance") return showPerformanceDashboard(interaction);
         if (action === "dynamic-content") return showDynamicContentHelp(interaction);
@@ -5947,6 +6203,20 @@ client.on("interactionCreate", async (interaction) => {
           return showInfoMenuConfiguration(interaction, infoMenuId);
         }
       }
+
+      if (ctx === "hybrid" && action === "modal") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (modalType === "create") {
+          const name = interaction.fields.getTextInputValue("name");
+          const desc = interaction.fields.getTextInputValue("desc");
+          const newHybridMenuId = await db.createHybridMenu(interaction.guild.id, name, desc);
+          await sendEphemeralEmbed(interaction, `✅ Hybrid menu "${name}" created successfully!`, "#00FF00", "Success", false);
+          return showHybridMenuConfiguration(interaction, newHybridMenuId);
+        }
+      }
     }
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
@@ -6962,6 +7232,11 @@ async function sendMainDashboard(interaction) {
             .setStyle(ButtonStyle.Primary)
             .setEmoji("📋"),
         new ButtonBuilder()
+            .setCustomId("dash:hybrid-menus")
+            .setLabel("Hybrid Menus")
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("🔀"),
+        new ButtonBuilder()
             .setCustomId("dash:scheduled-messages")
             .setLabel("Scheduled Messages")
             .setStyle(ButtonStyle.Secondary)
@@ -6970,7 +7245,10 @@ async function sendMainDashboard(interaction) {
             .setCustomId("dash:performance")
             .setLabel("Performance")
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji("📊"),
+            .setEmoji("📊")
+    );
+    
+    const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId("dash:dynamic-content")
             .setLabel("Dynamic Content")
@@ -6978,7 +7256,7 @@ async function sendMainDashboard(interaction) {
             .setEmoji("🔮")
     );
     
-    await interaction.editReply({ embeds: [embed], components: [row1], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [row1, row2], flags: MessageFlags.Ephemeral });
   } catch (error) {
     console.error("Error in sendMainDashboard:", error);
     throw error; // Re-throw to be caught by the caller
