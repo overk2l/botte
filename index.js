@@ -6797,6 +6797,20 @@ function generateId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
+// Helper function to get status display text
+function getStatusDisplay(status) {
+  switch (status) {
+    case 'scheduled':
+      return 'Active';
+    case 'paused':
+      return 'Paused';
+    case 'completed':
+      return 'Completed';
+    default:
+      return 'Unknown';
+  }
+}
+
 // ...existing code...
 
 /**
