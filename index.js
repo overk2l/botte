@@ -2077,6 +2077,8 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId === "hybrid:create") ||
     (interaction.isButton() && interaction.customId === "hybrid:create_from_json") ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page_json:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid:selectmenu")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -2435,11 +2437,6 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
-        if (action === "selectmenu") {
-          const hybridMenuId = interaction.values[0];
-          return showHybridMenuConfiguration(interaction, hybridMenuId);
-        }
-
         if (action === "config_info") {
           const hybridMenuId = parts[2];
           return showHybridInfoConfiguration(interaction, hybridMenuId);
@@ -2492,6 +2489,25 @@ client.on("interactionCreate", async (interaction) => {
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
                   .setPlaceholder("Enter the content for this page...")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "add_info_page_json") {
+          const hybridMenuId = parts[2];
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:add_info_page_json:${hybridMenuId}`)
+            .setTitle("Add Page from JSON")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("json_data")
+                  .setLabel("Raw JSON Data")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('Paste your JSON from Discohook here...')
                   .setMaxLength(4000)
               )
             );
@@ -4555,6 +4571,15 @@ client.on("interactionCreate", async (interaction) => {
           const scheduleId = interaction.values[0].replace("manage_schedule:", "");
           return showScheduleDetailsMenu(interaction, scheduleId);
         }
+      } else if (ctx === "hybrid") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (action === "selectmenu") {
+          const hybridMenuId = interaction.values[0];
+          return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
@@ -6516,6 +6541,55 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Menu] Error adding info page:`, error);
             return sendEphemeralEmbed(interaction, "❌ Failed to add information page. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "add_info_page_json") {
+          try {
+            const hybridMenuId = parts[3];
+            const jsonData = interaction.fields.getTextInputValue("json_data");
+            
+            console.log(`[Hybrid Menu] Adding info page from JSON to menu ${hybridMenuId}`);
+            
+            // Parse and validate JSON
+            let embedData;
+            try {
+              embedData = JSON.parse(jsonData);
+            } catch (parseError) {
+              console.error(`[Hybrid Menu] JSON parse error:`, parseError);
+              return sendEphemeralEmbed(interaction, "❌ Invalid JSON format. Please check your JSON and try again.", "#FF0000", "JSON Error", false);
+            }
+            
+            // Extract title and description from JSON
+            const pageName = embedData.title || `Page ${Date.now()}`;
+            const pageContent = embedData.description || "No content provided";
+            
+            // Add the page to the hybrid menu
+            const pageId = generateId();
+            const newPage = {
+              id: pageId,
+              name: pageName,
+              content: pageContent,
+              embedData: embedData, // Store the full JSON data
+              createdAt: new Date().toISOString()
+            };
+            
+            // Get current menu and add the page
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+            
+            const currentPages = menu.pages || [];
+            currentPages.push(newPage);
+            
+            await db.updateHybridMenu(hybridMenuId, { pages: currentPages });
+            
+            await sendEphemeralEmbed(interaction, `✅ Information page "${pageName}" added successfully from JSON!`, "#00FF00", "Success", false);
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error adding info page from JSON:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to add information page from JSON. Please try again.", "#FF0000", "Error", false);
           }
         }
       }
@@ -9241,7 +9315,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId) {
 
   const components = [];
 
-  // Add page button
+  // Add page buttons
   const addPageRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`hybrid:add_info_page:${hybridMenuId}`)
@@ -9249,9 +9323,14 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId) {
       .setStyle(ButtonStyle.Success)
       .setEmoji("➕"),
     new ButtonBuilder()
+      .setCustomId(`hybrid:add_info_page_json:${hybridMenuId}`)
+      .setLabel("Add Page from JSON")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📄"),
+    new ButtonBuilder()
       .setCustomId(`hybrid:set_info_display:${hybridMenuId}`)
       .setLabel("Set Display Type")
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Secondary)
       .setEmoji("🎯")
   );
   components.push(addPageRow);
