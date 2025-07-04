@@ -2047,7 +2047,7 @@ client.on("interactionCreate", async (interaction) => {
   // Early return for DMs
   if (!interaction.guild) {
     if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu()) {
-      return interaction.reply({ content: "This bot can only be used in servers.", ephemeral: true });
+      return interaction.reply({ content: "This bot can only be used in servers.", flags: MessageFlags.Ephemeral });
     }
     return;
   }
@@ -2397,65 +2397,73 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
           }
 
-          // Set up timeout handler to prevent infinite thinking
-          const timeoutId = addHybridMenuTimeout(interaction);
+          // Check if this is a modal trigger action
+          const isHybridModalTrigger = (
+            action === "create" ||
+            action === "create_from_json" ||
+            action.startsWith("add_info_page") ||
+            action.startsWith("edit_info_page")
+          );
 
-          // Ensure interaction is properly deferred or replied to
-          try {
-            if (!interaction.deferred && !interaction.replied) {
-              await interaction.deferReply({ ephemeral: true });
-              console.log(`[Hybrid Debug] Deferred reply for action: ${action}`);
+          // Set up timeout handler to prevent infinite thinking (only for non-modal triggers)
+          const timeoutId = isHybridModalTrigger ? null : addHybridMenuTimeout(interaction);
+
+          // Only defer if it's NOT a modal trigger
+          if (!isHybridModalTrigger) {
+            try {
+              if (!interaction.deferred && !interaction.replied) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                console.log(`[Hybrid Debug] Deferred reply for action: ${action}`);
+              }
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error deferring reply:`, error);
+              // Continue processing - the interaction might already be handled
             }
-          } catch (error) {
-            console.error(`[Hybrid Debug] Error deferring reply:`, error);
-            // Continue processing - the interaction might already be handled
           }
 
-          // Clear timeout when processing is complete
+          // Clear timeout when processing is complete (only if timeout was set)
           const clearTimeoutAndProcess = async (processingFunction) => {
             try {
-              clearTimeout(timeoutId);
+              if (timeoutId) clearTimeout(timeoutId);
               return await processingFunction();
             } catch (error) {
-              clearTimeout(timeoutId);
+              if (timeoutId) clearTimeout(timeoutId);
               throw error;
             }
           };
 
         if (action === "create") {
           console.log(`[Hybrid Debug] Creating modal for new hybrid menu`);
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const modal = new ModalBuilder()
-                .setCustomId("hybrid:modal:create")
-                .setTitle("New Hybrid Menu")
-                .addComponents(
-                  new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                      .setCustomId("name")
-                      .setLabel("Menu Name")
-                      .setStyle(TextInputStyle.Short)
-                      .setRequired(true)
-                      .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
-                      .setMaxLength(100)
-                  ),
-                  new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                      .setCustomId("desc")
-                      .setLabel("Embed Description")
-                      .setStyle(TextInputStyle.Paragraph)
-                      .setRequired(true)
-                      .setPlaceholder("Describe your hybrid menu here.")
-                      .setMaxLength(4000)
-                  )
-                );
-              console.log(`[Hybrid Debug] Modal created, showing to user`);
-              return interaction.showModal(modal);
-            } catch (error) {
-              console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
-              return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
-            }
-          });
+          try {
+            const modal = new ModalBuilder()
+              .setCustomId("hybrid:modal:create")
+              .setTitle("New Hybrid Menu")
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("name")
+                    .setLabel("Menu Name")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
+                    .setMaxLength(100)
+                ),
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("desc")
+                    .setLabel("Embed Description")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder("Describe your hybrid menu here.")
+                    .setMaxLength(4000)
+                )
+              );
+            console.log(`[Hybrid Debug] Modal created, showing to user`);
+            return interaction.showModal(modal);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "create_from_json") {
@@ -2594,7 +2602,7 @@ client.on("interactionCreate", async (interaction) => {
               const replyOptions = {
                 content: "Select how you want information pages to be displayed:",
                 components: [row],
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
               };
 
               await interaction[replyMethod](replyOptions);
@@ -2628,7 +2636,7 @@ client.on("interactionCreate", async (interaction) => {
               const replyOptions = {
                 content: "Select how you want reaction roles to be displayed:",
                 components: [row],
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
               };
 
               await interaction[replyMethod](replyOptions);
@@ -2691,7 +2699,7 @@ client.on("interactionCreate", async (interaction) => {
               const replyOptions = {
                 content: "Select roles to add to the dropdown:",
                 components: [row],
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
               };
 
               await interaction[replyMethod](replyOptions);
@@ -2754,7 +2762,7 @@ client.on("interactionCreate", async (interaction) => {
               const replyOptions = {
                 content: "Select roles to add as buttons:",
                 components: [row],
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
               };
 
               await interaction[replyMethod](replyOptions);
@@ -2859,7 +2867,7 @@ client.on("interactionCreate", async (interaction) => {
           // Try to send an error message if the interaction hasn't been handled yet
           try {
             if (!interaction.replied && !interaction.deferred) {
-              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
+              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", flags: MessageFlags.Ephemeral });
             } else if (interaction.deferred) {
               await interaction.editReply({ content: "❌ An unexpected error occurred. Please try again." });
             }
@@ -8099,7 +8107,7 @@ function addHybridMenuTimeout(interaction, timeoutMs = 2900) {
     try {
       if (!interaction.replied && !interaction.deferred) {
         console.log(`[Hybrid Debug] Timeout reached for interaction ${interaction.customId}, attempting to reply`);
-        await interaction.reply({ content: "⏱️ Request timed out. Please try again.", ephemeral: true });
+        await interaction.reply({ content: "⏱️ Request timed out. Please try again.", flags: MessageFlags.Ephemeral });
       } else if (interaction.deferred && !interaction.replied) {
         console.log(`[Hybrid Debug] Timeout reached for deferred interaction ${interaction.customId}, attempting to edit reply`);
         await interaction.editReply({ content: "⏱️ Request timed out. Please try again." });
@@ -9600,6 +9608,11 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
+      .setCustomId(`hybrid:component_order:${hybridMenuId}`)
+      .setLabel("Component Order")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("📑"),
+    new ButtonBuilder()
       .setCustomId(`hybrid:publish:${hybridMenuId}`)
       .setLabel("Publish Menu")
       .setStyle(ButtonStyle.Success)
@@ -9608,7 +9621,10 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setCustomId(`hybrid:preview:${hybridMenuId}`)
       .setLabel("Preview")
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji("👀"),
+      .setEmoji("👀")
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("dash:hybrid-menus")
       .setLabel("Back to Dashboard")
@@ -9616,7 +9632,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("⬅️")
   );
 
-  const components = [row1, row2];
+  const components = [row1, row2, row3];
 
   try {
     const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
@@ -10339,6 +10355,17 @@ async function publishHybridMenu(interaction, hybridMenuId) {
 
     const components = [];
 
+    // Get component order (default: dropdowns first, then buttons)
+    const componentOrder = menu.componentOrder || {
+      infoDropdown: 1,
+      roleDropdown: 2,
+      infoButtons: 3,
+      roleButtons: 4
+    };
+
+    // Create component objects with their order
+    const componentParts = [];
+
     // Add info pages dropdown if configured
     if (menu.pages && menu.pages.length > 0 && 
         (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
@@ -10354,7 +10381,12 @@ async function publishHybridMenu(interaction, hybridMenuId) {
           .setCustomId(`hybrid-info-select:${hybridMenuId}`)
           .setPlaceholder("📚 Select a page to view...")
           .addOptions(infoOptions);
-        components.push(new ActionRowBuilder().addComponents(infoDropdown));
+        
+        componentParts.push({
+          order: componentOrder.infoDropdown || 1,
+          type: 'infoDropdown',
+          component: new ActionRowBuilder().addComponents(infoDropdown)
+        });
       }
     }
 
@@ -10381,7 +10413,12 @@ async function publishHybridMenu(interaction, hybridMenuId) {
           .setMinValues(1)
           .setMaxValues(roleOptions.length)
           .addOptions(roleOptions);
-        components.push(new ActionRowBuilder().addComponents(roleDropdown));
+        
+        componentParts.push({
+          order: componentOrder.roleDropdown || 2,
+          type: 'roleDropdown',
+          component: new ActionRowBuilder().addComponents(roleDropdown)
+        });
       }
     }
 
@@ -10414,7 +10451,11 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         buttonRows.push(currentRow);
       }
 
-      components.push(...buttonRows);
+      componentParts.push({
+        order: componentOrder.infoButtons || 3,
+        type: 'infoButtons',
+        components: buttonRows
+      });
     }
 
     // Add role buttons if configured
@@ -10442,9 +10483,8 @@ async function publishHybridMenu(interaction, hybridMenuId) {
           .setLabel(role.name.substring(0, 80))
           .setStyle(buttonStyle);
 
-        const parsedEmoji = parseEmoji(menu.buttonEmojis?.[role.id]);
-        if (parsedEmoji) {
-          button.setEmoji(parsedEmoji);
+        if (menu.buttonEmojis?.[role.id]) {
+          button.setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
         }
 
         currentRow.addComponents(button);
@@ -10455,8 +10495,25 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         buttonRows.push(currentRow);
       }
 
-      components.push(...buttonRows);
+      componentParts.push({
+        order: componentOrder.roleButtons || 4,
+        type: 'roleButtons',
+        components: buttonRows
+      });
     }
+
+    // Sort components by order and add to final components array
+    componentParts.sort((a, b) => a.order - b.order);
+    
+    componentParts.forEach(part => {
+      if (part.component) {
+        // Single component (dropdowns)
+        components.push(part.component);
+      } else if (part.components) {
+        // Multiple components (button rows)
+        components.push(...part.components);
+      }
+    });
 
     // Send the hybrid menu
     const sentMessage = await channel.send({ embeds: [embed], components });
