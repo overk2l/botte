@@ -6660,6 +6660,46 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to add information page from JSON. Please try again.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "edit_info_page") {
+          try {
+            const hybridMenuId = parts[3];
+            const pageId = parts[4];
+            const pageName = interaction.fields.getTextInputValue("page_name");
+            const pageContent = interaction.fields.getTextInputValue("page_content");
+            
+            console.log(`[Hybrid Menu] Editing info page ${pageId} in menu ${hybridMenuId}`);
+            
+            // Get current menu and update the page
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+            
+            const pages = menu.pages || [];
+            const pageIndex = pages.findIndex(p => p.id === pageId);
+            
+            if (pageIndex === -1) {
+              return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            }
+            
+            // Update the page
+            pages[pageIndex] = {
+              ...pages[pageIndex],
+              name: pageName,
+              content: pageContent,
+              updatedAt: new Date().toISOString()
+            };
+            
+            await db.updateHybridMenu(hybridMenuId, { pages });
+            
+            await sendEphemeralEmbed(interaction, `✅ Information page "${pageName}" updated successfully!`, "#00FF00", "Success", false);
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error editing info page:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to edit information page. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -7661,6 +7701,190 @@ function getStatusDisplay(status) {
 }
 
 // ...existing code...
+
+/**
+ * Handle hybrid menu user interactions (published hybrid menus)
+ * @param {import('discord.js').Interaction} interaction - The interaction to handle
+ */
+async function handleHybridMenuInteraction(interaction) {
+  if (!interaction.replied && !interaction.deferred) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring hybrid menu interaction:", e));
+  }
+
+  try {
+    const parts = interaction.customId.split(":");
+    const type = parts[0]; // "hybrid-info-select", "hybrid-role-select", "hybrid-info-page", or "hybrid-role-button"
+    const hybridMenuId = parts[1];
+    
+    if (!hybridMenuId) {
+      return sendEphemeralEmbed(interaction, "❌ Invalid hybrid menu configuration.", "#FF0000", "Error", false);
+    }
+
+    const menu = db.getHybridMenu(hybridMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    }
+
+    // Handle info page interactions
+    if (type === "hybrid-info-select") {
+      const selectedPageId = interaction.values[0].split(':')[2]; // Extract page ID from value
+      const page = menu.pages?.find(p => p.id === selectedPageId);
+      
+      if (!page) {
+        return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(page.name)
+        .setDescription(page.content)
+        .setColor(page.embedData?.color || menu.embedColor || "#5865F2");
+
+      if (page.embedData) {
+        if (page.embedData.thumbnail?.url) embed.setThumbnail(page.embedData.thumbnail.url);
+        if (page.embedData.image?.url) embed.setImage(page.embedData.image.url);
+        if (page.embedData.author?.name) {
+          embed.setAuthor({
+            name: page.embedData.author.name,
+            iconURL: page.embedData.author.icon_url
+          });
+        }
+        if (page.embedData.footer?.text) {
+          embed.setFooter({
+            text: page.embedData.footer.text,
+            iconURL: page.embedData.footer.icon_url
+          });
+        }
+        if (page.embedData.fields) {
+          embed.addFields(page.embedData.fields);
+        }
+      }
+
+      return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    }
+
+    if (type === "hybrid-info-page") {
+      const pageId = parts[2];
+      const page = menu.pages?.find(p => p.id === pageId);
+      
+      if (!page) {
+        return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(page.name)
+        .setDescription(page.content)
+        .setColor(page.embedData?.color || menu.embedColor || "#5865F2");
+
+      if (page.embedData) {
+        if (page.embedData.thumbnail?.url) embed.setThumbnail(page.embedData.thumbnail.url);
+        if (page.embedData.image?.url) embed.setImage(page.embedData.image.url);
+        if (page.embedData.author?.name) {
+          embed.setAuthor({
+            name: page.embedData.author.name,
+            iconURL: page.embedData.author.icon_url
+          });
+        }
+        if (page.embedData.footer?.text) {
+          embed.setFooter({
+            text: page.embedData.footer.text,
+            iconURL: page.embedData.footer.icon_url
+          });
+        }
+        if (page.embedData.fields) {
+          embed.addFields(page.embedData.fields);
+        }
+      }
+
+      return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    }
+
+    // Handle role interactions
+    if (type === "hybrid-role-select") {
+      const selectedRoleIds = interaction.values;
+      
+      if (!interaction.guild || !interaction.member) {
+        return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction.", "#FF0000", "Error", false);
+      }
+
+      const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      if (!member) {
+        return sendEphemeralEmbed(interaction, "❌ Unable to fetch member information.", "#FF0000", "Error", false);
+      }
+
+      const currentRoles = new Set(member.roles.cache.map(r => r.id));
+      let newRoles = new Set(currentRoles);
+
+      // Toggle each selected role
+      for (const roleId of selectedRoleIds) {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) continue;
+
+        if (newRoles.has(roleId)) {
+          newRoles.delete(roleId);
+        } else {
+          newRoles.add(roleId);
+        }
+      }
+
+      const rolesToAdd = Array.from(newRoles).filter(id => !currentRoles.has(id));
+      const rolesToRemove = Array.from(currentRoles).filter(id => !newRoles.has(id));
+
+      // Apply role changes
+      if (rolesToAdd.length > 0) {
+        await member.roles.add(rolesToAdd);
+      }
+      if (rolesToRemove.length > 0) {
+        await member.roles.remove(rolesToRemove);
+      }
+
+      // Send confirmation
+      let message = "✅ Roles updated successfully!";
+      if (rolesToAdd.length > 0) {
+        const addedRoles = rolesToAdd.map(id => `<@&${id}>`).join(', ');
+        message += `\n**Added:** ${addedRoles}`;
+      }
+      if (rolesToRemove.length > 0) {
+        const removedRoles = rolesToRemove.map(id => `<@&${id}>`).join(', ');
+        message += `\n**Removed:** ${removedRoles}`;
+      }
+
+      return sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+    }
+
+    if (type === "hybrid-role-button") {
+      const roleId = parts[2];
+      
+      if (!interaction.guild || !interaction.member) {
+        return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction.", "#FF0000", "Error", false);
+      }
+
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (!role) {
+        return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+      }
+
+      const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      if (!member) {
+        return sendEphemeralEmbed(interaction, "❌ Unable to fetch member information.", "#FF0000", "Error", false);
+      }
+
+      const hasRole = member.roles.cache.has(roleId);
+      
+      if (hasRole) {
+        await member.roles.remove(roleId);
+        return sendEphemeralEmbed(interaction, `✅ Removed role: <@&${roleId}>`, "#00FF00", "Success", false);
+      } else {
+        await member.roles.add(roleId);
+        return sendEphemeralEmbed(interaction, `✅ Added role: <@&${roleId}>`, "#00FF00", "Success", false);
+      }
+    }
+
+    return sendEphemeralEmbed(interaction, "❌ Unknown interaction type.", "#FF0000", "Error", false);
+  } catch (error) {
+    console.error("Error handling hybrid menu interaction:", error);
+    return sendEphemeralEmbed(interaction, "❌ An error occurred while processing your request.", "#FF0000", "Error", false);
+  }
+}
 
 /**
  * Sends the main dashboard embed and components to the user.
@@ -8987,10 +9211,27 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
   const components = [row1, row2];
 
   try {
-    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(responseData);
+    } else {
+      await interaction.reply(responseData);
+    }
   } catch (error) {
     console.error("Error displaying hybrid menu configuration:", error);
-    await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral });
+    
+    const errorData = { content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral };
+    
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorData);
+      } else {
+        await interaction.reply(errorData);
+      }
+    } catch (replyError) {
+      console.error("Failed to send error response:", replyError);
+    }
   }
 }
 
@@ -9439,7 +9680,29 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId) {
   );
   components.push(backRow);
 
-  await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+  try {
+    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(responseData);
+    } else {
+      await interaction.reply(responseData);
+    }
+  } catch (error) {
+    console.error("Error displaying hybrid info configuration:", error);
+    
+    const errorData = { content: "❌ Something went wrong while displaying the info configuration.", flags: MessageFlags.Ephemeral };
+    
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorData);
+      } else {
+        await interaction.reply(errorData);
+      }
+    } catch (err) {
+      console.error("Error sending error message:", err);
+    }
+  }
 }
 
 // Hybrid Menu Roles Configuration
@@ -9500,20 +9763,26 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId) {
   if (totalRoles > 0) {
     const roleOptions = [];
     
-    dropdownRoles.forEach(role => {
-      roleOptions.push({
-        label: `[Dropdown] ${role.name || 'Unnamed Role'}`,
-        value: `dropdown_${role.id}`,
-        description: `Role: ${role.roleId} - ${role.description?.substring(0, 50) || 'No description'}`
-      });
+    dropdownRoles.forEach(roleId => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (role) {
+        roleOptions.push({
+          label: `[Dropdown] ${role.name}`,
+          value: `dropdown_${roleId}`,
+          description: `Role ID: ${roleId}`
+        });
+      }
     });
     
-    buttonRoles.forEach(role => {
-      roleOptions.push({
-        label: `[Button] ${role.name || 'Unnamed Role'}`,
-        value: `button_${role.id}`,
-        description: `Role: ${role.roleId} - ${role.description?.substring(0, 50) || 'No description'}`
-      });
+    buttonRoles.forEach(roleId => {
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (role) {
+        roleOptions.push({
+          label: `[Button] ${role.name}`,
+          value: `button_${roleId}`,
+          description: `Role ID: ${roleId}`
+        });
+      }
     });
 
     if (roleOptions.length > 0) {
@@ -9537,7 +9806,29 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId) {
   );
   components.push(backRow);
 
-  await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+  try {
+    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(responseData);
+    } else {
+      await interaction.reply(responseData);
+    }
+  } catch (error) {
+    console.error("Error displaying hybrid roles configuration:", error);
+    
+    const errorData = { content: "❌ Something went wrong while displaying the roles configuration.", flags: MessageFlags.Ephemeral };
+    
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorData);
+      } else {
+        await interaction.reply(errorData);
+      }
+    } catch (err) {
+      console.error("Error sending error message:", err);
+    }
+  }
 }
 
 // Hybrid Menu Embed Customization (placeholder)
