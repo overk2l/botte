@@ -1882,10 +1882,10 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("schedule_time")
-                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM, optional)")
+                  .setLabel("Schedule Time (optional)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("2024-12-25 14:30 (leave blank to start immediately)")
+                  .setPlaceholder("2024-12-25 14:30 (leave blank to start now)")
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -1907,7 +1907,7 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("duration")
-                  .setLabel("Auto-delete Duration (minutes, non-recurring only)")
+                  .setLabel("Auto-delete (minutes, one-time only)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
                   .setPlaceholder("60 (ignored for recurring messages)")
