@@ -330,6 +330,10 @@ const db = {
       embedFooterText: null,
       embedFooterIconURL: null,
       showMemberCounts: false, // Show member counts on buttons/dropdowns
+      memberCountOptions: {
+        showInDropdowns: false,
+        showInButtons: false
+      }, // Granular control over where member counts appear
       buttonColors: {}, // roleId -> ButtonStyle string
       isTemplate: false, // Whether this menu is saved as a template
       templateName: null, // Name for the template
@@ -1219,6 +1223,10 @@ async createHybridMenu(guildId, name, desc) {
     embedFooterText: null,
     embedFooterIconURL: null,
     showMemberCounts: false,
+    memberCountOptions: {
+      showInDropdowns: false,
+      showInButtons: false
+    }, // Granular control over where member counts appear
     isTemplate: false,
     templateName: null,
     templateDescription: null,
@@ -1849,8 +1857,10 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                     return null;
                 }
                 
-                // Get member count if enabled
-                const memberCount = menu.showMemberCounts ? role.members.size : null;
+                // Get member count if enabled for dropdowns
+                const memberCountOptions = menu.memberCountOptions || {};
+                const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+                const memberCount = showCountsInDropdowns ? role.members.size : null;
                 const labelText = memberCount !== null 
                     ? `${role.name} (${memberCount})` 
                     : role.name;
@@ -1890,8 +1900,10 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
                     continue;
                 }
 
-                // Get member count if enabled
-                const memberCount = menu.showMemberCounts ? role.members.size : null;
+                // Get member count if enabled for buttons
+                const memberCountOptions = menu.memberCountOptions || {};
+                const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
+                const memberCount = showCountsInButtons ? role.members.size : null;
                 const labelText = memberCount !== null 
                     ? `${role.name} (${memberCount})` 
                     : role.name;
@@ -3236,42 +3248,42 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "toggle_member_counts") {
           const hybridMenuId = parts[2];
           
-          console.log(`[Hybrid Debug] Toggling member counts for menu: ${hybridMenuId}`);
+          console.log(`[Hybrid Debug] Configuring member counts for menu: ${hybridMenuId}`);
           
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
 
-              const newCountState = !menu.showMemberCounts;
-              await db.updateHybridMenu(hybridMenuId, { showMemberCounts: newCountState });
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:configure_member_counts:${hybridMenuId}`)
+            .setTitle("Configure Member Count Display");
 
-              // Update the published message if it exists (force update when toggling)
-              if (menu.channelId && menu.messageId) {
-                // Get the updated menu data
-                const updatedMenu = db.getHybridMenu(hybridMenuId);
-                if (updatedMenu) {
-                  // Force update the published message when toggling member counts
-                  // This ensures the message is updated to show/hide counts as needed
-                  try {
-                    await updatePublishedHybridMenuComponents(interaction, updatedMenu, hybridMenuId, true);
-                  } catch (updateError) {
-                    console.error(`[Hybrid Debug] Error updating published message:`, updateError);
-                    // Continue with success message even if update fails
-                  }
-                }
-              }
+          const currentOptions = menu.memberCountOptions || { showInDropdowns: false, showInButtons: false };
+          const legacyEnabled = menu.showMemberCounts;
 
-              const statusMessage = newCountState ? "✅ Member counts are now shown on roles!" : "✅ Member counts are now hidden on roles!";
-              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
-              return showHybridMenuConfiguration(interaction, hybridMenuId);
-            } catch (error) {
-              console.error(`[Hybrid Debug] Error toggling member counts:`, error);
-              return sendEphemeralEmbed(interaction, "❌ Error toggling member counts. Please try again.", "#FF0000", "Error", false);
-            }
-          });
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("show_in_dropdowns")
+                .setLabel("Show in Dropdown Options")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder("true or false")
+                .setValue(String(currentOptions.showInDropdowns || legacyEnabled))
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("show_in_buttons")
+                .setLabel("Show in Role Buttons")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder("true or false")
+                .setValue(String(currentOptions.showInButtons || legacyEnabled))
+            )
+          );
+
+          return interaction.showModal(modal);
         }
 
         if (action === "back_to_config") {
@@ -3853,11 +3865,35 @@ client.on("interactionCreate", async (interaction) => {
           const menu = db.getMenu(menuId);
           if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
 
-          const newState = !menu.showMemberCounts;
-          await db.saveMemberCountSetting(menuId, newState);
+          const modal = new ModalBuilder()
+            .setCustomId(`rr:modal:configure_member_counts:${menuId}`)
+            .setTitle("Configure Member Count Display");
 
-          await sendEphemeralEmbed(interaction, `✅ Member counts are now ${newState ? "SHOWN" : "HIDDEN"} on roles.`, "#00FF00", "Success", false);
-          return showMenuConfiguration(interaction, menuId);
+          const currentOptions = menu.memberCountOptions || { showInDropdowns: false, showInButtons: false };
+          const legacyEnabled = menu.showMemberCounts;
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("show_in_dropdowns")
+                .setLabel("Show in Dropdown Options")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder("true or false")
+                .setValue(String(currentOptions.showInDropdowns || legacyEnabled))
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("show_in_buttons")
+                .setLabel("Show in Role Buttons")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setPlaceholder("true or false")
+                .setValue(String(currentOptions.showInButtons || legacyEnabled))
+            )
+          );
+
+          return interaction.showModal(modal);
         }
 
         if (action === "configure_button_colors") {
@@ -9219,7 +9255,22 @@ async function showMenuConfiguration(interaction, menuId) {
       },
       {
         name: "Advanced Features",
-        value: `Member Counts: ${menu.showMemberCounts ? "✅ Shown" : "❌ Hidden"}\n` +
+        value: `Member Counts: ${(() => {
+          const options = menu.memberCountOptions || {};
+          const legacy = menu.showMemberCounts;
+          
+          if (options.showInDropdowns && options.showInButtons) {
+            return "✅ Dropdowns & Buttons";
+          } else if (options.showInDropdowns) {
+            return "✅ Dropdowns Only";
+          } else if (options.showInButtons) {
+            return "✅ Buttons Only";
+          } else if (legacy && !options.showInDropdowns && !options.showInButtons) {
+            return "✅ Enabled (Legacy)";
+          } else {
+            return "❌ Hidden";
+          }
+        })()}\n` +
                `Button Colors: ${Object.keys(menu.buttonColors || {}).length > 0 ? "✅ Customized" : "❌ Default"}\n` +
                `Template: ${menu.isTemplate ? `✅ "${menu.templateName}"` : "❌ No"}`,
         inline: true
@@ -9317,8 +9368,8 @@ async function showMenuConfiguration(interaction, menuId) {
         .setDisabled(!menu.dropdownRoles.length),
       new ButtonBuilder()
         .setCustomId(`rr:toggle_member_counts:${menuId}`)
-        .setLabel(menu.showMemberCounts ? "Hide Counts" : "Show Counts")
-        .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success)
+        .setLabel("Configure Counts")
+        .setStyle(ButtonStyle.Secondary)
     );
 
     const row_customization_webhook = new ActionRowBuilder();
@@ -10334,7 +10385,22 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       },
       {
         name: "📊 Member Counts",
-        value: menu.showMemberCounts ? "✅ Shown" : "❌ Hidden",
+        value: (() => {
+          const options = menu.memberCountOptions || {};
+          const legacy = menu.showMemberCounts;
+          
+          if (options.showInDropdowns && options.showInButtons) {
+            return "✅ Shown in dropdowns and buttons";
+          } else if (options.showInDropdowns) {
+            return "✅ Shown in dropdowns only";
+          } else if (options.showInButtons) {
+            return "✅ Shown in buttons only";
+          } else if (legacy && !options.showInDropdowns && !options.showInButtons) {
+            return "✅ Enabled (legacy setting)";
+          } else {
+            return "❌ Hidden";
+          }
+        })(),
         inline: true
       }
     ]);
@@ -10383,8 +10449,8 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("🌐"),
     new ButtonBuilder()
       .setCustomId(`hybrid:toggle_member_counts:${hybridMenuId}`)
-      .setLabel(menu.showMemberCounts ? "Hide Counts" : "Show Counts")
-      .setStyle(menu.showMemberCounts ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setLabel("Configure Counts")
+      .setStyle(ButtonStyle.Secondary)
       .setEmoji("📊"),
     new ButtonBuilder()
       .setCustomId(`hybrid:publish:${hybridMenuId}`)
@@ -11171,8 +11237,10 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         const role = interaction.guild.roles.cache.get(roleId);
         if (!role) return null;
         
-        // Get member count if enabled
-        const memberCount = menu.showMemberCounts ? role.members.size : null;
+        // Get member count if enabled for dropdowns
+        const memberCountOptions = menu.memberCountOptions || {};
+        const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+        const memberCount = showCountsInDropdowns ? role.members.size : null;
         const labelText = memberCount !== null 
             ? `${role.name} (${memberCount})` 
             : role.name;
@@ -11258,8 +11326,10 @@ async function publishHybridMenu(interaction, hybridMenuId) {
         const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
         const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
 
-        // Get member count if enabled
-        const memberCount = menu.showMemberCounts ? role.members.size : null;
+        // Get member count if enabled for buttons
+        const memberCountOptions = menu.memberCountOptions || {};
+        const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
+        const memberCount = showCountsInButtons ? role.members.size : null;
         const labelText = memberCount !== null 
             ? `${role.name} (${memberCount})` 
             : role.name;
