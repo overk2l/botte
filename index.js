@@ -1537,8 +1537,11 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:publish:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:create_from_template:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:reorder_pages:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:toggle_webhook:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:config_webhook:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -1552,8 +1555,16 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))
   );
 
+  // Check if it's a configuration interaction that should not be deferred
+  const isConfigurationInteraction = (
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_display_select:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:configure_display:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:set_display:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:back_to_config:"))
+  );
+
   // Defer non-modal-trigger interactions
-  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission) {
+  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
       // For published menu interactions, defer the reply immediately
       if (isPublishedMenuInteraction) {
@@ -2510,7 +2521,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Configuration (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {"title": "Title", "description": "..."}, "displayIn": ["dropdown", "button"]}')
+                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {...}, "displayIn": [...]}')
                   .setMaxLength(4000)
               )
             );
@@ -3349,26 +3360,35 @@ client.on("interactionCreate", async (interaction) => {
           const selectedPageId = interaction.values[0];
 
           if (!infoMenuId || !selectedPageId) {
-            return interaction.editReply({
+            const errorMessage = {
               content: "❌ Invalid page selection.",
               flags: MessageFlags.Ephemeral
-            });
+            };
+            return interaction.deferred || interaction.replied ? 
+              interaction.editReply(errorMessage) : 
+              interaction.reply(errorMessage);
           }
 
           const menu = db.getInfoMenu(infoMenuId);
           if (!menu) {
-            return interaction.editReply({
+            const errorMessage = {
               content: "❌ Information menu not found.",
               flags: MessageFlags.Ephemeral
-            });
+            };
+            return interaction.deferred || interaction.replied ? 
+              interaction.editReply(errorMessage) : 
+              interaction.reply(errorMessage);
           }
 
           const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
           if (!page) {
-            return interaction.editReply({
+            const errorMessage = {
               content: "❌ Page not found.",
               flags: MessageFlags.Ephemeral
-            });
+            };
+            return interaction.deferred || interaction.replied ? 
+              interaction.editReply(errorMessage) : 
+              interaction.reply(errorMessage);
           }
 
           // Show page display configuration options
@@ -3408,11 +3428,15 @@ client.on("interactionCreate", async (interaction) => {
               .setEmoji("⬅️")
           );
 
-          return interaction.editReply({
+          const responseData = {
             embeds: [embed],
             components: [row1, row2],
             flags: MessageFlags.Ephemeral
-          });
+          };
+
+          return interaction.deferred || interaction.replied ? 
+            interaction.editReply(responseData) : 
+            interaction.reply(responseData);
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -5839,23 +5863,29 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
 async function showPageDisplayConfiguration(interaction, infoMenuId) {
   const menu = db.getInfoMenu(infoMenuId);
   if (!menu) {
-    return interaction.editReply({
+    const errorMessage = {
       content: "❌ Information menu not found.",
       embeds: [],
       components: [],
       flags: MessageFlags.Ephemeral
-    });
+    };
+    return interaction.deferred || interaction.replied ? 
+      interaction.editReply(errorMessage) : 
+      interaction.reply(errorMessage);
   }
 
   const pages = db.getInfoMenuPages(infoMenuId);
   
   if (pages.length === 0) {
-    return interaction.editReply({
+    const errorMessage = {
       content: "❌ No pages found. Add some pages first!",
       embeds: [],
       components: [],
       flags: MessageFlags.Ephemeral
-    });
+    };
+    return interaction.deferred || interaction.replied ? 
+      interaction.editReply(errorMessage) : 
+      interaction.reply(errorMessage);
   }
 
   const embed = new EmbedBuilder()
@@ -5967,11 +5997,15 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
 
   components.push(backRow);
 
-  return interaction.editReply({
+  const responseData = {
     embeds: [embed],
     components: components,
     flags: MessageFlags.Ephemeral
-  });
+  };
+
+  return interaction.deferred || interaction.replied ? 
+    interaction.editReply(responseData) : 
+    interaction.reply(responseData);
 }
 
 /**
