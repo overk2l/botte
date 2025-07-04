@@ -3290,6 +3290,233 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "display_types") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing display types configuration for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          });
+        }
+
+        if (action === "configure_info_display_defaults") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Configuring info display defaults for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentDefaults = menu.infoSelectionType || ['dropdown'];
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:set_info_display_defaults:${hybridMenuId}`)
+            .setPlaceholder("Select default display type for info pages...")
+            .addOptions([
+              {
+                label: "Dropdown Only",
+                value: "dropdown",
+                description: "Show info pages as dropdown options",
+                emoji: "📋",
+                default: currentDefaults.includes("dropdown") && !currentDefaults.includes("button")
+              },
+              {
+                label: "Button Only",  
+                value: "button",
+                description: "Show info pages as buttons",
+                emoji: "🔘",
+                default: currentDefaults.includes("button") && !currentDefaults.includes("dropdown")
+              },
+              {
+                label: "Both Dropdown and Button",
+                value: "both",
+                description: "Show info pages in both dropdown and as buttons",
+                emoji: "📋🔘",
+                default: currentDefaults.includes("dropdown") && currentDefaults.includes("button")
+              }
+            ]);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          return await clearTimeoutAndProcess(async () => {
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: "Select the default display type for info pages:\n*This will be the fallback for pages without specific overrides*",
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          });
+        }
+
+        if (action === "configure_role_display_defaults") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Configuring role display defaults for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentDefaults = menu.roleSelectionType || ['dropdown'];
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:set_role_display_defaults:${hybridMenuId}`)
+            .setPlaceholder("Select default display type for roles...")
+            .addOptions([
+              {
+                label: "Dropdown Only",
+                value: "dropdown",
+                description: "Show roles as dropdown options",
+                emoji: "📋",
+                default: currentDefaults.includes("dropdown") && !currentDefaults.includes("button")
+              },
+              {
+                label: "Button Only",  
+                value: "button",
+                description: "Show roles as buttons",
+                emoji: "🔘",
+                default: currentDefaults.includes("button") && !currentDefaults.includes("dropdown")
+              },
+              {
+                label: "Both Dropdown and Button",
+                value: "both",
+                description: "Show roles in both dropdown and as buttons",
+                emoji: "📋🔘",
+                default: currentDefaults.includes("dropdown") && currentDefaults.includes("button")
+              }
+            ]);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          return await clearTimeoutAndProcess(async () => {
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: "Select the default display type for roles:\n*This will be the fallback for roles without specific overrides*",
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          });
+        }
+
+        if (action === "configure_page_overrides") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Configuring page overrides for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          if (!menu.pages || menu.pages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No info pages found to configure.", "#FF0000", "Error", false);
+          }
+
+          const pageOptions = menu.pages.slice(0, 25).map(page => ({
+            label: page.name.substring(0, 100),
+            value: page.id,
+            description: page.displayType ? `Override: ${page.displayType}` : "Using menu default",
+            emoji: page.emoji || "📋"
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:select_page_for_display_override:${hybridMenuId}`)
+            .setPlaceholder("Select a page to override its display type...")
+            .addOptions(pageOptions);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          return await clearTimeoutAndProcess(async () => {
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: "Select a page to override its display type:\n*This will override the menu-wide default for this specific page*",
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          });
+        }
+
+        if (action === "configure_role_overrides") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Configuring role overrides for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const allRoleIds = new Set([...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])]);
+          if (allRoleIds.size === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No roles found to configure.", "#FF0000", "Error", false);
+          }
+
+          const roleOptions = Array.from(allRoleIds).slice(0, 25).map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            const overrideType = menu.roleDisplayTypes?.[roleId];
+            return {
+              label: role?.name || 'Unknown Role',
+              value: roleId,
+              description: overrideType ? `Override: ${overrideType}` : "Using menu default",
+              emoji: menu.buttonEmojis?.[roleId] || "🎭"
+            };
+          });
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:select_role_for_display_override:${hybridMenuId}`)
+            .setPlaceholder("Select a role to override its display type...")
+            .addOptions(roleOptions);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          return await clearTimeoutAndProcess(async () => {
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: "Select a role to override its display type:\n*This will override the menu-wide default for this specific role*",
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          });
+        }
+
+        if (action === "clear_all_overrides") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Clearing all overrides for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              // Clear page display type overrides
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  delete page.displayType;
+                });
+              }
+
+              // Clear role display type overrides
+              const updates = {
+                pages: menu.pages,
+                roleDisplayTypes: {}
+              };
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ All display type overrides cleared! All items will now use menu-wide defaults.", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error clearing overrides:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error clearing overrides. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
         if (action === "back_to_config") {
           const hybridMenuId = parts[2];
           
@@ -5475,6 +5702,270 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Debug] Error in save_role_display:`, error);
             return sendEphemeralEmbed(interaction, "❌ Error saving role display type. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        }
+
+        if (action === "set_info_display_defaults") {
+          const hybridMenuId = parts[2];
+          const displayType = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Setting info display defaults for menu: ${hybridMenuId}, display type: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+            await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
+
+            console.log(`[Hybrid Debug] Successfully set info display defaults to: ${displayType}`);
+            await sendEphemeralEmbed(interaction, `✅ Info page defaults set to: ${displayType === "both" ? "dropdown and button" : displayType}`, "#00FF00", "Success", false);
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error setting info display defaults:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving display defaults. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "set_role_display_defaults") {
+          const hybridMenuId = parts[2];
+          const displayType = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Setting role display defaults for menu: ${hybridMenuId}, display type: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+            await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
+
+            console.log(`[Hybrid Debug] Successfully set role display defaults to: ${displayType}`);
+            await sendEphemeralEmbed(interaction, `✅ Role defaults set to: ${displayType === "both" ? "dropdown and button" : displayType}`, "#00FF00", "Success", false);
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error setting role display defaults:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving display defaults. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "select_page_for_display_override") {
+          const hybridMenuId = parts[2];
+          const pageId = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Selecting page for display override: ${hybridMenuId}, page: ${pageId}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const page = menu.pages?.find(p => p.id === pageId);
+            if (!page) {
+              return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            }
+
+            const currentOverride = page.displayType;
+            const menuDefault = menu.infoSelectionType || ['dropdown'];
+            const selectMenu = new StringSelectMenuBuilder()
+              .setCustomId(`hybrid:set_page_display_override:${hybridMenuId}:${pageId}`)
+              .setPlaceholder("Select display type for this page...")
+              .addOptions([
+                {
+                  label: "Use Menu Default",
+                  value: "default",
+                  description: `Uses menu default: ${menuDefault.join(', ')}`,
+                  emoji: "🔄",
+                  default: !currentOverride
+                },
+                {
+                  label: "Dropdown Only",
+                  value: "dropdown",
+                  description: "Show this page in dropdown only",
+                  emoji: "📋",
+                  default: currentOverride === "dropdown"
+                },
+                {
+                  label: "Button Only",
+                  value: "button",
+                  description: "Show this page as button only",
+                  emoji: "🔘",
+                  default: currentOverride === "button"
+                },
+                {
+                  label: "Both Dropdown and Button",
+                  value: "both",
+                  description: "Show this page in both dropdown and as button",
+                  emoji: "📋🔘",
+                  default: currentOverride === "both"
+                }
+              ]);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: `Configure display type for **${page.name}**:\n*Current: ${currentOverride || 'Using menu default'}*`,
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error selecting page for display override:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error loading page configuration. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "select_role_for_display_override") {
+          const hybridMenuId = parts[2];
+          const roleId = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Selecting role for display override: ${hybridMenuId}, role: ${roleId}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) {
+              return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+            }
+
+            const currentOverride = menu.roleDisplayTypes?.[roleId];
+            const menuDefault = menu.roleSelectionType || ['dropdown'];
+            const selectMenu = new StringSelectMenuBuilder()
+              .setCustomId(`hybrid:set_role_display_override:${hybridMenuId}:${roleId}`)
+              .setPlaceholder("Select display type for this role...")
+              .addOptions([
+                {
+                  label: "Use Menu Default",
+                  value: "default",
+                  description: `Uses menu default: ${menuDefault.join(', ')}`,
+                  emoji: "🔄",
+                  default: !currentOverride
+                },
+                {
+                  label: "Dropdown Only",
+                  value: "dropdown",
+                  description: "Show this role in dropdown only",
+                  emoji: "📋",
+                  default: currentOverride === "dropdown"
+                },
+                {
+                  label: "Button Only",
+                  value: "button",
+                  description: "Show this role as button only",
+                  emoji: "🔘",
+                  default: currentOverride === "button"
+                },
+                {
+                  label: "Both Dropdown and Button",
+                  value: "both",
+                  description: "Show this role in both dropdown and as button",
+                  emoji: "📋🔘",
+                  default: currentOverride === "both"
+                }
+              ]);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            
+            const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+            await interaction[replyMethod]({
+              content: `Configure display type for **${role.name}**:\n*Current: ${currentOverride || 'Using menu default'}*`,
+              components: [row],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error selecting role for display override:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error loading role configuration. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "set_page_display_override") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          const displayType = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Setting page display override: ${hybridMenuId}, page: ${pageId}, display: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const page = menu.pages?.find(p => p.id === pageId);
+            if (!page) {
+              return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            }
+
+            if (displayType === "default") {
+              // Remove the override
+              delete page.displayType;
+              const statusMessage = `✅ "${page.name}" will now use menu default display type`;
+              await db.updateHybridMenu(hybridMenuId, { pages: menu.pages });
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+            } else {
+              // Set the override
+              page.displayType = displayType;
+              const statusMessage = `✅ "${page.name}" display type set to: ${displayType === "both" ? "dropdown and button" : displayType}`;
+              await db.updateHybridMenu(hybridMenuId, { pages: menu.pages });
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+            }
+
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error setting page display override:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving page display override. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "set_role_display_override") {
+          const hybridMenuId = parts[2];
+          const roleId = parts[3];
+          const displayType = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Setting role display override: ${hybridMenuId}, role: ${roleId}, display: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) {
+              return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+            }
+
+            if (!menu.roleDisplayTypes) menu.roleDisplayTypes = {};
+
+            if (displayType === "default") {
+              // Remove the override
+              delete menu.roleDisplayTypes[roleId];
+              const statusMessage = `✅ "${role.name}" will now use menu default display type`;
+              await db.updateHybridMenu(hybridMenuId, { roleDisplayTypes: menu.roleDisplayTypes });
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+            } else {
+              // Set the override
+              menu.roleDisplayTypes[roleId] = displayType;
+              const statusMessage = `✅ "${role.name}" display type set to: ${displayType === "both" ? "dropdown and button" : displayType}`;
+              await db.updateHybridMenu(hybridMenuId, { roleDisplayTypes: menu.roleDisplayTypes });
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+            }
+
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error setting role display override:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving role display override. Please try again.", "#FF0000", "Error", false);
           }
         }
 
@@ -8808,13 +9299,13 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add info pages dropdown if configured
     if (menu.pages && menu.pages.length > 0) {
-        // Filter pages for dropdown display (check page.displayType or default to dropdown if infoSelectionType includes dropdown)
+        // Filter pages for dropdown display (individual page setting or menu-wide default)
         const dropdownPages = menu.pages.filter(page => {
             // Individual page setting takes precedence
             if (page.displayType) {
                 return page.displayType === 'dropdown' || page.displayType === 'both';
             }
-            // Fall back to menu-wide setting
+            // Fall back to menu-wide setting as default
             return menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType;
         });
 
@@ -8841,14 +9332,14 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add roles dropdown if configured
     if (menu.dropdownRoles && menu.dropdownRoles.length > 0) {
-        // Filter roles for dropdown display (check individual role settings or use all dropdownRoles)
+        // Filter roles for dropdown display (individual role setting or menu-wide default)
         const dropdownRoleIds = menu.dropdownRoles.filter(roleId => {
             // Individual role setting takes precedence
             if (menu.roleDisplayTypes && menu.roleDisplayTypes[roleId]) {
                 return menu.roleDisplayTypes[roleId] === 'dropdown' || menu.roleDisplayTypes[roleId] === 'both';
             }
-            // Fall back to being in dropdownRoles array
-            return true;
+            // Fall back to menu-wide setting as default
+            return menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType;
         });
 
         if (dropdownRoleIds.length > 0) {
@@ -8892,13 +9383,13 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add info pages buttons if configured
     if (menu.pages && menu.pages.length > 0) {
-        // Filter pages for button display (check page.displayType or menu.infoSelectionType)
+        // Filter pages for button display (individual page setting or menu-wide default)
         const buttonPages = menu.pages.filter(page => {
             // Individual page setting takes precedence
             if (page.displayType) {
                 return page.displayType === 'button' || page.displayType === 'both';
             }
-            // Fall back to menu-wide setting
+            // Fall back to menu-wide setting as default
             return menu.infoSelectionType?.includes("button");
         });
 
@@ -8939,19 +9430,41 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add role buttons if configured
     if (menu.buttonRoles && menu.buttonRoles.length > 0) {
-        // Filter roles for button display - include buttonRoles + any dropdownRoles marked as 'both'
+        // Filter roles for button display - use individual role settings or menu-wide default
         const buttonRoleIds = [];
         
-        // Add all buttonRoles
+        // Add all buttonRoles that should be displayed as buttons
         if (menu.buttonRoles) {
-            buttonRoleIds.push(...menu.buttonRoles);
+            menu.buttonRoles.forEach(roleId => {
+                // Individual role setting takes precedence
+                if (menu.roleDisplayTypes && menu.roleDisplayTypes[roleId]) {
+                    if (menu.roleDisplayTypes[roleId] === 'button' || menu.roleDisplayTypes[roleId] === 'both') {
+                        buttonRoleIds.push(roleId);
+                    }
+                } else {
+                    // Fall back to menu-wide setting as default
+                    if (menu.roleSelectionType?.includes("button") || !menu.roleSelectionType) {
+                        buttonRoleIds.push(roleId);
+                    }
+                }
+            });
         }
         
-        // Add dropdownRoles that are marked as 'both'
-        if (menu.dropdownRoles && menu.roleDisplayTypes) {
+        // Add dropdownRoles that are explicitly marked as 'both' or should use menu-wide button default
+        if (menu.dropdownRoles && menu.dropdownRoles.length > 0) {
             menu.dropdownRoles.forEach(roleId => {
-                if (menu.roleDisplayTypes[roleId] === 'both' && !buttonRoleIds.includes(roleId)) {
-                    buttonRoleIds.push(roleId);
+                if (buttonRoleIds.includes(roleId)) return; // Already added
+                
+                // Individual role setting takes precedence
+                if (menu.roleDisplayTypes && menu.roleDisplayTypes[roleId]) {
+                    if (menu.roleDisplayTypes[roleId] === 'both') {
+                        buttonRoleIds.push(roleId);
+                    }
+                } else {
+                    // Fall back to menu-wide setting as default
+                    if (menu.roleSelectionType?.includes("button")) {
+                        buttonRoleIds.push(roleId);
+                    }
                 }
             });
         }
@@ -11063,17 +11576,17 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
 
   const embed = new EmbedBuilder()
     .setTitle(`🔀 Hybrid Menu: ${menu.name}`)
-    .setDescription(`**Description:** ${menu.desc}\n\n**Configuration Status:**`)
+    .setDescription(`**Description:** ${menu.desc}\n\n**Configuration Status:**\n\n*Menu-wide display settings act as defaults that can be overridden per-item using Advanced Display Types.*`)
     .setColor("#00D084")
     .addFields([
       { 
         name: "📋 Information Pages", 
-        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.infoSelectionType?.length > 0 ? menu.infoSelectionType.join(', ') : 'None'}`, 
+        value: `${menu.pages?.length || 0} pages configured\nDefault Display: ${menu.infoSelectionType?.length > 0 ? menu.infoSelectionType.join(', ') : 'dropdown'}`, 
         inline: true 
       },
       { 
         name: "🎭 Reaction Roles", 
-        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType?.length > 0 ? menu.roleSelectionType.join(', ') : 'None'}`, 
+        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDefault Display: ${menu.roleSelectionType?.length > 0 ? menu.roleSelectionType.join(', ') : 'dropdown'}`, 
         inline: true 
       },
       { 
@@ -11130,7 +11643,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("🎭"),
     new ButtonBuilder()
       .setCustomId(`hybrid:display_types:${hybridMenuId}`)
-      .setLabel("Display Types")
+      .setLabel("Override Display Types")
       .setStyle(ButtonStyle.Primary)
       .setEmoji("⚙️")
   );
