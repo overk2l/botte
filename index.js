@@ -2078,7 +2078,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId === "hybrid:create_from_json") ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page_json:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid:selectmenu")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_info_page:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -4595,8 +4595,8 @@ client.on("interactionCreate", async (interaction) => {
 
           await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
 
-          await sendEphemeralEmbed(interaction, `✅ Added ${selectedRoleIds.length} role(s) to dropdown!`, "#00FF00", "Success", false);
-          return showHybridRolesConfiguration(interaction, hybridMenuId);
+          // Pass success message to the configuration function
+          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) to dropdown!`);
         }
 
         if (action === "select_button_role") {
@@ -4613,8 +4613,8 @@ client.on("interactionCreate", async (interaction) => {
 
           await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
 
-          await sendEphemeralEmbed(interaction, `✅ Added ${selectedRoleIds.length} role(s) as buttons!`, "#00FF00", "Success", false);
-          return showHybridRolesConfiguration(interaction, hybridMenuId);
+          // Pass success message to the configuration function
+          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) as buttons!`);
         }
 
         if (action === "save_info_display") {
@@ -4629,8 +4629,8 @@ client.on("interactionCreate", async (interaction) => {
           const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
           await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
 
-          await sendEphemeralEmbed(interaction, `✅ Info pages display type set to: ${displayType}`, "#00FF00", "Success", false);
-          return showHybridInfoConfiguration(interaction, hybridMenuId);
+          // Pass success message to the configuration function
+          return showHybridInfoConfiguration(interaction, hybridMenuId, `✅ Info pages display type set to: ${displayType}`);
         }
 
         if (action === "save_role_display") {
@@ -4645,8 +4645,8 @@ client.on("interactionCreate", async (interaction) => {
           const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
           await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
 
-          await sendEphemeralEmbed(interaction, `✅ Roles display type set to: ${displayType}`, "#00FF00", "Success", false);
-          return showHybridRolesConfiguration(interaction, hybridMenuId);
+          // Pass success message to the configuration function
+          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Roles display type set to: ${displayType}`);
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -9602,7 +9602,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
 }
 
 // Hybrid Menu Info Pages Configuration
-async function showHybridInfoConfiguration(interaction, hybridMenuId) {
+async function showHybridInfoConfiguration(interaction, hybridMenuId, successMessage = null) {
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
     return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -9630,6 +9630,12 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId) {
         inline: true 
       }
     ]);
+
+  // Add success message if provided
+  if (successMessage) {
+    embed.setFooter({ text: successMessage });
+    embed.setColor("#00FF00");
+  }
 
   const components = [];
 
@@ -9706,7 +9712,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId) {
 }
 
 // Hybrid Menu Roles Configuration
-async function showHybridRolesConfiguration(interaction, hybridMenuId) {
+async function showHybridRolesConfiguration(interaction, hybridMenuId, successMessage = null) {
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
     return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -9736,6 +9742,12 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId) {
         inline: true 
       }
     ]);
+
+  // Add success message if provided
+  if (successMessage) {
+    embed.setFooter({ text: successMessage });
+    embed.setColor("#00FF00");
+  }
 
   const components = [];
 
