@@ -1727,7 +1727,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:"))
+    (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
+    // Scheduled messages modal triggers
+    (interaction.isButton() && interaction.customId === "schedule:new")
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -1853,7 +1855,49 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "schedule") {
         if (action === "refresh") return showScheduledMessagesDashboard(interaction);
-        if (action === "new") return showScheduleNewMessageMenu(interaction);
+        if (action === "new") {
+          // Show modal directly for scheduling
+          const modal = new ModalBuilder()
+            .setCustomId("schedule:modal:create_direct")
+            .setTitle("Schedule Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("channel_id")
+                  .setLabel("Channel ID")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter the channel ID where to send the message")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("schedule_time")
+                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("2024-12-25 14:30")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message_json")
+                  .setLabel("Message JSON")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder('{"content": "Hello!", "embeds": [{"title": "Test", "description": "Test message"}]}')
+                  .setMaxLength(4000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("duration")
+                  .setLabel("Auto-delete Duration (minutes, optional)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("60")
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
         if (action === "manage") return showManageSchedulesMenu(interaction);
         if (action === "back") return showScheduledMessagesDashboard(interaction);
       }
@@ -4325,48 +4369,6 @@ client.on("interactionCreate", async (interaction) => {
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
           return handleRoleInteraction(interaction);
-      } else if (ctx === "schedule") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to schedule messages.", "#FF0000", "Permission Denied", false);
-        }
-
-        if (action === "select_menu") {
-          const menuId = interaction.values[0];
-          console.log("Schedule: Creating modal for menu", menuId);
-          
-          // Show modal for scheduling details
-          const modal = new ModalBuilder()
-            .setCustomId(`schedule:modal:create:${menuId}`)
-            .setTitle("Schedule Message")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("channel_id")
-                  .setLabel("Channel ID")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Enter the channel ID where to send the message")
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("schedule_time")
-                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM)")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("2024-12-25 14:30")
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("message_text")
-                  .setLabel("Additional Message Text (Optional)")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("Any additional text to include with the menu")
-              )
-            );
-          
-          return interaction.showModal(modal);
-        }
       }
     }
 
@@ -4441,6 +4443,86 @@ client.on("interactionCreate", async (interaction) => {
                 { name: "Channel", value: `<#${channelId}>`, inline: true },
                 { name: "Menu", value: db.getInfoMenu(targetMenuId)?.name || "Unknown", inline: true },
                 { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: false }
+              ]);
+
+            await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+          } catch (error) {
+            console.error("Error saving scheduled message:", error);
+            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
+          }
+        }
+
+        if (modalType === "create_direct") {
+          console.log("Schedule: Processing direct modal submission");
+          const channelId = interaction.fields.getTextInputValue("channel_id");
+          const scheduleTime = interaction.fields.getTextInputValue("schedule_time");
+          const messageJson = interaction.fields.getTextInputValue("message_json");
+          const duration = interaction.fields.getTextInputValue("duration") || "";
+
+          // Validate channel
+          const channel = interaction.guild.channels.cache.get(channelId);
+          if (!channel || !channel.isTextBased()) {
+            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          // Validate date format
+          const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+          if (!dateRegex.test(scheduleTime)) {
+            return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          // Parse and validate the date
+          const scheduledDate = new Date(scheduleTime);
+          if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+            return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          // Validate JSON
+          let parsedMessage;
+          try {
+            parsedMessage = JSON.parse(messageJson);
+          } catch (jsonError) {
+            return interaction.editReply({ content: "❌ Invalid JSON format. Please provide valid JSON for the message.", components: [], flags: MessageFlags.Ephemeral });
+          }
+
+          // Validate duration if provided
+          let autoDeletDuration = null;
+          if (duration) {
+            const durationNum = parseInt(duration);
+            if (isNaN(durationNum) || durationNum <= 0) {
+              return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: MessageFlags.Ephemeral });
+            }
+            autoDeletDuration = durationNum;
+          }
+
+          // Create schedule entry
+          const scheduleId = generateId();
+          const scheduleEntry = {
+            id: scheduleId,
+            messageContent: parsedMessage,
+            channelId: channelId,
+            scheduledTime: scheduledDate.toISOString(),
+            autoDeleteDuration: autoDeletDuration,
+            guildId: interaction.guild.id,
+            createdBy: interaction.user.id,
+            createdAt: new Date().toISOString(),
+            status: 'scheduled'
+          };
+
+          // Save to database
+          try {
+            scheduledMessages.set(scheduleId, scheduleEntry);
+            db.saveScheduledMessage(scheduleEntry);
+            
+            const embed = new EmbedBuilder()
+              .setTitle("✅ Message Scheduled Successfully")
+              .setDescription(`Your message has been scheduled for ${scheduleTime}`)
+              .setColor("#00FF00")
+              .addFields([
+                { name: "Channel", value: `<#${channelId}>`, inline: true },
+                { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: true },
+                { name: "Auto-delete", value: autoDeletDuration ? `${autoDeletDuration} minutes` : "No", inline: true },
+                { name: "Message Preview", value: `\`\`\`json\n${messageJson.substring(0, 200)}${messageJson.length > 200 ? '...' : ''}\n\`\`\``, inline: false }
               ]);
 
             await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
