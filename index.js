@@ -912,10 +912,76 @@ const db = {
    * @param {string} pageId - The ID of the page.
    * @returns {Object|null} The page object or null if not found.
    */
-  getInfoMenuPage(infoMenuId, pageId) {
-    const pages = this.getInfoMenuPages(infoMenuId);
-    return pages.find(page => page.id === pageId) || null;
+getInfoMenuPage(infoMenuId, pageId) {
+  const pages = this.getInfoMenuPages(infoMenuId);
+  return pages.find(page => page.id === pageId) || null;
+},
+
+/**
+ * Updates a specific page in an information menu.
+ * @param {string} infoMenuId - The ID of the info menu.
+ * @param {string} pageId - The ID of the page to update.
+ * @param {Object} pageData - The updated page data.
+ * @returns {boolean} True if updated successfully, false otherwise.
+ */
+updateInfoMenuPage(infoMenuId, pageId, pageData) {
+  const menu = this.getInfoMenu(infoMenuId);
+  if (!menu) return false;
+  
+  const pageIndex = menu.pages.findIndex(page => page.id === pageId);
+  if (pageIndex === -1) return false;
+  
+  // Update the page
+  menu.pages[pageIndex] = { ...menu.pages[pageIndex], ...pageData };
+  
+  // Save to memory
+  this.infoMenuData.set(infoMenuId, menu);
+  
+  // Save to Firestore if available
+  if (firebaseEnabled) {
+    const db = getFirestore();
+    const menuRef = doc(db, 'infoMenus', infoMenuId);
+    setDoc(menuRef, menu, { merge: true }).catch(error => {
+      console.error(`[Database] Error updating info menu page ${pageId} in Firestore:`, error);
+    });
   }
+  
+  // Save to local backup
+  saveInfoMenusToLocalFile();
+  
+  return true;
+},
+
+/**
+ * Adds a new page to an information menu.
+ * @param {string} infoMenuId - The ID of the info menu.
+ * @param {Object} pageData - The page data to add.
+ * @returns {boolean} True if added successfully, false otherwise.
+ */
+addInfoMenuPage(infoMenuId, pageData) {
+  const menu = this.getInfoMenu(infoMenuId);
+  if (!menu) return false;
+  
+  // Add the page
+  menu.pages.push(pageData);
+  
+  // Save to memory
+  this.infoMenuData.set(infoMenuId, menu);
+  
+  // Save to Firestore if available
+  if (firebaseEnabled) {
+    const db = getFirestore();
+    const menuRef = doc(db, 'infoMenus', infoMenuId);
+    setDoc(menuRef, menu, { merge: true }).catch(error => {
+      console.error(`[Database] Error adding info menu page to Firestore:`, error);
+    });
+  }
+  
+  // Save to local backup
+  saveInfoMenusToLocalFile();
+  
+  return true;
+}
 };
 
 // Local file backup system for info menus (fallback when Firebase fails)
@@ -1540,9 +1606,11 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:reorder_pages:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:toggle_webhook:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:config_webhook:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:clone_menu:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -3548,6 +3616,7 @@ client.on("interactionCreate", async (interaction) => {
                     pages.map(page => ({
                       label: page.name.slice(0, 100),
                       value: page.id,
+                      description: page.description || (page.content.description ? page.content.description.slice(0, 100) : undefined),
                       emoji: page.emoji || '📄'
                     }))
                   );
@@ -4854,12 +4923,13 @@ client.on("interactionCreate", async (interaction) => {
               const pageOptions = pages.slice(0, 25).map(page => ({
                 label: page.name.substring(0, 100),
                 value: page.id,
-                description: page.content.description ? page.content.description.substring(0, 100) : undefined
+                description: page.description || (page.content.description ? page.content.description.substring(0, 100) : undefined),
+                emoji: page.emoji || '📄'
               }));
 
               const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`info-menu-select:${infoMenuId}`)
-                .setPlaceholder("Select a page to view...")
+                .setPlaceholder("📚 Select a page to view...")
                 .addOptions(pageOptions);
 
               components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -4877,10 +4947,16 @@ client.on("interactionCreate", async (interaction) => {
 
               for (let i = 0; i < maxButtons; i++) {
                 const page = pages[i];
+                const buttonStyle = page.buttonStyle || 'Secondary';
                 const button = new ButtonBuilder()
                   .setCustomId(`info-page:${infoMenuId}:${page.id}`)
                   .setLabel(page.name.substring(0, 80))
-                  .setStyle(ButtonStyle.Secondary);
+                  .setStyle(ButtonStyle[buttonStyle]);
+
+                // Add emoji if page has one
+                if (page.emoji) {
+                  button.setEmoji(page.emoji);
+                }
 
                 currentRow.addComponents(button);
                 buttonsInRow++;
@@ -6182,13 +6258,13 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         const pageOptions = dropdownPages.slice(0, 25).map(page => ({
           label: page.name.substring(0, 100),
           value: page.id,
-          description: page.content.description ? page.content.description.substring(0, 100) : undefined,
-          emoji: page.emoji || undefined
+          description: page.description || (page.content.description ? page.content.description.substring(0, 100) : undefined),
+          emoji: page.emoji || '📄'
         }));
 
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId(`info-menu-select:${infoMenuId}`)
-          .setPlaceholder("Select a page to view...")
+          .setPlaceholder("📚 Select a page to view...")
           .addOptions(pageOptions);
 
         components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -6214,10 +6290,11 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
 
         for (let i = 0; i < maxButtons; i++) {
           const page = buttonPages[i];
+          const buttonStyle = page.buttonStyle || 'Secondary';
           const button = new ButtonBuilder()
             .setCustomId(`info-page:${infoMenuId}:${page.id}`)
             .setLabel(page.name.substring(0, 80))
-            .setStyle(ButtonStyle.Secondary);
+            .setStyle(ButtonStyle[buttonStyle]);
 
           // Add emoji if page has one
           if (page.emoji) {
@@ -6520,19 +6597,45 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setLabel("Customize Footer")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
+        .setCustomId(`info:configure_button_colors:${infoMenuId}`)
+        .setLabel("Configure Button Colors")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🎨")
+        .setDisabled(menu.pages.length === 0),
+      new ButtonBuilder()
+        .setCustomId(`info:page_descriptions:${infoMenuId}`)
+        .setLabel("Set Page Descriptions")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("📝")
+        .setDisabled(menu.pages.length === 0)
+    );
+
+    const row_advanced = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
         .setCustomId(`info:toggle_webhook:${infoMenuId}`)
         .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
         .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success),
       new ButtonBuilder()
+        .setCustomId(`info:config_webhook:${infoMenuId}`)
+        .setLabel("Configure Webhook")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!menu.useWebhook),
+      new ButtonBuilder()
         .setCustomId(`info:save_as_template:${infoMenuId}`)
         .setLabel("Save as Template")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`info:clone_menu:${infoMenuId}`)
+        .setLabel("Clone Menu")
         .setStyle(ButtonStyle.Secondary)
+        .setEmoji("📋")
     );
 
     const finalComponents = [
       row_publish_delete,
       row_selection_and_pages,
-      row_customization
+      row_customization,
+      row_advanced
     ];
 
     console.log(`[Debug] Info Menu ${infoMenuId} components: ${finalComponents.length} rows`);
