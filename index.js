@@ -1673,8 +1673,16 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:add_page_template:"))
   );
 
-  // Defer non-modal-trigger interactions
-  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
+  // Check if it's a dashboard navigation that needs immediate handling
+  const isDashboardNavigation = (
+    (interaction.isButton() && interaction.customId.startsWith("dash:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("perf:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("schedule:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("dynamic:"))
+  );
+
+  // Defer non-modal-trigger interactions, but handle dashboard navigation immediately
+  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction && !isDashboardNavigation) {
     try {
       // Always defer interactions that need responses
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
