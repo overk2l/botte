@@ -7986,9 +7986,11 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            // Only update if member counts are enabled to avoid unnecessary "edited" marks
+            // Clear selections after user interaction
             if (menu.showMemberCounts) {
                 await updatePublishedMessageComponents(interaction, menu, menuId, true);
+            } else {
+                await clearDropdownSelections(interaction, menu, menuId);
             }
             return;
         }
@@ -7997,9 +7999,11 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                // Only update if member counts are enabled to avoid unnecessary "edited" marks
+                // Clear selections after user interaction
                 if (menu.showMemberCounts) {
                     await updatePublishedMessageComponents(interaction, menu, menuId, true);
+                } else {
+                    await clearDropdownSelections(interaction, menu, menuId);
                 }
                 return;
             }
@@ -8031,9 +8035,12 @@ async function handleRoleInteraction(interaction) {
         }
 
         // Update published message components to clear selections and update member counts
-        // Only update if member counts are enabled, otherwise the selections don't persist anyway
         if (menu.showMemberCounts) {
+            // Update with member counts (will also clear selections)
             await updatePublishedMessageComponents(interaction, menu, menuId, true);
+        } else {
+            // Just clear selections without updating member counts (avoids "edited" mark)
+            await clearDropdownSelections(interaction, menu, menuId);
         }
 
     } catch (error) {
@@ -9104,6 +9111,215 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
     }
 }
 
+/**
+ * Clears dropdown selections without updating message content (to avoid "edited" marks)
+ * This rebuilds components with default: false for all options
+ * @param {Object} interaction - The Discord interaction object.
+ * @param {Object} menu - The menu object.
+ * @param {string} menuId - The ID of the menu.
+ */
+async function clearDropdownSelections(interaction, menu, menuId) {
+    if (!menu || !menu.channelId || !menu.messageId) {
+        console.warn(`[clearDropdownSelections] Invalid menu or missing channel/message ID for menu ${menuId}`);
+        return;
+    }
+
+    if (!interaction || !interaction.guild) {
+        console.warn(`[clearDropdownSelections] Invalid interaction for menu ${menuId}`);
+        return;
+    }
+
+    const guild = interaction.guild;
+
+    try {
+        const originalChannel = await guild.channels.fetch(menu.channelId).catch(() => null);
+        if (!originalChannel || !originalChannel.isTextBased()) {
+            console.error(`Channel ${menu.channelId} not found or not text-based for menu ${menuId}`);
+            await db.clearMessageId(menuId);
+            return;
+        }
+
+        const originalMessage = await originalChannel.messages.fetch(menu.messageId).catch(() => null);
+        if (!originalMessage) {
+            console.error(`Message ${menu.messageId} not found for menu ${menuId}`);
+            await db.clearMessageId(menuId);
+            return;
+        }
+
+        // Get the existing components and only modify the dropdowns to clear selections
+        const existingComponents = originalMessage.components || [];
+        const newComponents = [];
+
+        for (const row of existingComponents) {
+            if (row.components && row.components.length > 0) {
+                const component = row.components[0];
+                
+                // If it's a dropdown, rebuild it with selections cleared
+                if (component.type === 3) { // StringSelectMenu
+                    if (component.customId.startsWith('rr-role-select:')) {
+                        // Rebuild reaction role dropdown with cleared selections
+                        const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+                            ? menu.dropdownRoleOrder
+                            : menu.dropdownRoles
+                        ).map(roleId => {
+                            const role = guild.roles.cache.get(roleId);
+                            if (!role) return null;
+                            
+                            // Don't show member counts in this clearing function
+                            return {
+                                label: role.name.substring(0, 100),
+                                value: role.id,
+                                emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+                                description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+                                default: false // Always clear selections
+                            };
+                        }).filter(Boolean);
+
+                        if (dropdownOptions.length > 0) {
+                            const selectMenu = new StringSelectMenuBuilder()
+                                .setCustomId(`rr-role-select:${menuId}`)
+                                .setPlaceholder("Select roles to toggle...")
+                                .setMinValues(1)
+                                .setMaxValues(dropdownOptions.length)
+                                .addOptions(dropdownOptions);
+                            newComponents.push(new ActionRowBuilder().addComponents(selectMenu));
+                        }
+                    } else {
+                        // Keep other dropdowns as-is
+                        newComponents.push(row);
+                    }
+                } else {
+                    // Keep buttons as-is
+                    newComponents.push(row);
+                }
+            }
+        }
+
+        // Update only the components, not the embed
+        await originalMessage.edit({ components: newComponents });
+        console.log(`[clearDropdownSelections] Cleared selections for menu ${menuId}`);
+
+    } catch (error) {
+        console.error("Error clearing dropdown selections:", error);
+        // If the message or channel is gone, clear the message ID from the menu
+        if (error.code === 10003 || error.code === 50001 || error.code === 10008) {
+            console.log(`Clearing message ID for menu ${menuId} due to channel/message access error.`);
+            await db.clearMessageId(menuId);
+        }
+    }
+}
+
+/**
+ * Clears hybrid menu dropdown selections without updating message content
+ * @param {Object} interaction - The Discord interaction object.
+ * @param {Object} menu - The hybrid menu object.
+ * @param {string} hybridMenuId - The ID of the hybrid menu.
+ */
+async function clearHybridDropdownSelections(interaction, menu, hybridMenuId) {
+    if (!menu || !menu.channelId || !menu.messageId) {
+        console.warn(`[clearHybridDropdownSelections] Invalid menu or missing channel/message ID for menu ${hybridMenuId}`);
+        return;
+    }
+
+    if (!interaction || !interaction.guild) {
+        console.warn(`[clearHybridDropdownSelections] Invalid interaction for menu ${hybridMenuId}`);
+        return;
+    }
+
+    const guild = interaction.guild;
+
+    try {
+        const originalChannel = await guild.channels.fetch(menu.channelId).catch(() => null);
+        if (!originalChannel || !originalChannel.isTextBased()) {
+            console.error(`Channel ${menu.channelId} not found or not text-based for hybrid menu ${hybridMenuId}`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            return;
+        }
+
+        const originalMessage = await originalChannel.messages.fetch(menu.messageId).catch(() => null);
+        if (!originalMessage) {
+            console.error(`Message ${menu.messageId} not found for hybrid menu ${hybridMenuId}`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            return;
+        }
+
+        // Get the existing components and only modify the dropdowns to clear selections
+        const existingComponents = originalMessage.components || [];
+        const newComponents = [];
+
+        for (const row of existingComponents) {
+            if (row.components && row.components.length > 0) {
+                const component = row.components[0];
+                
+                // If it's a dropdown, rebuild it with selections cleared
+                if (component.type === 3) { // StringSelectMenu
+                    if (component.customId.startsWith('hybrid-role-select:')) {
+                        // Rebuild hybrid role dropdown with cleared selections
+                        const roleOptions = menu.dropdownRoles.map(roleId => {
+                            const role = guild.roles.cache.get(roleId);
+                            if (!role) return null;
+                            
+                            // Don't show member counts in this clearing function
+                            return {
+                                label: role.name.substring(0, 100),
+                                value: role.id,
+                                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
+                                description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
+                                default: false // Always clear selections
+                            };
+                        }).filter(Boolean);
+
+                        if (roleOptions.length > 0) {
+                            const roleDropdown = new StringSelectMenuBuilder()
+                                .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+                                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+                                .setMinValues(1)
+                                .setMaxValues(roleOptions.length)
+                                .addOptions(roleOptions);
+                            newComponents.push(new ActionRowBuilder().addComponents(roleDropdown));
+                        }
+                    } else if (component.customId.startsWith('hybrid-info-select:')) {
+                        // Rebuild hybrid info dropdown with cleared selections
+                        const infoOptions = menu.pages.slice(0, 25).map(page => ({
+                            label: page.name.substring(0, 100),
+                            value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
+                            description: page.content?.substring(0, 100) || 'No description',
+                            emoji: page.emoji || '📋',
+                            default: false // Always clear selections
+                        }));
+
+                        if (infoOptions.length > 0) {
+                            const infoDropdown = new StringSelectMenuBuilder()
+                                .setCustomId(`hybrid-info-select:${hybridMenuId}`)
+                                .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
+                                .addOptions(infoOptions);
+                            newComponents.push(new ActionRowBuilder().addComponents(infoDropdown));
+                        }
+                    } else {
+                        // Keep other dropdowns as-is
+                        newComponents.push(row);
+                    }
+                } else {
+                    // Keep buttons as-is
+                    newComponents.push(row);
+                }
+            }
+        }
+
+        // Update only the components, not the embed
+        await originalMessage.edit({ components: newComponents });
+        console.log(`[clearHybridDropdownSelections] Cleared selections for hybrid menu ${hybridMenuId}`);
+
+    } catch (error) {
+        console.error("Error clearing hybrid dropdown selections:", error);
+        // If the message or channel is gone, clear the message ID from the menu
+        if (error.code === 10003 || error.code === 50001 || error.code === 10008) {
+            console.log(`Clearing message ID for hybrid menu ${hybridMenuId} due to channel/message access error.`);
+            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+        }
+    }
+}
+
 // ...existing code...
 
 // Add timeout handling for hybrid menu interactions to prevent infinite thinking
@@ -9182,10 +9398,8 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Clear the dropdown selection after showing the info page
       try {
-        // Only update if member counts are enabled to avoid unnecessary "edited" marks
-        if (menu.showMemberCounts) {
-          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
-        }
+        // Info pages don't affect member counts, so just clear the selection
+        await clearHybridDropdownSelections(interaction, menu, hybridMenuId);
       } catch (error) {
         console.error("Error updating hybrid menu components after info selection:", error);
         // Continue with showing the page even if we can't update the components
@@ -9271,9 +9485,12 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Update the published message components to clear selections and update member counts
       try {
-        // Only update if member counts are enabled to avoid unnecessary "edited" marks
         if (menu.showMemberCounts) {
+          // Update with member counts (will also clear selections)
           await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+        } else {
+          // Just clear selections without updating member counts (avoids "edited" mark)
+          await clearHybridDropdownSelections(interaction, menu, hybridMenuId);
         }
       } catch (error) {
         console.error("Error updating hybrid menu components:", error);
