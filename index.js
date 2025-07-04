@@ -1611,7 +1611,9 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -3134,6 +3136,62 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        if (action === "configure_page_emojis") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const pages = db.getInfoMenuPages(infoMenuId);
+          if (!pages || pages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No pages found to configure emojis for.", "#FF0000", "Error", false);
+          }
+
+          // Create select menu for choosing which page to configure
+          const pageOptions = pages.slice(0, 25).map(page => ({
+            label: page.name.substring(0, 100),
+            value: page.id,
+            description: page.emoji ? `Current: ${page.emoji}` : "No emoji set",
+            emoji: page.emoji || "📄"
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`info:select_page_for_emoji:${infoMenuId}`)
+            .setPlaceholder("Select a page to configure its emoji...")
+            .addOptions(pageOptions);
+
+          return interaction.editReply({
+            content: "Select a page to configure its emoji:",
+            components: [new ActionRowBuilder().addComponents(selectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "customize_dropdown_text") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          }
+
+          // Create modal for dropdown text customization
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:customize_dropdown_text:${infoMenuId}`)
+            .setTitle("Customize Dropdown Text")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("dropdown_placeholder")
+                  .setLabel("Dropdown Placeholder Text")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("📚 Select a page to view...")
+                  .setValue(menu.dropdownPlaceholder || "📚 Select a page to view...")
+                  .setMaxLength(150)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
+
         // Add more info menu actions here as needed
       }
 
@@ -3623,6 +3681,39 @@ client.on("interactionCreate", async (interaction) => {
           
           return interaction.showModal(modal);
         }
+
+        if (action === "select_page_for_emoji") {
+          const infoMenuId = parts[2];
+          const selectedPageId = interaction.values[0];
+          
+          if (!infoMenuId || !selectedPageId) {
+            return sendEphemeralEmbed(interaction, "❌ Menu or page ID missing.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Create modal for emoji input
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:set_page_emoji:${infoMenuId}:${selectedPageId}`)
+            .setTitle(`Set Emoji: ${page.name}`)
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_emoji")
+                  .setLabel("Page Emoji")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("😀 Enter an emoji (or leave blank to remove)")
+                  .setValue(page.emoji || "")
+                  .setMaxLength(10)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
@@ -3754,12 +3845,12 @@ client.on("interactionCreate", async (interaction) => {
               if (pages && pages.length > 0) {
                 const selectMenu = new StringSelectMenuBuilder()
                   .setCustomId(`info-menu-select:${infoMenuId}`)
-                  .setPlaceholder('📚 Select a page to view...')
+                  .setPlaceholder(menu.dropdownPlaceholder || '📚 Select a page to view...')
                   .addOptions(
                     pages.map(page => ({
                       label: page.name.slice(0, 100),
                       value: page.id,
-                      description: page.description || (page.content.description ? page.content.description.slice(0, 100) : undefined),
+                      description: page.dropdownDescription || (page.content.description ? page.content.description.slice(0, 100) : undefined),
                       emoji: page.emoji || '📄'
                     }))
                   );
@@ -5066,13 +5157,13 @@ client.on("interactionCreate", async (interaction) => {
               const pageOptions = pages.slice(0, 25).map(page => ({
                 label: page.name.substring(0, 100),
                 value: page.id,
-                description: page.description || (page.content.description ? page.content.description.substring(0, 100) : undefined),
+                description: page.dropdownDescription || (page.content.description ? page.content.description.substring(0, 100) : undefined),
                 emoji: page.emoji || '📄'
               }));
 
               const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`info-menu-select:${infoMenuId}`)
-                .setPlaceholder("📚 Select a page to view...")
+                .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
                 .addOptions(pageOptions);
 
               components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -5090,7 +5181,7 @@ client.on("interactionCreate", async (interaction) => {
 
               for (let i = 0; i < maxButtons; i++) {
                 const page = pages[i];
-                const buttonStyle = page.buttonStyle || 'Secondary';
+                const buttonStyle = page.buttonColor || 'Secondary'; // Use buttonColor instead of buttonStyle
                 const button = new ButtonBuilder()
                   .setCustomId(`info-page:${infoMenuId}:${page.id}`)
                   .setLabel(page.name.substring(0, 80))
@@ -5181,6 +5272,45 @@ client.on("interactionCreate", async (interaction) => {
             : `✅ Description for "${page.name}" removed!`;
             
           await sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (modalType === "set_page_emoji") {
+          const infoMenuId = parts[3];
+          const pageId = parts[4];
+          const emoji = interaction.fields.getTextInputValue("page_emoji").trim();
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Update the page with new emoji (can be empty to remove)
+          await db.updateInfoMenuPage(infoMenuId, pageId, { emoji: emoji || null });
+
+          const message = emoji 
+            ? `✅ Emoji for "${page.name}" set to ${emoji}!`
+            : `✅ Emoji for "${page.name}" removed!`;
+            
+          await sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (modalType === "customize_dropdown_text") {
+          const infoMenuId = parts[3];
+          const dropdownPlaceholder = interaction.fields.getTextInputValue("dropdown_placeholder").trim();
+
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          }
+
+          // Update the menu with new dropdown placeholder
+          await db.updateInfoMenu(infoMenuId, { 
+            dropdownPlaceholder: dropdownPlaceholder || "📚 Select a page to view..." 
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Dropdown placeholder text updated!`, "#00FF00", "Success", false);
           return showInfoMenuConfiguration(interaction, infoMenuId);
         }
       }
@@ -6450,13 +6580,13 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         const pageOptions = dropdownPages.slice(0, 25).map(page => ({
           label: page.name.substring(0, 100),
           value: page.id,
-          description: page.description || (page.content.description ? page.content.description.substring(0, 100) : undefined),
+          description: page.dropdownDescription || (page.content.description ? page.content.description.substring(0, 100) : undefined),
           emoji: page.emoji || '📄'
         }));
 
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId(`info-menu-select:${infoMenuId}`)
-          .setPlaceholder("📚 Select a page to view...")
+          .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
           .addOptions(pageOptions);
 
         components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -6482,7 +6612,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
 
         for (let i = 0; i < maxButtons; i++) {
           const page = buttonPages[i];
-          const buttonStyle = page.buttonStyle || 'Secondary';
+          const buttonStyle = page.buttonColor || 'Secondary'; // Use buttonColor instead of buttonStyle
           const button = new ButtonBuilder()
             .setCustomId(`info-page:${infoMenuId}:${page.id}`)
             .setLabel(page.name.substring(0, 80))
@@ -6799,10 +6929,21 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setLabel("Set Page Descriptions")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("📝")
+        .setDisabled(menu.pages.length === 0),
+      new ButtonBuilder()
+        .setCustomId(`info:configure_page_emojis:${infoMenuId}`)
+        .setLabel("Configure Page Emojis")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("😀")
         .setDisabled(menu.pages.length === 0)
     );
 
     const row_advanced = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`info:customize_dropdown_text:${infoMenuId}`)
+        .setLabel("Customize Dropdown Text")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("💬"),
       new ButtonBuilder()
         .setCustomId(`info:toggle_webhook:${infoMenuId}`)
         .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
