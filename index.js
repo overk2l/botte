@@ -8442,6 +8442,59 @@ async function showInfoMenusDashboard(interaction) {
   }
 }
 
+async function showHybridMenusDashboard(interaction) {
+  const hybridMenus = db.getHybridMenus(interaction.guild.id);
+
+  const embed = new EmbedBuilder()
+      .setTitle("🔀 Hybrid Menus")
+      .setDescription("Manage hybrid menus that combine both information pages AND reaction roles in one unified interface!")
+      .setColor("#00D084")
+      .addFields(
+          { name: "📋 Information Pages", value: "Display rules, guides, FAQs, and other content", inline: true },
+          { name: "🎭 Reaction Roles", value: "Let users assign/remove roles", inline: true },
+          { name: "🔀 Combined Power", value: "Both features in one message!", inline: true }
+      );
+
+  const components = [];
+
+  if (hybridMenus.length > 0) {
+      const menuOptions = hybridMenus.slice(0, 25).map((menu) => ({ 
+          label: menu.name.substring(0, 100), 
+          value: menu.id,
+          description: menu.desc ? menu.desc.substring(0, 100) : undefined
+      }));
+      const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId("hybrid:selectmenu")
+          .setPlaceholder("Select a hybrid menu to configure...")
+          .addOptions(menuOptions);
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+  } else {
+      embed.setDescription("No hybrid menus found. Create your first hybrid menu to combine information display with role management!\n\n**Example Use Cases:**\n• Server rules with punishment roles\n• Game guides with game-specific roles\n• FAQ with helper roles\n• Announcements with notification roles");
+  }
+
+  const createButton = new ButtonBuilder()
+      .setCustomId("hybrid:create")
+      .setLabel("Create Hybrid Menu")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("🔀");
+
+  const backButton = new ButtonBuilder()
+      .setCustomId("dash:back")
+      .setLabel("Back to Dashboard")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️");
+
+  const buttonRow = new ActionRowBuilder().addComponents(createButton, backButton);
+  components.push(buttonRow);
+
+  try {
+      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+      console.error("Error displaying hybrid menus dashboard:", error);
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menus dashboard.", flags: MessageFlags.Ephemeral });
+  }
+}
+
 // Publish info menu to specific channel (for scheduled messages)
 async function publishInfoMenuToChannel(menu, channel, mockInteraction) {
   try {
