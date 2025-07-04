@@ -4616,7 +4616,11 @@ client.on("interactionCreate", async (interaction) => {
             guildId: interaction.guild.id,
             createdBy: interaction.user.id,
             createdAt: new Date().toISOString(),
-            status: 'scheduled'
+            status: 'scheduled',
+            // Webhook branding options
+            useWebhook: false,
+            webhookName: null,
+            webhookAvatar: null
           };
 
           // Save to database
@@ -4636,7 +4640,19 @@ client.on("interactionCreate", async (interaction) => {
                 { name: "Message Preview", value: `\`\`\`json\n${messageJson.substring(0, 200)}${messageJson.length > 200 ? '...' : ''}\n\`\`\``, inline: false }
               ]);
 
-            await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+            const webhookButton = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`schedule:webhook:${scheduleId}`)
+                .setLabel('Configure Webhook')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔗'),
+              new ButtonBuilder()
+                .setCustomId("schedule:back")
+                .setLabel("Back to Dashboard")
+                .setStyle(ButtonStyle.Secondary)
+            );
+
+            await interaction.editReply({ embeds: [embed], components: [webhookButton], flags: MessageFlags.Ephemeral });
           } catch (error) {
             console.error("Error saving scheduled message:", error);
             await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
@@ -6158,13 +6174,14 @@ async function showScheduledMessagesDashboard(interaction) {
       }]);
     } else {
       const activeSchedules = schedules.filter(s => s.status === 'scheduled');
+      const pausedSchedules = schedules.filter(s => s.status === 'paused');
       const completedSchedules = schedules.filter(s => s.status === 'completed');
       const recurringSchedules = schedules.filter(s => s.isRecurring);
       
       embed.addFields([
         {
           name: "📊 Summary",
-          value: `**Active:** ${activeSchedules.length}\n**Completed:** ${completedSchedules.length}\n**Recurring:** ${recurringSchedules.length}\n**Total:** ${schedules.length}`,
+          value: `**Active:** ${activeSchedules.length}\n**Paused:** ${pausedSchedules.length}\n**Completed:** ${completedSchedules.length}\n**Recurring:** ${recurringSchedules.length}\n**Total:** ${schedules.length}`,
           inline: true
         }
       ]);
@@ -6362,11 +6379,22 @@ async function showManageSchedulesMenu(interaction) {
         }
       }
       
+      // Get status emoji
+      let statusEmoji = '⏰'; // default
+      if (schedule.isRecurring) {
+        statusEmoji = '🔄';
+      }
+      if (schedule.status === 'paused') {
+        statusEmoji = '⏸️';
+      } else if (schedule.status === 'completed') {
+        statusEmoji = '✅';
+      }
+      
       return {
         label: messagePreview,
         value: `manage_schedule:${schedule.id}`,
-        description: `${channel?.name || 'Unknown Channel'} • ${timeStr}`,
-        emoji: schedule.isRecurring ? '🔄' : '⏰'
+        description: `${channel?.name || 'Unknown Channel'} • ${timeStr} • ${getStatusDisplay(schedule.status)}`,
+        emoji: statusEmoji
       };
     });
     
@@ -6392,6 +6420,82 @@ async function showManageSchedulesMenu(interaction) {
   } catch (error) {
     console.error("Error showing manage schedules menu:", error);
     await interaction.editReply({ content: "❌ Error loading manage schedules menu.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Show schedule details menu
+async function showScheduleDetailsMenu(interaction, scheduleId) {
+  try {
+    const schedule = scheduledMessages.get(scheduleId);
+    if (!schedule) {
+      await interaction.editReply({ 
+        content: "❌ Schedule not found.",
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+
+    const channel = client.channels.cache.get(schedule.channelId);
+    const timeStr = `<t:${Math.floor(new Date(schedule.scheduledTime).getTime() / 1000)}:F>`;
+    
+    // Get a preview of the message content
+    let messagePreview = "Unknown Message";
+    if (schedule.messageContent) {
+      if (schedule.messageContent.content) {
+        messagePreview = schedule.messageContent.content.substring(0, 100);
+      } else if (schedule.messageContent.embeds && schedule.messageContent.embeds[0]) {
+        messagePreview = schedule.messageContent.embeds[0].title || schedule.messageContent.embeds[0].description || "Embed Message";
+        messagePreview = messagePreview.substring(0, 100);
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle(`📝 Schedule Details - ${schedule.id}`)
+      .setDescription("Manage this scheduled message")
+      .setColor("#ffa500")
+      .addFields([
+        { name: "Channel", value: channel ? `<#${schedule.channelId}>` : 'Unknown Channel', inline: true },
+        { name: "Status", value: getStatusDisplay(schedule.status), inline: true },
+        { name: "Scheduled Time", value: timeStr, inline: true },
+        { name: "Recurring", value: schedule.isRecurring ? `Yes (${schedule.recurringDisplay})` : "No", inline: true },
+        { name: "Auto-delete", value: schedule.autoDeleteDuration ? `${schedule.autoDeleteDuration} minutes` : "No", inline: true },
+        { name: "Webhook", value: schedule.useWebhook ? `Yes (${schedule.webhookName || 'Custom'})` : "No", inline: true },
+        { name: "Message Preview", value: `\`\`\`${messagePreview}${messagePreview.length >= 100 ? '...' : ''}\`\`\``, inline: false }
+      ]);
+
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`schedule:toggle:${scheduleId}`)
+        .setLabel(schedule.status === 'scheduled' ? 'Pause' : 'Resume')
+        .setStyle(schedule.status === 'scheduled' ? ButtonStyle.Secondary : ButtonStyle.Success)
+        .setEmoji(schedule.status === 'scheduled' ? '⏸️' : '▶️'),
+      new ButtonBuilder()
+        .setCustomId(`schedule:webhook:${scheduleId}`)
+        .setLabel('Configure Webhook')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🔗'),
+      new ButtonBuilder()
+        .setCustomId(`schedule:delete:${scheduleId}`)
+        .setLabel('Delete')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('🗑️')
+    );
+
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("schedule:back")
+        .setLabel("Back to Manage")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.editReply({ 
+      embeds: [embed], 
+      components: [row1, row2], 
+      flags: MessageFlags.Ephemeral 
+    });
+  } catch (error) {
+    console.error("Error showing schedule details menu:", error);
+    await interaction.editReply({ content: "❌ Error loading schedule details.", flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -6633,9 +6737,37 @@ async function executeScheduledMessage(schedule) {
       }
     }
 
-    // Send the new message
-    const sentMessage = await channel.send(schedule.messageContent);
-    console.log(`Sent scheduled message ${schedule.id} to ${channel.name}`);
+    let sentMessage;
+    
+    // Send the message using webhook if configured
+    if (schedule.useWebhook) {
+      try {
+        // Get or create webhook for the channel
+        const webhook = await getOrCreateWebhook(
+          channel, 
+          schedule.webhookName || "Scheduled Message Webhook"
+        );
+        
+        // Prepare webhook options
+        const webhookOptions = {
+          ...schedule.messageContent,
+          username: schedule.webhookName || "Scheduled Message",
+          avatarURL: schedule.webhookAvatar || null
+        };
+        
+        sentMessage = await webhook.send(webhookOptions);
+        console.log(`Sent scheduled message ${schedule.id} via webhook to ${channel.name}`);
+      } catch (webhookError) {
+        console.warn(`Failed to send via webhook for schedule ${schedule.id}, falling back to normal message:`, webhookError.message);
+        // Fall back to normal message sending
+        sentMessage = await channel.send(schedule.messageContent);
+        console.log(`Sent scheduled message ${schedule.id} (fallback) to ${channel.name}`);
+      }
+    } else {
+      // Send the message normally
+      sentMessage = await channel.send(schedule.messageContent);
+      console.log(`Sent scheduled message ${schedule.id} to ${channel.name}`);
+    }
 
     // Update the lastMessageId for recurring messages
     if (schedule.isRecurring) {
