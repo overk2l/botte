@@ -1459,6 +1459,12 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * @param {string} menuId - The ID of the menu.
  */
 async function updatePublishedMessageComponents(interaction, menu, menuId) {
+    // Skip component updates to avoid "edited" indicator (like other professional bots)
+    // This prevents the "edited" message indicator from appearing
+    return;
+    
+    // Original update code below (disabled)
+    /*
     if (!menu || !menu.channelId || !menu.messageId) {
         console.warn(`[updatePublishedMessageComponents] Invalid menu or missing channel/message ID for menu ${menuId}`);
         return;
@@ -1605,6 +1611,7 @@ async function updatePublishedMessageComponents(interaction, menu, menuId) {
             await db.clearMessageId(menuId);
         }
     }
+    */
 }
 
 
