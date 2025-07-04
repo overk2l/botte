@@ -1610,7 +1610,8 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
@@ -3057,6 +3058,82 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "configure_button_colors") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const pages = db.getInfoMenuPages(infoMenuId);
+          if (!pages || pages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No pages found to configure colors for.", "#FF0000", "Error", false);
+          }
+
+          // Filter pages that can appear as buttons
+          const buttonPages = pages.filter(page => {
+            const displayIn = page.displayIn || ['dropdown', 'button'];
+            return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+          });
+
+          if (buttonPages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No pages are configured to show as buttons.", "#FF0000", "Error", false);
+          }
+
+          // Create select menu for choosing which page to configure
+          const pageOptions = buttonPages.slice(0, 25).map(page => ({
+            label: page.name.substring(0, 100),
+            value: page.id,
+            description: page.buttonColor ? `Current: ${page.buttonColor}` : "Current: Primary (default)",
+            emoji: page.emoji || "📄"
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`info:select_page_for_button_color:${infoMenuId}`)
+            .setPlaceholder("Select a page to configure button color...")
+            .addOptions(pageOptions);
+
+          return interaction.editReply({
+            content: "Select a page to configure its button color:",
+            components: [new ActionRowBuilder().addComponents(selectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (action === "page_descriptions") {
+          if (!infoMenuId) return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          
+          const pages = db.getInfoMenuPages(infoMenuId);
+          if (!pages || pages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No pages found to set descriptions for.", "#FF0000", "Error", false);
+          }
+
+          // Filter pages that can appear in dropdown
+          const dropdownPages = pages.filter(page => {
+            const displayIn = page.displayIn || ['dropdown', 'button'];
+            return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+          });
+
+          if (dropdownPages.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No pages are configured to show in dropdown.", "#FF0000", "Error", false);
+          }
+
+          // Create select menu for choosing which page to set description
+          const pageOptions = dropdownPages.slice(0, 25).map(page => ({
+            label: page.name.substring(0, 100),
+            value: page.id,
+            description: page.dropdownDescription ? page.dropdownDescription.substring(0, 100) : "No description set",
+            emoji: page.emoji || "📄"
+          }));
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`info:select_page_for_description:${infoMenuId}`)
+            .setPlaceholder("Select a page to set its description...")
+            .addOptions(pageOptions);
+
+          return interaction.editReply({
+            content: "Select a page to set its dropdown description:",
+            components: [new ActionRowBuilder().addComponents(selectMenu)],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         // Add more info menu actions here as needed
       }
 
@@ -3479,6 +3556,72 @@ client.on("interactionCreate", async (interaction) => {
               flags: MessageFlags.Ephemeral
             });
           }
+        }
+
+        if (action === "select_page_for_button_color") {
+          const infoMenuId = parts[2];
+          const selectedPageId = interaction.values[0];
+          
+          if (!infoMenuId || !selectedPageId) {
+            return sendEphemeralEmbed(interaction, "❌ Menu or page ID missing.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Create modal for button color selection
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:set_button_color:${infoMenuId}:${selectedPageId}`)
+            .setTitle(`Set Button Color: ${page.name}`)
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("button_color")
+                  .setLabel("Button Color")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Primary, Secondary, Success, or Danger")
+                  .setValue(page.buttonColor || "Primary")
+                  .setMaxLength(20)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
+
+        if (action === "select_page_for_description") {
+          const infoMenuId = parts[2];
+          const selectedPageId = interaction.values[0];
+          
+          if (!infoMenuId || !selectedPageId) {
+            return sendEphemeralEmbed(interaction, "❌ Menu or page ID missing.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Create modal for description input
+          const modal = new ModalBuilder()
+            .setCustomId(`info:modal:set_page_description:${infoMenuId}:${selectedPageId}`)
+            .setTitle(`Set Description: ${page.name}`)
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_description")
+                  .setLabel("Dropdown Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Brief description for the dropdown menu...")
+                  .setValue(page.dropdownDescription || "")
+                  .setMaxLength(100)
+              )
+            );
+          
+          return interaction.showModal(modal);
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -4990,6 +5133,55 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Error publishing info menu:", error);
             return sendEphemeralEmbed(interaction, `❌ Failed to publish menu: ${error.message}`, "#FF0000", "Error", false);
           }
+        }
+
+        if (modalType === "set_button_color") {
+          const infoMenuId = parts[3];
+          const pageId = parts[4];
+          const buttonColor = interaction.fields.getTextInputValue("button_color").trim();
+
+          // Validate button color
+          const validColors = ['Primary', 'Secondary', 'Success', 'Danger'];
+          if (!validColors.includes(buttonColor)) {
+            return sendEphemeralEmbed(interaction, `❌ Invalid button color. Valid options: ${validColors.join(', ')}`, "#FF0000", "Invalid Color", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Update the page with new button color
+          const updatedPage = { ...page, buttonColor };
+          await db.updateInfoMenuPage(infoMenuId, pageId, { buttonColor });
+
+          await sendEphemeralEmbed(interaction, `✅ Button color for "${page.name}" set to ${buttonColor}!`, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        if (modalType === "set_page_description") {
+          const infoMenuId = parts[3];
+          const pageId = parts[4];
+          const description = interaction.fields.getTextInputValue("page_description").trim();
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Update the page with new description (can be empty to remove)
+          const updatedPage = { 
+            ...page, 
+            dropdownDescription: description || null 
+          };
+          await db.updateInfoMenuPage(infoMenuId, pageId, { dropdownDescription: description || null });
+
+          const message = description 
+            ? `✅ Description for "${page.name}" updated!`
+            : `✅ Description for "${page.name}" removed!`;
+            
+          await sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+          return showInfoMenuConfiguration(interaction, infoMenuId);
         }
       }
     }
