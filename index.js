@@ -4558,19 +4558,7 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.editReply({ content: "❌ Invalid JSON format. Please provide valid JSON for the message.", components: [], flags: MessageFlags.Ephemeral });
           }
 
-          // Validate duration if provided (only for non-recurring messages)
-          let autoDeletDuration = null;
-          if (duration && !isRecurring) {
-            const durationNum = parseInt(duration);
-            if (isNaN(durationNum) || durationNum <= 0) {
-              return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: MessageFlags.Ephemeral });
-            }
-            autoDeletDuration = durationNum;
-          }
-          
-          // Note: Auto-delete is ignored for recurring messages since they replace themselves
-
-          // Validate and parse recurring interval
+          // Validate and parse recurring interval FIRST
           let recurringMs = null;
           let recurringDisplay = null;
           let isRecurring = false;
@@ -4600,6 +4588,18 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           }
+
+          // Validate duration if provided (only for non-recurring messages)
+          let autoDeletDuration = null;
+          if (duration && !isRecurring) {
+            const durationNum = parseInt(duration);
+            if (isNaN(durationNum) || durationNum <= 0) {
+              return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: MessageFlags.Ephemeral });
+            }
+            autoDeletDuration = durationNum;
+          }
+          
+          // Note: Auto-delete is ignored for recurring messages since they replace themselves
 
           // Create schedule entry
           const scheduleId = generateId();
