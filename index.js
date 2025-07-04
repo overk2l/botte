@@ -1766,9 +1766,9 @@ client.on("interactionCreate", async (interaction) => {
           performanceMetrics.interactions.failed = 0;
           performanceMetrics.interactions.responseTimes = [];
           performanceMetrics.interactions.averageResponseTime = 0;
-          performanceMetrics.menus.infoMenuUsage.clear();
-          performanceMetrics.menus.reactionRoleUsage.clear();
-          performanceMetrics.menus.pageViews.clear();
+          performanceMetrics.menus.created = 0;
+          performanceMetrics.menus.published = 0;
+          performanceMetrics.menus.interactions = 0;
           
           await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
           setTimeout(() => showPerformanceDashboard(interaction), 1000);
@@ -5716,13 +5716,13 @@ async function showPerformanceDashboard(interaction) {
       .setTimestamp();
 
     // Bot Health
-    const uptimeHours = Math.floor(performanceMetrics.bot.uptime / (1000 * 60 * 60));
-    const uptimeMinutes = Math.floor((performanceMetrics.bot.uptime % (1000 * 60 * 60)) / (1000 * 60));
+    const uptimeHours = Math.floor(performanceMetrics.health.uptime / 3600);
+    const uptimeMinutes = Math.floor((performanceMetrics.health.uptime % 3600) / 60);
     
     embed.addFields([
       {
         name: "🤖 Bot Health",
-        value: `**Uptime:** ${uptimeHours}h ${uptimeMinutes}m\n**Memory:** ${performanceMetrics.bot.memoryUsage.toFixed(1)}MB\n**Status:** ${performanceMetrics.bot.uptime > 60000 ? '🟢 Healthy' : '🟡 Starting'}`,
+        value: `**Uptime:** ${uptimeHours}h ${uptimeMinutes}m\n**Memory:** ${performanceMetrics.health.memoryUsage.toFixed(1)}MB\n**Status:** ${performanceMetrics.health.uptime > 60 ? '🟢 Healthy' : '🟡 Starting'}`,
         inline: true
       },
       {
@@ -5732,56 +5732,33 @@ async function showPerformanceDashboard(interaction) {
       },
       {
         name: "📊 Usage Stats",
-        value: `**Info Menus:** ${performanceMetrics.menus.infoMenuUsage.size} active\n**Reaction Roles:** ${performanceMetrics.menus.reactionRoleUsage.size} active\n**Page Views:** ${Array.from(performanceMetrics.menus.pageViews.values()).reduce((a, b) => a + b, 0)}`,
+        value: `**Menu Interactions:** ${performanceMetrics.menus.interactions}\n**Menus Created:** ${performanceMetrics.menus.created}\n**Menus Published:** ${performanceMetrics.menus.published}`,
         inline: true
       }
     ]);
 
-    // Top used menus
-    const topInfoMenus = Array.from(performanceMetrics.menus.infoMenuUsage.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([id, count]) => {
-        const menu = db.getInfoMenu(id);
-        return `${menu?.name || 'Unknown'}: ${count} uses`;
-      });
-
-    if (topInfoMenus.length > 0) {
-      embed.addFields([
-        {
-          name: "🏆 Top Info Menus",
-          value: topInfoMenus.join('\n') || 'No data yet',
-          inline: false
-        }
-      ]);
-    }
-
-    const row = new ActionRowBuilder().addComponents(
+    const backButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("dash:main")
+        .setLabel("Back to Dashboard")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🔙"),
       new ButtonBuilder()
         .setCustomId("perf:refresh")
         .setLabel("Refresh")
         .setStyle(ButtonStyle.Primary)
         .setEmoji("🔄"),
       new ButtonBuilder()
-        .setCustomId("perf:detailed")
-        .setLabel("Detailed Stats")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("📈"),
-      new ButtonBuilder()
         .setCustomId("perf:clear")
-        .setLabel("Clear Stats")
+        .setLabel("Clear Metrics")
         .setStyle(ButtonStyle.Danger)
-        .setEmoji("🗑️"),
-      new ButtonBuilder()
-        .setCustomId("dash:main")
-        .setLabel("Back to Dashboard")
-        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🗑️")
     );
 
-    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [backButton], flags: MessageFlags.Ephemeral });
   } catch (error) {
     console.error("Error showing performance dashboard:", error);
-    await interaction.editReply({ content: "❌ Error loading performance dashboard.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error showing performance dashboard.", flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -7762,6 +7739,74 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         await interaction.reply(errorMessage);
       }
     }
+}
+
+// Performance Metrics System
+const performanceMetrics = {
+  interactions: {
+    total: 0,
+    successful: 0,
+    failed: 0,
+    averageResponseTime: 0,
+    responseTimes: []
+  },
+  menus: {
+    created: 0,
+    published: 0,
+    interactions: 0
+  },
+  health: {
+    uptime: 0,
+    memoryUsage: 0,
+    lastCheck: Date.now()
+  }
+};
+
+// Track interaction performance
+function trackInteractionPerformance(interaction, startTime, success) {
+  const responseTime = Date.now() - startTime;
+  
+  performanceMetrics.interactions.total++;
+  if (success) {
+    performanceMetrics.interactions.successful++;
+  } else {
+    performanceMetrics.interactions.failed++;
+  }
+  
+  performanceMetrics.interactions.responseTimes.push(responseTime);
+  
+  // Keep only last 100 response times to prevent memory issues
+  if (performanceMetrics.interactions.responseTimes.length > 100) {
+    performanceMetrics.interactions.responseTimes.shift();
+  }
+  
+  // Calculate average response time
+  const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
+  performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
+}
+
+// Track menu usage
+function trackMenuUsage(menuId, type) {
+  performanceMetrics.menus.interactions++;
+  console.log(`Menu usage tracked: ${type} menu ${menuId}`);
+}
+
+// Track page views
+function trackPageView(pageId) {
+  console.log(`Page view tracked: ${pageId}`);
+}
+
+// Update bot health metrics
+function updateBotHealth() {
+  const used = process.memoryUsage();
+  performanceMetrics.health.memoryUsage = Math.round(used.heapUsed / 1024 / 1024 * 100) / 100; // MB
+  performanceMetrics.health.uptime = process.uptime();
+  performanceMetrics.health.lastCheck = Date.now();
+}
+
+// Get performance metrics
+function getPerformanceMetrics() {
+  return performanceMetrics;
 }
 
 // Bot login
