@@ -4423,8 +4423,6 @@ client.on("interactionCreate", async (interaction) => {
           return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
         }
 
-        const hybridMenuId = parts[2];
-
         if (action === "create") {
           const modal = new ModalBuilder()
             .setCustomId("hybrid:modal:create")
@@ -4451,6 +4449,8 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
+
+        const hybridMenuId = parts[2];
 
         if (action === "selectmenu") {
           const hybridMenuId = interaction.values[0];
