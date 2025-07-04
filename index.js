@@ -1839,7 +1839,14 @@ client.on("interactionCreate", async (interaction) => {
           performanceMetrics.menus.interactions = 0;
           
           await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
-          setTimeout(() => showPerformanceDashboard(interaction), 1000);
+          // Show updated dashboard after clearing
+          setTimeout(async () => {
+            try {
+              await showPerformanceDashboard(interaction);
+            } catch (error) {
+              console.error("Error refreshing performance dashboard after clear:", error);
+            }
+          }, 1000);
           return;
         }
       }
@@ -4325,6 +4332,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "select_menu") {
           const menuId = interaction.values[0];
+          console.log("Schedule: Creating modal for menu", menuId);
           
           // Show modal for scheduling details
           const modal = new ModalBuilder()
@@ -4378,10 +4386,11 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "schedule" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to schedule messages.", "#FF0000", "Permission Denied", false);
+          return interaction.editReply({ content: "❌ You need Administrator permissions to schedule messages.", components: [], flags: MessageFlags.Ephemeral });
         }
 
         if (modalType === "create") {
+          console.log("Schedule: Processing modal submission for menu", parts[3]);
           const targetMenuId = parts[3];
           const channelId = interaction.fields.getTextInputValue("channel_id");
           const scheduleTime = interaction.fields.getTextInputValue("schedule_time");
@@ -4390,19 +4399,19 @@ client.on("interactionCreate", async (interaction) => {
           // Validate channel
           const channel = interaction.guild.channels.cache.get(channelId);
           if (!channel || !channel.isTextBased()) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid channel ID. Please provide a valid text channel ID.", "#FF0000", "Invalid Channel", false);
+            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: MessageFlags.Ephemeral });
           }
 
           // Validate date format
           const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
           if (!dateRegex.test(scheduleTime)) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", "#FF0000", "Invalid Date", false);
+            return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
           }
 
           // Parse and validate the date
           const scheduledDate = new Date(scheduleTime);
           if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid date or date is in the past. Please provide a future date.", "#FF0000", "Invalid Date", false);
+            return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
           }
 
           // Create schedule entry
@@ -4434,10 +4443,10 @@ client.on("interactionCreate", async (interaction) => {
                 { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: false }
               ]);
 
-            await sendEphemeralEmbed(interaction, embed, null, null, false);
+            await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
           } catch (error) {
             console.error("Error saving scheduled message:", error);
-            return sendEphemeralEmbed(interaction, "❌ Error saving scheduled message. Please try again.", "#FF0000", "Error", false);
+            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
           }
         }
       } else if (ctx === "rr" && action === "modal") {
