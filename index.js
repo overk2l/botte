@@ -2097,6 +2097,8 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page_json:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_info_page:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:customize_dropdown_text:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:webhook_branding:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -2402,7 +2404,9 @@ client.on("interactionCreate", async (interaction) => {
             action === "create" ||
             action === "create_from_json" ||
             action.startsWith("add_info_page") ||
-            action.startsWith("edit_info_page")
+            action.startsWith("edit_info_page") ||
+            action === "customize_dropdown_text" ||
+            action === "webhook_branding"
           );
 
           // Set up timeout handler to prevent infinite thinking (only for non-modal triggers)
@@ -3120,6 +3124,14 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
           }
 
+          // Check if interaction was deferred/replied - modal can't be shown
+          if (interaction.deferred || interaction.replied) {
+            return interaction.editReply({ 
+              content: "❌ Cannot show dropdown text customization at this time. Please try clicking the Customize Dropdown Text button again.",
+              flags: MessageFlags.Ephemeral 
+            });
+          }
+
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:customize_dropdown_text:${hybridMenuId}`)
             .setTitle("Customize Dropdown Text")
@@ -3173,6 +3185,14 @@ client.on("interactionCreate", async (interaction) => {
           const menu = db.getHybridMenu(hybridMenuId);
           if (!menu) {
             return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          // Check if interaction was deferred/replied - modal can't be shown
+          if (interaction.deferred || interaction.replied) {
+            return interaction.editReply({ 
+              content: "❌ Cannot show webhook branding configuration at this time. Please try clicking the Webhook Branding button again.",
+              flags: MessageFlags.Ephemeral 
+            });
           }
 
           const modal = new ModalBuilder()
@@ -8811,6 +8831,57 @@ async function handleHybridMenuInteraction(interaction) {
       }
       if (rolesToRemove.length > 0) {
         await member.roles.remove(rolesToRemove);
+      }
+
+      // Clear the dropdown selection by rebuilding the message components
+      try {
+        const originalMessage = interaction.message;
+        
+        // Rebuild components with fresh dropdown (no selections)
+        const updatedComponents = originalMessage.components.map(row => {
+          const newRow = new ActionRowBuilder();
+          
+          row.components.forEach(component => {
+            if (component.customId && component.customId.startsWith(`hybrid-role-select:${hybridMenuId}`)) {
+              // Rebuild the role dropdown with no selections
+              const hybridMenu = db.getHybridMenu(hybridMenuId);
+              if (hybridMenu && hybridMenu.dropdownRoles && hybridMenu.dropdownRoles.length > 0) {
+                const dropdownOptions = hybridMenu.dropdownRoles.map(roleId => {
+                  const role = interaction.guild.roles.cache.get(roleId);
+                  if (!role) return null;
+                  
+                  return {
+                    label: role.name.substring(0, 100),
+                    value: role.id,
+                    emoji: parseEmoji(hybridMenu.dropdownEmojis?.[role.id]),
+                    description: hybridMenu.dropdownRoleDescriptions?.[role.id] ? hybridMenu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+                    default: false // Always false to clear selections
+                  };
+                }).filter(Boolean);
+                
+                if (dropdownOptions.length > 0) {
+                  const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+                    .setPlaceholder(hybridMenu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+                    .setMinValues(1)
+                    .setMaxValues(dropdownOptions.length)
+                    .addOptions(dropdownOptions);
+                  newRow.addComponents(selectMenu);
+                }
+              }
+            } else {
+              // Keep other components as-is
+              newRow.addComponents(component);
+            }
+          });
+          
+          return newRow;
+        });
+
+        await originalMessage.edit({ components: updatedComponents });
+      } catch (error) {
+        console.error("Error clearing dropdown selection:", error);
+        // Continue with sending the confirmation message even if we can't clear the dropdown
       }
 
       // Send confirmation
