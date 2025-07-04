@@ -4580,6 +4580,74 @@ client.on("interactionCreate", async (interaction) => {
           const hybridMenuId = interaction.values[0];
           return showHybridMenuConfiguration(interaction, hybridMenuId);
         }
+
+        if (action === "select_dropdown_role") {
+          const hybridMenuId = parts[2];
+          const selectedRoleIds = interaction.values;
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentDropdownRoles = menu.dropdownRoles || [];
+          const updatedDropdownRoles = [...currentDropdownRoles, ...selectedRoleIds];
+
+          await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
+
+          await sendEphemeralEmbed(interaction, `✅ Added ${selectedRoleIds.length} role(s) to dropdown!`, "#00FF00", "Success", false);
+          return showHybridRolesConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "select_button_role") {
+          const hybridMenuId = parts[2];
+          const selectedRoleIds = interaction.values;
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentButtonRoles = menu.buttonRoles || [];
+          const updatedButtonRoles = [...currentButtonRoles, ...selectedRoleIds];
+
+          await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
+
+          await sendEphemeralEmbed(interaction, `✅ Added ${selectedRoleIds.length} role(s) as buttons!`, "#00FF00", "Success", false);
+          return showHybridRolesConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "save_info_display") {
+          const hybridMenuId = parts[2];
+          const displayType = interaction.values[0];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+          await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
+
+          await sendEphemeralEmbed(interaction, `✅ Info pages display type set to: ${displayType}`, "#00FF00", "Success", false);
+          return showHybridInfoConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "save_role_display") {
+          const hybridMenuId = parts[2];
+          const displayType = interaction.values[0];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+          await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
+
+          await sendEphemeralEmbed(interaction, `✅ Roles display type set to: ${displayType}`, "#00FF00", "Success", false);
+          return showHybridRolesConfiguration(interaction, hybridMenuId);
+        }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
@@ -6593,6 +6661,15 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
       }
+    }
+
+    // Handle hybrid menu interactions (published hybrid menus)
+    if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
+        (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
+        (interaction.isButton() && interaction.customId.startsWith("hybrid-info-page:")) ||
+        (interaction.isButton() && interaction.customId.startsWith("hybrid-role-button:"))) {
+        
+        return handleHybridMenuInteraction(interaction);
     }
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
@@ -9470,12 +9547,413 @@ async function showHybridEmbedCustomization(interaction, hybridMenuId) {
 
 // Hybrid Menu Publishing (placeholder)
 async function publishHybridMenu(interaction, hybridMenuId) {
-  return sendEphemeralEmbed(interaction, "🚧 Publishing coming soon! This will publish your hybrid menu with both info pages and roles.", "#FFA500", "Coming Soon", false);
+  if (!hybridMenuId || typeof hybridMenuId !== 'string') {
+    return interaction.editReply({ content: "❌ Invalid hybrid menu ID provided.", flags: MessageFlags.Ephemeral });
+  }
+
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return interaction.editReply({ content: "❌ Hybrid menu not found.", flags: MessageFlags.Ephemeral });
+  }
+
+  // Validate guild and permissions
+  if (!interaction.guild) {
+    return interaction.editReply({ content: "❌ This command can only be used in a server.", flags: MessageFlags.Ephemeral });
+  }
+
+  // Check if bot has necessary permissions
+  const botMember = interaction.guild.members.me;
+  if (!botMember) {
+    return interaction.editReply({ content: "❌ Unable to verify bot permissions.", flags: MessageFlags.Ephemeral });
+  }
+
+  const channel = interaction.channel;
+  if (!channel.permissionsFor(botMember).has(['SendMessages', 'UseExternalEmojis', 'EmbedLinks'])) {
+    return interaction.editReply({ content: "❌ Bot lacks required permissions in this channel: Send Messages, Use External Emojis, Embed Links.", flags: MessageFlags.Ephemeral });
+  }
+
+  // Validate configuration - check if at least info pages OR roles are configured
+  const hasInfoPages = menu.pages && menu.pages.length > 0;
+  const hasRoles = (menu.dropdownRoles && menu.dropdownRoles.length > 0) || (menu.buttonRoles && menu.buttonRoles.length > 0);
+  
+  if (!hasInfoPages && !hasRoles) {
+    return interaction.editReply({ content: "❌ Cannot publish: Please configure at least one information page or reaction role.", flags: MessageFlags.Ephemeral });
+  }
+
+  // Validate roles still exist (if any are configured)
+  if (hasRoles) {
+    const allConfiguredRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+    const validRoles = allConfiguredRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+    const invalidRoles = allConfiguredRoles.filter(roleId => !interaction.guild.roles.cache.has(roleId));
+
+    if (invalidRoles.length > 0) {
+      console.warn(`Hybrid menu ${hybridMenuId} contains ${invalidRoles.length} invalid roles:`, invalidRoles);
+      // Clean up invalid roles
+      if (menu.dropdownRoles) {
+        menu.dropdownRoles = menu.dropdownRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+      }
+      if (menu.buttonRoles) {
+        menu.buttonRoles = menu.buttonRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+      }
+      await db.updateHybridMenu(hybridMenuId, { 
+        dropdownRoles: menu.dropdownRoles, 
+        buttonRoles: menu.buttonRoles 
+      });
+    }
+  }
+
+  try {
+    // Create the main embed
+    const embed = new EmbedBuilder()
+      .setTitle(menu.name)
+      .setDescription(menu.desc)
+      .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    
+    if (menu.embedAuthorName) {
+      embed.setAuthor({
+        name: menu.embedAuthorName,
+        iconURL: menu.embedAuthorIconURL
+      });
+    }
+
+    if (menu.embedFooterText) {
+      embed.setFooter({
+        text: menu.embedFooterText,
+        iconURL: menu.embedFooterIconURL
+      });
+    }
+
+    const components = [];
+
+    // Add info pages dropdown if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+      const infoOptions = menu.pages.slice(0, 25).map(page => ({
+        label: page.name.substring(0, 100),
+        value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
+        description: page.content?.substring(0, 100) || 'No description',
+        emoji: page.emoji || '📋'
+      }));
+
+      if (infoOptions.length > 0) {
+        const infoDropdown = new StringSelectMenuBuilder()
+          .setCustomId(`hybrid-info-select:${hybridMenuId}`)
+          .setPlaceholder("📚 Select a page to view...")
+          .addOptions(infoOptions);
+        components.push(new ActionRowBuilder().addComponents(infoDropdown));
+      }
+    }
+
+    // Add roles dropdown if configured
+    if (menu.dropdownRoles && menu.dropdownRoles.length > 0 && 
+        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+      const roleOptions = menu.dropdownRoles.map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        
+        return {
+          label: role.name.substring(0, 100),
+          value: role.id,
+          emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
+          description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
+          default: false
+        };
+      }).filter(Boolean);
+
+      if (roleOptions.length > 0) {
+        const roleDropdown = new StringSelectMenuBuilder()
+          .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+          .setPlaceholder("🎭 Select roles to toggle...")
+          .setMinValues(1)
+          .setMaxValues(roleOptions.length)
+          .addOptions(roleOptions);
+        components.push(new ActionRowBuilder().addComponents(roleDropdown));
+      }
+    }
+
+    // Add info pages buttons if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        menu.infoSelectionType?.includes("button")) {
+      const buttonRows = [];
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      menu.pages.forEach(page => {
+        if (buttonsInRow >= 5) {
+          buttonRows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+
+        const button = new ButtonBuilder()
+          .setCustomId(`hybrid-info-page:${hybridMenuId}:${page.id}`)
+          .setLabel(page.name.substring(0, 80))
+          .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary);
+
+        if (page.emoji) button.setEmoji(page.emoji);
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+      });
+
+      if (buttonsInRow > 0) {
+        buttonRows.push(currentRow);
+      }
+
+      components.push(...buttonRows);
+    }
+
+    // Add role buttons if configured
+    if (menu.buttonRoles && menu.buttonRoles.length > 0 && 
+        menu.roleSelectionType?.includes("button")) {
+      const buttonRows = [];
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      menu.buttonRoles.forEach(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return;
+
+        if (buttonsInRow >= 5) {
+          buttonRows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+
+        const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+        const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
+        const button = new ButtonBuilder()
+          .setCustomId(`hybrid-role-button:${hybridMenuId}:${role.id}`)
+          .setLabel(role.name.substring(0, 80))
+          .setStyle(buttonStyle);
+
+        const parsedEmoji = parseEmoji(menu.buttonEmojis?.[role.id]);
+        if (parsedEmoji) {
+          button.setEmoji(parsedEmoji);
+        }
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+      });
+
+      if (buttonsInRow > 0) {
+        buttonRows.push(currentRow);
+      }
+
+      components.push(...buttonRows);
+    }
+
+    // Send the hybrid menu
+    const sentMessage = await channel.send({ embeds: [embed], components });
+
+    // Update the hybrid menu with channel and message info
+    await db.updateHybridMenu(hybridMenuId, {
+      channelId: channel.id,
+      messageId: sentMessage.id,
+      guildId: interaction.guild.id
+    });
+
+    // Update performance metrics
+    performanceMetrics.menus.published++;
+
+    await sendEphemeralEmbed(interaction, `✅ Hybrid menu published successfully! Check ${channel} to see your combined info pages and roles.`, "#00FF00", "Success", false);
+
+  } catch (error) {
+    console.error("Error publishing hybrid menu:", error);
+    await interaction.editReply({ content: "❌ Failed to publish hybrid menu. Please try again.", flags: MessageFlags.Ephemeral });
+  }
 }
 
-// Hybrid Menu Preview (placeholder)
+// Hybrid Menu Preview
 async function previewHybridMenu(interaction, hybridMenuId) {
-  return sendEphemeralEmbed(interaction, "🚧 Preview coming soon! This will show you how your hybrid menu will look when published.", "#FFA500", "Coming Soon", false);
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  try {
+    // Create the preview embed
+    const embed = new EmbedBuilder()
+      .setTitle(menu.name)
+      .setDescription(menu.desc)
+      .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    
+    if (menu.embedAuthorName) {
+      embed.setAuthor({
+        name: menu.embedAuthorName,
+        iconURL: menu.embedAuthorIconURL
+      });
+    }
+
+    if (menu.embedFooterText) {
+      embed.setFooter({
+        text: menu.embedFooterText,
+        iconURL: menu.embedFooterIconURL
+      });
+    }
+
+    // Add preview fields
+    const hasInfoPages = menu.pages && menu.pages.length > 0;
+    const hasRoles = (menu.dropdownRoles && menu.dropdownRoles.length > 0) || (menu.buttonRoles && menu.buttonRoles.length > 0);
+
+    if (hasInfoPages) {
+      embed.addFields([
+        { 
+          name: "📋 Information Pages", 
+          value: `${menu.pages.length} pages configured\nDisplay: ${menu.infoSelectionType?.join(', ') || 'Default'}`, 
+          inline: true 
+        }
+      ]);
+    }
+
+    if (hasRoles) {
+      embed.addFields([
+        { 
+          name: "🎭 Reaction Roles", 
+          value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType?.join(', ') || 'Default'}`, 
+          inline: true 
+        }
+      ]);
+    }
+
+    embed.addFields([
+      { 
+        name: "🔍 Preview", 
+        value: "This is how your hybrid menu will look when published. Components are disabled in preview mode.", 
+        inline: false 
+      }
+    ]);
+
+    const components = [];
+
+    // Add disabled info pages dropdown if configured
+    if (hasInfoPages && (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+      const infoOptions = menu.pages.slice(0, 25).map(page => ({
+        label: page.name.substring(0, 100),
+        value: `preview-info-${page.id}`,
+        description: page.content?.substring(0, 100) || 'No description',
+        emoji: page.emoji || '📋'
+      }));
+
+      if (infoOptions.length > 0) {
+        const infoDropdown = new StringSelectMenuBuilder()
+          .setCustomId(`preview-disabled`)
+          .setPlaceholder("📚 Select a page to view... (Preview Mode)")
+          .setDisabled(true)
+          .addOptions(infoOptions);
+        components.push(new ActionRowBuilder().addComponents(infoDropdown));
+      }
+    }
+
+    // Add disabled roles dropdown if configured
+    if (hasRoles && (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+      const roleOptions = (menu.dropdownRoles || []).map(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return null;
+        
+        return {
+          label: role.name.substring(0, 100),
+          value: `preview-role-${role.id}`,
+          description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
+          default: false
+        };
+      }).filter(Boolean);
+
+      if (roleOptions.length > 0) {
+        const roleDropdown = new StringSelectMenuBuilder()
+          .setCustomId(`preview-disabled-2`)
+          .setPlaceholder("🎭 Select roles to toggle... (Preview Mode)")
+          .setDisabled(true)
+          .addOptions(roleOptions);
+        components.push(new ActionRowBuilder().addComponents(roleDropdown));
+      }
+    }
+
+    // Add disabled buttons if configured
+    if (hasInfoPages && menu.infoSelectionType?.includes("button")) {
+      const buttonRows = [];
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      menu.pages.forEach(page => {
+        if (buttonsInRow >= 5) {
+          buttonRows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+
+        const button = new ButtonBuilder()
+          .setCustomId(`preview-info-${page.id}`)
+          .setLabel(page.name.substring(0, 80))
+          .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary)
+          .setDisabled(true);
+
+        if (page.emoji) button.setEmoji(page.emoji);
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+      });
+
+      if (buttonsInRow > 0) {
+        buttonRows.push(currentRow);
+      }
+
+      components.push(...buttonRows);
+    }
+
+    if (hasRoles && menu.roleSelectionType?.includes("button")) {
+      const buttonRows = [];
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      (menu.buttonRoles || []).forEach(roleId => {
+        const role = interaction.guild.roles.cache.get(roleId);
+        if (!role) return;
+
+        if (buttonsInRow >= 5) {
+          buttonRows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+
+        const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+        const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
+        const button = new ButtonBuilder()
+          .setCustomId(`preview-role-${role.id}`)
+          .setLabel(role.name.substring(0, 80))
+          .setStyle(buttonStyle)
+          .setDisabled(true);
+
+        const parsedEmoji = parseEmoji(menu.buttonEmojis?.[role.id]);
+        if (parsedEmoji) {
+          button.setEmoji(parsedEmoji);
+        }
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+      });
+
+      if (buttonsInRow > 0) {
+        buttonRows.push(currentRow);
+      }
+
+      components.push(...buttonRows);
+    }
+
+    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+
+  } catch (error) {
+    console.error("Error previewing hybrid menu:", error);
+    await sendEphemeralEmbed(interaction, "❌ Failed to generate preview. Please try again.", "#FF0000", "Error", false);
+  }
 }
 
 // Bot login
