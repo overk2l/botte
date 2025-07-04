@@ -8769,6 +8769,80 @@ async function showHybridMenusDashboard(interaction) {
   }
 }
 
+async function showHybridMenuConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🔀 Hybrid Menu: ${menu.name}`)
+    .setDescription(`**Description:** ${menu.desc}\n\n**Configuration Status:**`)
+    .setColor("#00D084")
+    .addFields([
+      { 
+        name: "📋 Information Pages", 
+        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.infoSelectionType?.length > 0 ? menu.infoSelectionType.join(', ') : 'None'}`, 
+        inline: true 
+      },
+      { 
+        name: "🎭 Reaction Roles", 
+        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType?.length > 0 ? menu.roleSelectionType.join(', ') : 'None'}`, 
+        inline: true 
+      },
+      { 
+        name: "📊 Status", 
+        value: menu.channelId ? `Published in <#${menu.channelId}>` : "Not published", 
+        inline: true 
+      }
+    ]);
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:config_info:${hybridMenuId}`)
+      .setLabel("Configure Info Pages")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📋"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:config_roles:${hybridMenuId}`)
+      .setLabel("Configure Roles")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎭"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:customize_embed:${hybridMenuId}`)
+      .setLabel("Customize Embed")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🎨")
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:publish:${hybridMenuId}`)
+      .setLabel("Publish Menu")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("🚀"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:preview:${hybridMenuId}`)
+      .setLabel("Preview")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("👀"),
+    new ButtonBuilder()
+      .setCustomId("dash:hybrid-menus")
+      .setLabel("Back to Dashboard")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  const components = [row1, row2];
+
+  try {
+    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error displaying hybrid menu configuration:", error);
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral });
+  }
+}
+
 // Publish info menu to specific channel (for scheduled messages)
 async function publishInfoMenuToChannel(menu, channel, mockInteraction) {
   try {
