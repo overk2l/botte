@@ -11040,6 +11040,31 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         interaction.reply(errorMessage);
     }
 
+    // Calculate page display breakdown first
+    let dropdownPages = [];
+    let buttonPages = [];
+    let hiddenPages = [];
+    
+    if (menu.pages.length > 0) {
+      const pages = menu.pages;
+      
+      // Count pages by display type - match the publishing logic exactly
+      dropdownPages = pages.filter(page => {
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
+        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+      });
+      
+      buttonPages = pages.filter(page => {
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
+        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+      });
+
+      hiddenPages = pages.filter(page => {
+        const displayIn = page.displayIn || [];
+        return Array.isArray(displayIn) ? displayIn.length === 0 : false;
+      });
+    }
+
     const embed = new EmbedBuilder()
       .setTitle(`Configuring: ${menu.name}`)
       .setDescription(menu.desc)
@@ -11053,25 +11078,6 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     // Add page display breakdown and build embed fields
     if (menu.pages.length > 0) {
       const pages = menu.pages;
-      
-      // Count pages by display type - match the publishing logic exactly
-      const dropdownPages = pages.filter(page => {
-        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
-        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
-      });
-      
-      const buttonPages = pages.filter(page => {
-        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
-        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
-      });
-
-      const hiddenPages = pages.filter(page => {
-        const displayIn = page.displayIn || [];
-        return Array.isArray(displayIn) ? displayIn.length === 0 : false;
-      });
-
-      // Update the Display Types field
-      embed.spliceFields(2, 1, { name: "Display Types", value: `📋 Dropdown: ${dropdownPages.length > 0 ? "✅" : "❌"}\n🔘 Buttons: ${buttonPages.length > 0 ? "✅" : "❌"}`, inline: true });
 
       embed.addFields([
         { 
