@@ -4378,6 +4378,44 @@ client.on("interactionCreate", async (interaction) => {
           
           return interaction.showModal(modal);
         }
+      } else if (ctx === "hybrid") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
+        }
+
+        const hybridMenuId = parts[2];
+
+        if (action === "create") {
+          const modal = new ModalBuilder()
+            .setCustomId("hybrid:modal:create")
+            .setTitle("New Hybrid Menu")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("name")
+                  .setLabel("Menu Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("desc")
+                  .setLabel("Embed Description")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("Describe your hybrid menu here.")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "selectmenu") {
+          const hybridMenuId = interaction.values[0];
+          return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
       } else if (ctx === "schedule") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
           return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to manage schedules.", "#FF0000", "Permission Denied", false);
@@ -8870,6 +8908,78 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         await interaction.reply(errorMessage);
       }
     }
+}
+
+async function showHybridMenuConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🔀 Hybrid Menu: ${menu.name}`)
+    .setDescription(`**Description:** ${menu.desc}\n\n**Configuration Status:**`)
+    .setColor("#00D084")
+    .addFields([
+      { 
+        name: "📋 Information Pages", 
+        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.infoSelectionType.length > 0 ? menu.infoSelectionType.join(', ') : 'None'}`, 
+        inline: true 
+      },
+      { 
+        name: "🎭 Reaction Roles", 
+        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType.length > 0 ? menu.roleSelectionType.join(', ') : 'None'}`, 
+        inline: true 
+      },
+      { 
+        name: "📊 Status", 
+        value: menu.channelId ? `Published in <#${menu.channelId}>` : "Not published", 
+        inline: true 
+      }
+    ]);
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:config_info:${hybridMenuId}`)
+      .setLabel("Configure Info Pages")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📋"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:config_roles:${hybridMenuId}`)
+      .setLabel("Configure Roles")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎭"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:customize_embed:${hybridMenuId}`)
+      .setLabel("Customize Embed")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🎨")
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:publish:${hybridMenuId}`)
+      .setLabel("Publish Menu")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("🚀"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:preview:${hybridMenuId}`)
+      .setLabel("Preview")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("👀"),
+    new ButtonBuilder()
+      .setCustomId(`dash:hybrid-menus`)
+      .setLabel("Back to Hybrid Menus")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  try {
+    await interaction.editReply({ embeds: [embed], components: [row1, row2], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error displaying hybrid menu configuration:", error);
+    await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral });
+  }
 }
 
 // Bot login
