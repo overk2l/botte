@@ -7929,12 +7929,11 @@ async function handleRoleInteraction(interaction) {
 
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
-        if (regionalViolations.length > 0) {
-            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            // Only update when member counts are enabled
-            if (menu.showMemberCounts) {
-                await updatePublishedMessageComponents(interaction, menu, menuId, true);
-            }
+        if (regionalViolations.length > 0) {                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
+                // Only update when member counts are enabled to prevent "edited" marks
+                if (menu.showMemberCounts) {
+                    await updatePublishedMessageComponents(interaction, menu, menuId, true);
+                }
             return;
         }
 
@@ -7942,7 +7941,7 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                // Only update when member counts are enabled
+                // Only update when member counts are enabled to prevent "edited" marks
                 if (menu.showMemberCounts) {
                     await updatePublishedMessageComponents(interaction, menu, menuId, true);
                 }
@@ -7977,6 +7976,7 @@ async function handleRoleInteraction(interaction) {
 
         // Update published message components to clear selections and update member counts
         // Only update when member counts are enabled - when disabled, selections clear automatically
+        // This prevents "edited" marks from appearing when member counts are disabled
         if (menu.showMemberCounts) {
             await updatePublishedMessageComponents(interaction, menu, menuId, true);
         }
@@ -9338,7 +9338,7 @@ async function handleHybridMenuInteraction(interaction) {
       }
 
       // Info pages don't need to update the message - dropdown selections clear automatically on Discord's side
-      // No action needed here to avoid "edited" marks
+      // No action needed here to avoid "edited" marks - info menus don't have member counts to update
 
       return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
@@ -9416,18 +9416,17 @@ async function handleHybridMenuInteraction(interaction) {
       }
       if (rolesToRemove.length > 0) {
         await member.roles.remove(rolesToRemove);
-      }
-
-      // Update the published message components to clear selections and update member counts
-      try {
-        // Only update when member counts are enabled
-        if (menu.showMemberCounts) {
-          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+      }        // Update the published message components to clear selections and update member counts
+        // Only update when member counts are enabled - when disabled, selections clear automatically
+        // This prevents "edited" marks from appearing when member counts are disabled
+        try {
+            if (menu.showMemberCounts) {
+                await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+            }
+        } catch (error) {
+            console.error("Error updating hybrid menu components:", error);
+            // Continue with sending the confirmation message even if we can't update the components
         }
-      } catch (error) {
-        console.error("Error updating hybrid menu components:", error);
-        // Continue with sending the confirmation message even if we can't update the components
-      }
 
       // Send confirmation
       let message = "✅ Roles updated successfully!";
@@ -9464,9 +9463,29 @@ async function handleHybridMenuInteraction(interaction) {
       
       if (hasRole) {
         await member.roles.remove(roleId);
+        
+        // Update the published message components if member counts are enabled
+        if (menu.showMemberCounts) {
+          try {
+            await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+          } catch (error) {
+            console.error("Error updating hybrid menu components:", error);
+          }
+        }
+        
         return sendEphemeralEmbed(interaction, `✅ Removed role: <@&${roleId}>`, "#00FF00", "Success", false);
       } else {
         await member.roles.add(roleId);
+        
+        // Update the published message components if member counts are enabled
+        if (menu.showMemberCounts) {
+          try {
+            await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+          } catch (error) {
+            console.error("Error updating hybrid menu components:", error);
+          }
+        }
+        
         return sendEphemeralEmbed(interaction, `✅ Added role: <@&${roleId}>`, "#00FF00", "Success", false);
       }
     }
