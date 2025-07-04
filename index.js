@@ -4318,6 +4318,47 @@ client.on("interactionCreate", async (interaction) => {
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
           return handleRoleInteraction(interaction);
+      } else if (ctx === "schedule") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to schedule messages.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (action === "select_menu") {
+          const menuId = interaction.values[0];
+          
+          // Show modal for scheduling details
+          const modal = new ModalBuilder()
+            .setCustomId(`schedule:modal:create:${menuId}`)
+            .setTitle("Schedule Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("channel_id")
+                  .setLabel("Channel ID")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Enter the channel ID where to send the message")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("schedule_time")
+                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("2024-12-25 14:30")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message_text")
+                  .setLabel("Additional Message Text (Optional)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Any additional text to include with the menu")
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
       }
     }
 
@@ -4335,7 +4376,71 @@ client.on("interactionCreate", async (interaction) => {
       let type;
       let roleId;
 
-      if (ctx === "rr" && action === "modal") {
+      if (ctx === "schedule" && action === "modal") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to schedule messages.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (modalType === "create") {
+          const targetMenuId = parts[3];
+          const channelId = interaction.fields.getTextInputValue("channel_id");
+          const scheduleTime = interaction.fields.getTextInputValue("schedule_time");
+          const messageText = interaction.fields.getTextInputValue("message_text") || "";
+
+          // Validate channel
+          const channel = interaction.guild.channels.cache.get(channelId);
+          if (!channel || !channel.isTextBased()) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid channel ID. Please provide a valid text channel ID.", "#FF0000", "Invalid Channel", false);
+          }
+
+          // Validate date format
+          const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+          if (!dateRegex.test(scheduleTime)) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", "#FF0000", "Invalid Date", false);
+          }
+
+          // Parse and validate the date
+          const scheduledDate = new Date(scheduleTime);
+          if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid date or date is in the past. Please provide a future date.", "#FF0000", "Invalid Date", false);
+          }
+
+          // Create schedule entry
+          const scheduleId = generateId();
+          const scheduleEntry = {
+            id: scheduleId,
+            menuId: targetMenuId,
+            channelId: channelId,
+            scheduledTime: scheduledDate.toISOString(),
+            messageText: messageText,
+            guildId: interaction.guild.id,
+            createdBy: interaction.user.id,
+            createdAt: new Date().toISOString(),
+            status: 'scheduled'
+          };
+
+          // Save to database
+          try {
+            scheduledMessages.set(scheduleId, scheduleEntry);
+            db.saveScheduledMessage(scheduleEntry);
+            
+            const embed = new EmbedBuilder()
+              .setTitle("✅ Message Scheduled Successfully")
+              .setDescription(`Your message has been scheduled for ${scheduleTime}`)
+              .setColor("#00FF00")
+              .addFields([
+                { name: "Channel", value: `<#${channelId}>`, inline: true },
+                { name: "Menu", value: db.getInfoMenu(targetMenuId)?.name || "Unknown", inline: true },
+                { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: false }
+              ]);
+
+            await sendEphemeralEmbed(interaction, embed, null, null, false);
+          } catch (error) {
+            console.error("Error saving scheduled message:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving scheduled message. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+      } else if (ctx === "rr" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure reaction roles.", "#FF0000", "Permission Denied", false);
         }
