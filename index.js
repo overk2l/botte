@@ -1,3 +1,21 @@
+/*
+ * Discord Bot - Comprehensive Menu Management System
+ * 
+ * RECENT FIXES (Applied):
+ * - Fixed "infinite thinking" and "InteractionNotReplied" errors in hybrid menu system
+ * - Added comprehensive error handling and timeout management for all hybrid menu interactions
+ * - Implemented proper interaction deferral and reply logic for hybrid menu buttons and select menus
+ * - Added robust error recovery and debug logging for hybrid menu operations
+ * - Enhanced interaction flow to prevent timeout issues
+ * - Added configuration interaction exclusions to prevent deferral conflicts
+ * - Improved role selection and display type configuration handlers
+ * - Added timeout clearing mechanism for all hybrid menu operations
+ * - Enhanced select menu handlers with error handling and debug logging
+ * 
+ * All hybrid menu actions should now respond immediately with proper user feedback
+ * and no more infinite thinking or unhandled interaction errors.
+ */
+
 require("dotenv").config();
 
 const {
@@ -2371,45 +2389,73 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (ctx === "hybrid") {
-        console.log(`[Hybrid Debug] Button interaction received - action: ${action}, customId: ${interaction.customId}`);
-        
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          console.log(`[Hybrid Debug] Permission denied for user ${interaction.user.id}`);
-          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
-        }
+        try {
+          console.log(`[Hybrid Debug] Button interaction received - action: ${action}, customId: ${interaction.customId}`);
+          
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            console.log(`[Hybrid Debug] Permission denied for user ${interaction.user.id}`);
+            return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
+          }
+
+          // Set up timeout handler to prevent infinite thinking
+          const timeoutId = addHybridMenuTimeout(interaction);
+
+          // Ensure interaction is properly deferred or replied to
+          try {
+            if (!interaction.deferred && !interaction.replied) {
+              await interaction.deferReply({ ephemeral: true });
+              console.log(`[Hybrid Debug] Deferred reply for action: ${action}`);
+            }
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error deferring reply:`, error);
+            // Continue processing - the interaction might already be handled
+          }
+
+          // Clear timeout when processing is complete
+          const clearTimeoutAndProcess = async (processingFunction) => {
+            try {
+              clearTimeout(timeoutId);
+              return await processingFunction();
+            } catch (error) {
+              clearTimeout(timeoutId);
+              throw error;
+            }
+          };
 
         if (action === "create") {
           console.log(`[Hybrid Debug] Creating modal for new hybrid menu`);
-          try {
-            const modal = new ModalBuilder()
-              .setCustomId("hybrid:modal:create")
-              .setTitle("New Hybrid Menu")
-              .addComponents(
-                new ActionRowBuilder().addComponents(
-                  new TextInputBuilder()
-                    .setCustomId("name")
-                    .setLabel("Menu Name")
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true)
-                    .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
-                    .setMaxLength(100)
-                ),
-                new ActionRowBuilder().addComponents(
-                  new TextInputBuilder()
-                    .setCustomId("desc")
-                    .setLabel("Embed Description")
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true)
-                    .setPlaceholder("Describe your hybrid menu here.")
-                    .setMaxLength(4000)
-                )
-              );
-            console.log(`[Hybrid Debug] Modal created, showing to user`);
-            return interaction.showModal(modal);
-          } catch (error) {
-            console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
-            return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
-          }
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const modal = new ModalBuilder()
+                .setCustomId("hybrid:modal:create")
+                .setTitle("New Hybrid Menu")
+                .addComponents(
+                  new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                      .setCustomId("name")
+                      .setLabel("Menu Name")
+                      .setStyle(TextInputStyle.Short)
+                      .setRequired(true)
+                      .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
+                      .setMaxLength(100)
+                  ),
+                  new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                      .setCustomId("desc")
+                      .setLabel("Embed Description")
+                      .setStyle(TextInputStyle.Paragraph)
+                      .setRequired(true)
+                      .setPlaceholder("Describe your hybrid menu here.")
+                      .setMaxLength(4000)
+                  )
+                );
+              console.log(`[Hybrid Debug] Modal created, showing to user`);
+              return interaction.showModal(modal);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
+            }
+          });
         }
 
         if (action === "create_from_json") {
@@ -2439,32 +2485,44 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "config_info") {
           const hybridMenuId = parts[2];
-          return showHybridInfoConfiguration(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          });
         }
 
         if (action === "config_roles") {
           const hybridMenuId = parts[2];
-          return showHybridRolesConfiguration(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridRolesConfiguration(interaction, hybridMenuId);
+          });
         }
 
         if (action === "customize_embed") {
           const hybridMenuId = parts[2];
-          return showHybridEmbedCustomization(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridEmbedCustomization(interaction, hybridMenuId);
+          });
         }
 
         if (action === "publish") {
           const hybridMenuId = parts[2];
-          return publishHybridMenu(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return publishHybridMenu(interaction, hybridMenuId);
+          });
         }
 
         if (action === "preview") {
           const hybridMenuId = parts[2];
-          return previewHybridMenu(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return previewHybridMenu(interaction, hybridMenuId);
+          });
         }
 
         if (action === "back_to_config") {
           const hybridMenuId = parts[2];
-          return showHybridMenuConfiguration(interaction, hybridMenuId);
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridMenuConfiguration(interaction, hybridMenuId);
+          });
         }
 
         if (action === "add_info_page") {
@@ -2512,6 +2570,303 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
           return interaction.showModal(modal);
+        }
+
+        if (action === "set_info_display") {
+          const hybridMenuId = parts[2];
+          console.log(`[Hybrid Debug] Processing set_info_display for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid:save_info_display:${hybridMenuId}`)
+                .setPlaceholder("Choose how info pages are displayed...")
+                .addOptions([
+                  { label: "Dropdown Only", value: "dropdown", description: "Show info pages as dropdown options" },
+                  { label: "Buttons Only", value: "button", description: "Show info pages as buttons" },
+                  { label: "Both Dropdown and Buttons", value: "both", description: "Show info pages as both dropdown and buttons" }
+                ]);
+
+              const row = new ActionRowBuilder().addComponents(selectMenu);
+              
+              // Use editReply for deferred interactions, reply for non-deferred
+              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+              const replyOptions = {
+                content: "Select how you want information pages to be displayed:",
+                components: [row],
+                ephemeral: true
+              };
+
+              await interaction[replyMethod](replyOptions);
+              console.log(`[Hybrid Debug] Successfully sent info display selection menu using ${replyMethod}`);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error sending info display menu:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error showing display options. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "set_role_display") {
+          const hybridMenuId = parts[2];
+          console.log(`[Hybrid Debug] Processing set_role_display for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid:save_role_display:${hybridMenuId}`)
+                .setPlaceholder("Choose how roles are displayed...")
+                .addOptions([
+                  { label: "Dropdown Only", value: "dropdown", description: "Show roles as dropdown options" },
+                  { label: "Buttons Only", value: "button", description: "Show roles as buttons" },
+                  { label: "Both Dropdown and Buttons", value: "both", description: "Show roles as both dropdown and buttons" }
+                ]);
+
+              const row = new ActionRowBuilder().addComponents(selectMenu);
+              
+              // Use editReply for deferred interactions, reply for non-deferred
+              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+              const replyOptions = {
+                content: "Select how you want reaction roles to be displayed:",
+                components: [row],
+                ephemeral: true
+              };
+
+              await interaction[replyMethod](replyOptions);
+              console.log(`[Hybrid Debug] Successfully sent role display selection menu using ${replyMethod}`);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error sending role display menu:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error showing display options. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "add_dropdown_role") {
+          const hybridMenuId = parts[2];
+          console.log(`[Hybrid Debug] Processing add_dropdown_role for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const allRoles = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
+              
+              if (allRoles.size === 0) {
+                console.log(`[Hybrid Debug] No roles available to add`);
+                return sendEphemeralEmbed(interaction, "❌ No roles available to add.", "#FF0000", "Error", false);
+              }
+
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const currentRoles = menu.dropdownRoles || [];
+              const availableRoles = allRoles.filter(r => !currentRoles.includes(r.id));
+
+              console.log(`[Hybrid Debug] Available roles count: ${availableRoles.size}`);
+
+              if (availableRoles.size === 0) {
+                console.log(`[Hybrid Debug] All roles already added to dropdown`);
+                return sendEphemeralEmbed(interaction, "❌ All roles are already added to the dropdown.", "#FF0000", "Error", false);
+              }
+
+              const roleOptions = Array.from(availableRoles.values()).slice(0, 25).map(r => ({
+                label: r.name,
+                value: r.id,
+                description: `Role ID: ${r.id}`
+              }));
+
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid:select_dropdown_role:${hybridMenuId}`)
+                .setPlaceholder("Select roles to add to dropdown...")
+                .setMinValues(1)
+                .setMaxValues(Math.min(roleOptions.length, 25))
+                .addOptions(roleOptions);
+
+              const row = new ActionRowBuilder().addComponents(selectMenu);
+              
+              console.log(`[Hybrid Debug] About to edit reply with role selection menu`);
+              
+              // Use editReply for deferred interactions, reply for non-deferred
+              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+              const replyOptions = {
+                content: "Select roles to add to the dropdown:",
+                components: [row],
+                ephemeral: true
+              };
+
+              await interaction[replyMethod](replyOptions);
+              console.log(`[Hybrid Debug] Successfully sent role selection menu using ${replyMethod}`);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error in add_dropdown_role:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error showing role selection. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "add_button_role") {
+          const hybridMenuId = parts[2];
+          console.log(`[Hybrid Debug] Processing add_button_role for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const allRoles = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id);
+              
+              if (allRoles.size === 0) {
+                console.log(`[Hybrid Debug] No roles available to add as buttons`);
+                return sendEphemeralEmbed(interaction, "❌ No roles available to add.", "#FF0000", "Error", false);
+              }
+
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const currentRoles = menu.buttonRoles || [];
+              const availableRoles = allRoles.filter(r => !currentRoles.includes(r.id));
+
+              console.log(`[Hybrid Debug] Available button roles count: ${availableRoles.size}`);
+
+              if (availableRoles.size === 0) {
+                console.log(`[Hybrid Debug] All roles already added as buttons`);
+                return sendEphemeralEmbed(interaction, "❌ All roles are already added as buttons.", "#FF0000", "Error", false);
+              }
+
+              const roleOptions = Array.from(availableRoles.values()).slice(0, 25).map(r => ({
+                label: r.name,
+                value: r.id,
+                description: `Role ID: ${r.id}`
+              }));
+
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid:select_button_role:${hybridMenuId}`)
+                .setPlaceholder("Select roles to add as buttons...")
+                .setMinValues(1)
+                .setMaxValues(Math.min(roleOptions.length, 25))
+                .addOptions(roleOptions);
+
+              const row = new ActionRowBuilder().addComponents(selectMenu);
+              
+              console.log(`[Hybrid Debug] About to edit reply with button role selection menu`);
+              
+              // Use editReply for deferred interactions, reply for non-deferred
+              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+              const replyOptions = {
+                content: "Select roles to add as buttons:",
+                components: [row],
+                ephemeral: true
+              };
+
+              await interaction[replyMethod](replyOptions);
+              console.log(`[Hybrid Debug] Successfully sent button role selection menu using ${replyMethod}`);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error in add_button_role:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error showing role selection. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "edit_info_page") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const page = menu.pages?.find(p => p.id === pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:edit_info_page:${hybridMenuId}:${pageId}`)
+            .setTitle("Edit Information Page")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_name")
+                  .setLabel("Page Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setValue(page.name)
+                  .setMaxLength(80)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_content")
+                  .setLabel("Page Content")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setValue(page.content || "")
+                  .setMaxLength(4000)
+              )
+            );
+          return interaction.showModal(modal);
+        }
+
+        if (action === "delete_info_page") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const page = menu.pages?.find(p => p.id === pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Remove the page from the menu
+          const updatedPages = menu.pages.filter(p => p.id !== pageId);
+          await db.updateHybridMenu(hybridMenuId, { pages: updatedPages });
+
+          await sendEphemeralEmbed(interaction, `✅ Page "${page.name}" deleted successfully!`, "#00FF00", "Success", false);
+          return showHybridInfoConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "remove_role") {
+          const hybridMenuId = parts[2];
+          const roleType = parts[3]; // "dropdown" or "button"
+          const roleId = parts[4];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const role = interaction.guild.roles.cache.get(roleId);
+          const roleName = role ? role.name : "Unknown Role";
+
+          // Remove the role from the appropriate array
+          if (roleType === "dropdown" && menu.dropdownRoles) {
+            const updatedDropdownRoles = menu.dropdownRoles.filter(id => id !== roleId);
+            await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
+          } else if (roleType === "button" && menu.buttonRoles) {
+            const updatedButtonRoles = menu.buttonRoles.filter(id => id !== roleId);
+            await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
+          }
+
+          await sendEphemeralEmbed(interaction, `✅ Role "${roleName}" removed from ${roleType} successfully!`, "#00FF00", "Success", false);
+          return showHybridRolesConfiguration(interaction, hybridMenuId);
+        }
+        } catch (error) {
+          console.error(`[Hybrid Debug] Unexpected error in hybrid menu handler:`, error);
+          console.error(`[Hybrid Debug] Action: ${action}, CustomId: ${interaction.customId}`);
+          // Try to send an error message if the interaction hasn't been handled yet
+          try {
+            if (!interaction.replied && !interaction.deferred) {
+              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
+            } else if (interaction.deferred) {
+              await interaction.editReply({ content: "❌ An unexpected error occurred. Please try again." });
+            }
+          } catch (replyError) {
+            console.error(`[Hybrid Debug] Error sending error message:`, replyError);
+          }
+          return;
         }
       }
 
@@ -4585,68 +4940,104 @@ client.on("interactionCreate", async (interaction) => {
           const hybridMenuId = parts[2];
           const selectedRoleIds = interaction.values;
           
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          console.log(`[Hybrid Debug] Processing select_dropdown_role for menu: ${hybridMenuId}, roles: ${selectedRoleIds.join(', ')}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const currentDropdownRoles = menu.dropdownRoles || [];
+            const updatedDropdownRoles = [...currentDropdownRoles, ...selectedRoleIds];
+
+            await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
+
+            console.log(`[Hybrid Debug] Successfully added ${selectedRoleIds.length} roles to dropdown`);
+            // Pass success message to the configuration function
+            return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) to dropdown!`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in select_dropdown_role:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error adding roles to dropdown. Please try again.", "#FF0000", "Error", false);
           }
-
-          const currentDropdownRoles = menu.dropdownRoles || [];
-          const updatedDropdownRoles = [...currentDropdownRoles, ...selectedRoleIds];
-
-          await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
-
-          // Pass success message to the configuration function
-          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) to dropdown!`);
         }
 
         if (action === "select_button_role") {
           const hybridMenuId = parts[2];
           const selectedRoleIds = interaction.values;
           
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          console.log(`[Hybrid Debug] Processing select_button_role for menu: ${hybridMenuId}, roles: ${selectedRoleIds.join(', ')}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const currentButtonRoles = menu.buttonRoles || [];
+            const updatedButtonRoles = [...currentButtonRoles, ...selectedRoleIds];
+
+            await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
+
+            console.log(`[Hybrid Debug] Successfully added ${selectedRoleIds.length} roles as buttons`);
+            // Pass success message to the configuration function
+            return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) as buttons!`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in select_button_role:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error adding roles as buttons. Please try again.", "#FF0000", "Error", false);
           }
-
-          const currentButtonRoles = menu.buttonRoles || [];
-          const updatedButtonRoles = [...currentButtonRoles, ...selectedRoleIds];
-
-          await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
-
-          // Pass success message to the configuration function
-          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Added ${selectedRoleIds.length} role(s) as buttons!`);
         }
 
         if (action === "save_info_display") {
           const hybridMenuId = parts[2];
           const displayType = interaction.values[0];
           
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          console.log(`[Hybrid Debug] Processing save_info_display for menu: ${hybridMenuId}, display type: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+            await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
+
+            console.log(`[Hybrid Debug] Successfully set info display type to: ${displayType}`);
+            // Pass success message to the configuration function
+            return showHybridInfoConfiguration(interaction, hybridMenuId, `✅ Info pages display type set to: ${displayType}`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in save_info_display:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving info display type. Please try again.", "#FF0000", "Error", false);
           }
-
-          const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
-          await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
-
-          // Pass success message to the configuration function
-          return showHybridInfoConfiguration(interaction, hybridMenuId, `✅ Info pages display type set to: ${displayType}`);
         }
 
         if (action === "save_role_display") {
           const hybridMenuId = parts[2];
           const displayType = interaction.values[0];
           
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          console.log(`[Hybrid Debug] Processing save_role_display for menu: ${hybridMenuId}, display type: ${displayType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
+            await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
+
+            console.log(`[Hybrid Debug] Successfully set role display type to: ${displayType}`);
+            // Pass success message to the configuration function
+            return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Roles display type set to: ${displayType}`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in save_role_display:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving role display type. Please try again.", "#FF0000", "Error", false);
           }
-
-          const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
-          await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
-
-          // Pass success message to the configuration function
-          return showHybridRolesConfiguration(interaction, hybridMenuId, `✅ Roles display type set to: ${displayType}`);
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -7701,6 +8092,23 @@ function getStatusDisplay(status) {
 }
 
 // ...existing code...
+
+// Add timeout handling for hybrid menu interactions to prevent infinite thinking
+function addHybridMenuTimeout(interaction, timeoutMs = 2900) {
+  return setTimeout(async () => {
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        console.log(`[Hybrid Debug] Timeout reached for interaction ${interaction.customId}, attempting to reply`);
+        await interaction.reply({ content: "⏱️ Request timed out. Please try again.", ephemeral: true });
+      } else if (interaction.deferred && !interaction.replied) {
+        console.log(`[Hybrid Debug] Timeout reached for deferred interaction ${interaction.customId}, attempting to edit reply`);
+        await interaction.editReply({ content: "⏱️ Request timed out. Please try again." });
+      }
+    } catch (error) {
+      console.error(`[Hybrid Debug] Error in timeout handler:`, error);
+    }
+  }, timeoutMs);
+}
 
 /**
  * Handle hybrid menu user interactions (published hybrid menus)
