@@ -1559,8 +1559,7 @@ client.on("interactionCreate", async (interaction) => {
   const isConfigurationInteraction = (
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_display_select:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:configure_display:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:set_display:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:back_to_config:"))
+    (interaction.isButton() && interaction.customId.startsWith("info:set_display:"))
   );
 
   // Defer non-modal-trigger interactions
@@ -5755,12 +5754,15 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 async function showInfoMenuPageManagement(interaction, infoMenuId) {
   const menu = db.getInfoMenu(infoMenuId);
   if (!menu) {
-    return interaction.editReply({
+    const errorMessage = {
       content: "❌ Information menu not found.",
       embeds: [],
       components: [],
       flags: MessageFlags.Ephemeral
-    });
+    };
+    return interaction.deferred || interaction.replied ? 
+      interaction.editReply(errorMessage) : 
+      interaction.reply(errorMessage);
   }
 
   const pages = db.getInfoMenuPages(infoMenuId);
@@ -5847,11 +5849,15 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
 
   components.push(backRow);
 
-  return interaction.editReply({
+  const responseData = {
     embeds: [embed],
     components: components,
     flags: MessageFlags.Ephemeral
-  });
+  };
+
+  return interaction.deferred || interaction.replied ? 
+    interaction.editReply(responseData) : 
+    interaction.reply(responseData);
 }
 
 /**
@@ -6224,16 +6230,25 @@ async function showInfoMenusDashboard(interaction) {
 async function showInfoMenuConfiguration(interaction, infoMenuId) {
     if (!infoMenuId || typeof infoMenuId !== 'string' || infoMenuId.length < 5) {
       console.error(`Invalid infoMenuId provided to showInfoMenuConfiguration: ${infoMenuId}`);
-      return interaction.editReply({
+      const errorMessage = {
         content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
         flags: MessageFlags.Ephemeral
-      });
+      };
+      return interaction.deferred || interaction.replied ? 
+        interaction.editReply(errorMessage) : 
+        interaction.reply(errorMessage);
     }
 
     const menu = db.getInfoMenu(infoMenuId);
     if (!menu) {
       console.error(`Info menu not found for ID: ${infoMenuId}`);
-      return interaction.editReply({ content: "Information menu not found. It might have been deleted.", flags: MessageFlags.Ephemeral });
+      const errorMessage = {
+        content: "Information menu not found. It might have been deleted.",
+        flags: MessageFlags.Ephemeral
+      };
+      return interaction.deferred || interaction.replied ? 
+        interaction.editReply(errorMessage) : 
+        interaction.reply(errorMessage);
     }
 
     const embed = new EmbedBuilder()
@@ -6406,10 +6421,20 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     console.log(`[Debug] Info Menu ${infoMenuId} components: ${finalComponents.length} rows`);
 
     try {
-      await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
+      const responseData = { embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral };
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(responseData);
+      } else {
+        await interaction.reply(responseData);
+      }
     } catch (error) {
       console.error("Error displaying info menu configuration:", error);
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the info menu configuration.", flags: MessageFlags.Ephemeral });
+      const errorMessage = { content: "❌ Something went wrong while displaying the info menu configuration.", flags: MessageFlags.Ephemeral };
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorMessage);
+      } else {
+        await interaction.reply(errorMessage);
+      }
     }
 }
 
