@@ -2023,6 +2023,9 @@ client.on("interactionCreate", async (interaction) => {
   const interactionStartTime = Date.now();
   let interactionSuccess = true;
   
+  // Log all interactions for debugging
+  console.log(`[Interaction] Received: ${interaction.type} - ${interaction.isModalSubmit() ? 'Modal:' + interaction.customId : interaction.isButton() ? 'Button:' + interaction.customId : interaction.isStringSelectMenu() ? 'SelectMenu:' + interaction.customId : interaction.isCommand() ? 'Command:' + interaction.commandName : 'Other'}`);
+  
   // Early return for DMs
   if (!interaction.guild) {
     if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu()) {
@@ -4886,6 +4889,8 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      console.log(`[Modal] Modal submission detected with customId: ${interaction.customId}`);
+      
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate().catch(e => console.error("Error deferring modal update:", e));
       }
@@ -4894,6 +4899,8 @@ client.on("interactionCreate", async (interaction) => {
       const ctx = parts[0];
       const action = parts[1];
       const modalType = parts[2];
+      
+      console.log(`[Modal] Parsed parts - ctx: ${ctx}, action: ${action}, modalType: ${modalType}`);
 
       let menuId;
       let type;
