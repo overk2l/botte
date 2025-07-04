@@ -6929,16 +6929,16 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setLabel("Set Page Descriptions")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("📝")
-        .setDisabled(menu.pages.length === 0),
+        .setDisabled(menu.pages.length === 0)
+    );
+
+    const row_advanced = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`info:configure_page_emojis:${infoMenuId}`)
         .setLabel("Configure Page Emojis")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("😀")
-        .setDisabled(menu.pages.length === 0)
-    );
-
-    const row_advanced = new ActionRowBuilder().addComponents(
+        .setDisabled(menu.pages.length === 0),
       new ButtonBuilder()
         .setCustomId(`info:customize_dropdown_text:${infoMenuId}`)
         .setLabel("Customize Dropdown Text")
@@ -6956,7 +6956,10 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       new ButtonBuilder()
         .setCustomId(`info:save_as_template:${infoMenuId}`)
         .setLabel("Save as Template")
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    const row_utility = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`info:clone_menu:${infoMenuId}`)
         .setLabel("Clone Menu")
@@ -6968,7 +6971,8 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       row_publish_delete,
       row_selection_and_pages,
       row_customization,
-      row_advanced
+      row_advanced,
+      row_utility
     ];
 
     console.log(`[Debug] Info Menu ${infoMenuId} components: ${finalComponents.length} rows`);
