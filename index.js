@@ -2422,7 +2422,7 @@ client.on("interactionCreate", async (interaction) => {
                     .setLabel("Raw JSON Data")
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(true)
-                    .setPlaceholder('Paste your JSON from Discohook here...\n{"title": "Menu Title", "description": "Menu description", "color": 5814783, "fields": [...]}')
+                    .setPlaceholder('Paste your JSON from Discohook here...')
                     .setMaxLength(4000)
                 )
               );
