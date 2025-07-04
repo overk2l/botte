@@ -8739,6 +8739,227 @@ function getStatusDisplay(status) {
 }
 
 /**
+ * Creates the embed for a hybrid menu
+ * @param {Guild} guild - The Discord guild
+ * @param {Object} menu - The hybrid menu object
+ * @returns {EmbedBuilder} The created embed
+ */
+async function createHybridMenuEmbed(guild, menu) {
+    const embed = new EmbedBuilder()
+        .setTitle(menu.name)
+        .setDescription(menu.desc)
+        .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    
+    if (menu.embedAuthorName) {
+        embed.setAuthor({
+            name: menu.embedAuthorName,
+            iconURL: menu.embedAuthorIconURL
+        });
+    }
+
+    if (menu.embedFooterText) {
+        embed.setFooter({
+            text: menu.embedFooterText,
+            iconURL: menu.embedFooterIconURL
+        });
+    }
+
+    return embed;
+}
+
+/**
+ * Builds the components for a hybrid menu
+ * @param {Object} interaction - The Discord interaction
+ * @param {Object} menu - The hybrid menu object
+ * @param {string} hybridMenuId - The hybrid menu ID
+ * @returns {Array} Array of ActionRowBuilder components
+ */
+async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
+    const components = [];
+
+    // Get component order (default: dropdowns first, then buttons)
+    const componentOrder = menu.componentOrder || {
+        infoDropdown: 1,
+        roleDropdown: 2,
+        infoButtons: 3,
+        roleButtons: 4
+    };
+
+    // Create component objects with their order
+    const componentParts = [];
+
+    // Add info pages dropdown if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+        const infoOptions = menu.pages.slice(0, 25).map(page => ({
+            label: page.name.substring(0, 100),
+            value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
+            description: page.content?.substring(0, 100) || 'No description',
+            emoji: page.emoji || '📋'
+        }));
+
+        if (infoOptions.length > 0) {
+            const infoDropdown = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid-info-select:${hybridMenuId}`)
+                .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
+                .addOptions(infoOptions);
+            
+            componentParts.push({
+                order: componentOrder.infoDropdown || 1,
+                type: 'infoDropdown',
+                component: new ActionRowBuilder().addComponents(infoDropdown)
+            });
+        }
+    }
+
+    // Add roles dropdown if configured
+    if (menu.dropdownRoles && menu.dropdownRoles.length > 0 && 
+        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+        const roleOptions = menu.dropdownRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) return null;
+            
+            // Get member count if enabled for dropdowns
+            const memberCountOptions = menu.memberCountOptions || {};
+            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+            const memberCount = showCountsInDropdowns ? role.members.size : null;
+            const labelText = memberCount !== null 
+                ? `${role.name} (${memberCount})` 
+                : role.name;
+            
+            return {
+                label: labelText.substring(0, 100),
+                value: role.id,
+                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
+                description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
+                default: false
+            };
+        }).filter(Boolean);
+
+        if (roleOptions.length > 0) {
+            const roleDropdown = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+                .setMinValues(1)
+                .setMaxValues(roleOptions.length)
+                .addOptions(roleOptions);
+            
+            componentParts.push({
+                order: componentOrder.roleDropdown || 2,
+                type: 'roleDropdown',
+                component: new ActionRowBuilder().addComponents(roleDropdown)
+            });
+        }
+    }
+
+    // Add info pages buttons if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        menu.infoSelectionType?.includes("button")) {
+        const buttonRows = [];
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+
+        menu.pages.forEach(page => {
+            if (buttonsInRow >= 5) {
+                buttonRows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+                buttonsInRow = 0;
+            }
+
+            const button = new ButtonBuilder()
+                .setCustomId(`hybrid-info-page:${hybridMenuId}:${page.id}`)
+                .setLabel(page.name.substring(0, 80))
+                .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary);
+
+            if (page.emoji) button.setEmoji(page.emoji);
+
+            currentRow.addComponents(button);
+            buttonsInRow++;
+        });
+
+        if (buttonsInRow > 0) {
+            buttonRows.push(currentRow);
+        }
+
+        componentParts.push({
+            order: componentOrder.infoButtons || 3,
+            type: 'infoButtons',
+            components: buttonRows
+        });
+    }
+
+    // Add role buttons if configured
+    if (menu.buttonRoles && menu.buttonRoles.length > 0 && 
+        menu.roleSelectionType?.includes("button")) {
+        const buttonRows = [];
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+
+        menu.buttonRoles.forEach(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) return;
+
+            if (buttonsInRow >= 5) {
+                buttonRows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+                buttonsInRow = 0;
+            }
+
+            const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+            const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
+            // Get member count if enabled for buttons
+            const memberCountOptions = menu.memberCountOptions || {};
+            const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
+            const memberCount = showCountsInButtons ? role.members.size : null;
+            const labelText = memberCount !== null 
+                ? `${role.name} (${memberCount})` 
+                : role.name;
+
+            const button = new ButtonBuilder()
+                .setCustomId(`hybrid-role-button:${hybridMenuId}:${role.id}`)
+                .setLabel(labelText.substring(0, 80))
+                .setStyle(buttonStyle);
+
+            if (menu.buttonEmojis?.[role.id]) {
+                button.setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
+            }
+
+            currentRow.addComponents(button);
+            buttonsInRow++;
+        });
+
+        if (buttonsInRow > 0) {
+            buttonRows.push(currentRow);
+        }
+
+        componentParts.push({
+            order: componentOrder.roleButtons || 4,
+            type: 'roleButtons',
+            components: buttonRows
+        });
+    }
+
+    // Sort components by order and add to final components array
+    componentParts.sort((a, b) => a.order - b.order);
+    
+    componentParts.forEach(part => {
+        if (part.component) {
+            // Single component (dropdowns)
+            components.push(part.component);
+        } else if (part.components) {
+            // Multiple components (button rows)
+            components.push(...part.components);
+        }
+    });
+
+    return components;
+}
+
+/**
  * Updates the components of a published hybrid menu message.
  * Only updates if "Show Counts" is enabled to prevent "edited" indicator.
  * @param {Object} interaction - The Discord interaction object.
