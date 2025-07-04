@@ -1809,11 +1809,11 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * @param {Object} menu - The menu object.
  * @param {string} menuId - The ID of the menu.
  */
-async function updatePublishedMessageComponents(interaction, menu, menuId) {
-    // Only update components if "Show Counts" is enabled
-    // This prevents the "edited" indicator unless member counts need to be updated
-    if (!menu.showMemberCounts) {
-        console.log(`[updatePublishedMessageComponents] Skipping update for menu ${menuId} - Show Counts disabled`);
+async function updatePublishedMessageComponents(interaction, menu, menuId, forceUpdate = false) {
+    // Only update components if "Show Counts" is enabled OR if this is a forced update (after role interaction)
+    // This prevents the "edited" indicator unless member counts need to be updated or we're clearing selections
+    if (!menu.showMemberCounts && !forceUpdate) {
+        console.log(`[updatePublishedMessageComponents] Skipping update for menu ${menuId} - Show Counts disabled and not forced`);
         return;
     }
     
@@ -7738,6 +7738,66 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to configure webhook branding. Please try again.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "configure_member_counts") {
+          try {
+            const showInDropdowns = interaction.fields.getTextInputValue("show_in_dropdowns").toLowerCase().trim();
+            const showInButtons = interaction.fields.getTextInputValue("show_in_buttons").toLowerCase().trim();
+            
+            const dropdownsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInDropdowns);
+            const buttonsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInButtons);
+            
+            if (ctx === "hybrid") {
+              const hybridMenuId = parts[3];
+              
+              // Update hybrid menu settings
+              await db.updateHybridMenu(hybridMenuId, {
+                showMemberCounts: dropdownsEnabled || buttonsEnabled,
+                memberCountOptions: {
+                  showInDropdowns: dropdownsEnabled,
+                  showInButtons: buttonsEnabled
+                }
+              });
+              
+              // Force update the published message if it exists
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (menu && menu.channelId && menu.messageId) {
+                const guild = interaction.guild;
+                const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
+                await updatePublishedHybridMenuComponents(mockInteraction, menu, hybridMenuId, true);
+              }
+              
+              await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
+              return showHybridMenuConfiguration(interaction, hybridMenuId);
+              
+            } else if (ctx === "rr") {
+              const menuId = parts[3];
+              
+              // Update reaction role menu settings
+              await db.updateMenu(menuId, {
+                showMemberCounts: dropdownsEnabled || buttonsEnabled,
+                memberCountOptions: {
+                  showInDropdowns: dropdownsEnabled,
+                  showInButtons: buttonsEnabled
+                }
+              });
+              
+              // Force update the published message if it exists
+              const menu = db.getMenu(menuId);
+              if (menu && menu.channelId && menu.messageId) {
+                const guild = interaction.guild;
+                const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
+                await updatePublishedMessageComponents(mockInteraction, menu, menuId, true);
+              }
+              
+              await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
+              return showReactionRoleMenuConfiguration(interaction, menuId);
+            }
+          } catch (error) {
+            console.error(`[${ctx}] Error configuring member counts:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure member count settings. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -7925,7 +7985,7 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            await updatePublishedMessageComponents(interaction, menu, menuId);
+            await updatePublishedMessageComponents(interaction, menu, menuId, true);
             return;
         }
 
@@ -7933,7 +7993,7 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                await updatePublishedMessageComponents(interaction, menu, menuId);
+                await updatePublishedMessageComponents(interaction, menu, menuId, true);
                 return;
             }
         }
@@ -7963,8 +8023,8 @@ async function handleRoleInteraction(interaction) {
             await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
         }
 
-        // Update published message components
-        await updatePublishedMessageComponents(interaction, menu, menuId);
+        // Update published message components to clear selections and update member counts
+        await updatePublishedMessageComponents(interaction, menu, menuId, true);
 
     } catch (error) {
         console.error("Error in handleRoleInteraction:", error);
@@ -9187,61 +9247,12 @@ async function handleHybridMenuInteraction(interaction) {
         await member.roles.remove(rolesToRemove);
       }
 
-      // Clear the dropdown selection by rebuilding the message components
+      // Update the published message components to clear selections and update member counts
       try {
-        const originalMessage = interaction.message;
-        
-        // Rebuild components with fresh dropdown (no selections)
-        const updatedComponents = originalMessage.components.map(row => {
-          const newRow = new ActionRowBuilder();
-          
-          row.components.forEach(component => {
-            if (component.customId && component.customId.startsWith(`hybrid-role-select:${hybridMenuId}`)) {
-              // Rebuild the role dropdown with no selections
-              const hybridMenu = db.getHybridMenu(hybridMenuId);
-              if (hybridMenu && hybridMenu.dropdownRoles && hybridMenu.dropdownRoles.length > 0) {
-                const dropdownOptions = hybridMenu.dropdownRoles.map(roleId => {
-                  const role = interaction.guild.roles.cache.get(roleId);
-                  if (!role) return null;
-                  
-                  // Get member count if enabled
-                  const memberCount = hybridMenu.showMemberCounts ? role.members.size : null;
-                  const labelText = memberCount !== null 
-                      ? `${role.name} (${memberCount})` 
-                      : role.name;
-                  
-                  return {
-                    label: labelText.substring(0, 100),
-                    value: role.id,
-                    emoji: parseEmoji(hybridMenu.dropdownEmojis?.[role.id]),
-                    description: hybridMenu.dropdownRoleDescriptions?.[role.id] ? hybridMenu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-                    default: false // Always false to clear selections
-                  };
-                }).filter(Boolean);
-                
-                if (dropdownOptions.length > 0) {
-                  const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`hybrid-role-select:${hybridMenuId}`)
-                    .setPlaceholder(hybridMenu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
-                    .setMinValues(1)
-                    .setMaxValues(dropdownOptions.length)
-                    .addOptions(dropdownOptions);
-                  newRow.addComponents(selectMenu);
-                }
-              }
-            } else {
-              // Keep other components as-is
-              newRow.addComponents(component);
-            }
-          });
-          
-          return newRow;
-        });
-
-        await originalMessage.edit({ components: updatedComponents });
+        await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
       } catch (error) {
-        console.error("Error clearing dropdown selection:", error);
-        // Continue with sending the confirmation message even if we can't clear the dropdown
+        console.error("Error updating hybrid menu components:", error);
+        // Continue with sending the confirmation message even if we can't update the components
       }
 
       // Send confirmation
@@ -11715,6 +11726,153 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
     return sendEphemeralEmbed(interaction, "❌ Error showing component order configuration. Please try again.", "#FF0000", "Error", false);
   }
 }
+
+// Periodic member count update system
+let lastMemberCountUpdate = 0;
+const MEMBER_COUNT_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+async function updateAllMemberCounts(forceUpdate = false) {
+    const now = Date.now();
+    if (!forceUpdate && now - lastMemberCountUpdate < MEMBER_COUNT_UPDATE_INTERVAL) {
+        return;
+    }
+    lastMemberCountUpdate = now;
+
+    try {
+        // Update reaction role menus
+        for (const [menuId, menu] of db.menuData.entries()) {
+            if (menu.showMemberCounts && menu.channelId && menu.messageId) {
+                try {
+                    const guild = client.guilds.cache.get(menu.guildId);
+                    if (!guild) continue;
+                    
+                    const channel = await guild.channels.fetch(menu.channelId).catch(() => null);
+                    if (!channel) continue;
+                    
+                    const message = await channel.messages.fetch(menu.messageId).catch(() => null);
+                    if (!message) continue;
+                    
+                    // Create a mock interaction object for the update function
+                    const mockInteraction = {
+                        guild: guild,
+                        user: client.user,
+                        member: guild.members.me
+                    };
+                    
+                    await updatePublishedMessageComponents(mockInteraction, menu, menuId, true);
+                    console.log(`[Member Count Update] Updated reaction role menu ${menuId}`);
+                } catch (error) {
+                    console.error(`[Member Count Update] Error updating reaction role menu ${menuId}:`, error);
+                }
+            }
+        }
+
+        // Update hybrid menus
+        for (const [hybridMenuId, hybridMenu] of db.hybridMenuData.entries()) {
+            if (hybridMenu.showMemberCounts && hybridMenu.channelId && hybridMenu.messageId) {
+                try {
+                    const guild = client.guilds.cache.get(hybridMenu.guildId);
+                    if (!guild) continue;
+                    
+                    const channel = await guild.channels.fetch(hybridMenu.channelId).catch(() => null);
+                    if (!channel) continue;
+                    
+                    const message = await channel.messages.fetch(hybridMenu.messageId).catch(() => null);
+                    if (!message) continue;
+                    
+                    // Create a mock interaction object for the update function
+                    const mockInteraction = {
+                        guild: guild,
+                        user: client.user,
+                        member: guild.members.me
+                    };
+                    
+                    await updatePublishedHybridMenuComponents(mockInteraction, hybridMenu, hybridMenuId, true);
+                    console.log(`[Member Count Update] Updated hybrid menu ${hybridMenuId}`);
+                } catch (error) {
+                    console.error(`[Member Count Update] Error updating hybrid menu ${hybridMenuId}:`, error);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[Member Count Update] Error in periodic update:', error);
+    }
+}
+
+// Start periodic member count updates when bot is ready
+client.once('ready', () => {
+    console.log('Bot is ready! Starting periodic member count updates...');
+    setInterval(updateAllMemberCounts, 60000); // Check every minute, but only update every 5 minutes
+});
+
+// Listen for role updates to refresh member counts in real time
+let memberCountUpdateQueued = false;
+
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    try {
+        // Check if roles changed
+        const oldRoles = new Set(oldMember.roles.cache.keys());
+        const newRoles = new Set(newMember.roles.cache.keys());
+        
+        const rolesChanged = oldRoles.size !== newRoles.size || 
+                           [...oldRoles].some(role => !newRoles.has(role)) || 
+                           [...newRoles].some(role => !oldRoles.has(role));
+        
+        if (rolesChanged && !memberCountUpdateQueued) {
+            memberCountUpdateQueued = true;
+            console.log(`[Role Update] Member ${newMember.user.tag} role changes detected, queueing member count update...`);
+            // Delay update to batch multiple rapid changes
+            setTimeout(async () => {
+                try {
+                    await updateAllMemberCounts(true);
+                } finally {
+                    memberCountUpdateQueued = false;
+                }
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('[Role Update] Error handling member update:', error);
+        memberCountUpdateQueued = false;
+    }
+});
+
+client.on('guildMemberAdd', async (member) => {
+    try {
+        if (!memberCountUpdateQueued) {
+            memberCountUpdateQueued = true;
+            console.log(`[Member Join] ${member.user.tag} joined ${member.guild.name}, queueing member count update...`);
+            setTimeout(async () => {
+                try {
+                    await updateAllMemberCounts(true);
+                } finally {
+                    memberCountUpdateQueued = false;
+                }
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('[Member Join] Error handling member add:', error);
+        memberCountUpdateQueued = false;
+    }
+});
+
+client.on('guildMemberRemove', async (member) => {
+    try {
+        if (!memberCountUpdateQueued) {
+            memberCountUpdateQueued = true;
+            console.log(`[Member Leave] ${member.user.tag} left ${member.guild.name}, queueing member count update...`);
+            setTimeout(async () => {
+                try {
+                    await updateAllMemberCounts(true);
+                } finally {
+                    memberCountUpdateQueued = false;
+                }
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('[Member Leave] Error handling member remove:', error);
+        memberCountUpdateQueued = false;
+    }
+});
 
 // Bot login
 client.login(process.env.TOKEN).catch(error => {
