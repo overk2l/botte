@@ -1888,6 +1888,14 @@ client.on("interactionCreate", async (interaction) => {
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
+                  .setCustomId("recurring_interval")
+                  .setLabel("Recurring Interval (optional)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("daily, weekly, hourly, or minutes (e.g., 30)")
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
                   .setCustomId("duration")
                   .setLabel("Auto-delete Duration (minutes, optional)")
                   .setStyle(TextInputStyle.Short)
@@ -1900,6 +1908,45 @@ client.on("interactionCreate", async (interaction) => {
         }
         if (action === "manage") return showManageSchedulesMenu(interaction);
         if (action === "back") return showScheduledMessagesDashboard(interaction);
+        if (action === "delete") {
+          const scheduleId = parts[2];
+          const schedule = scheduledMessages.get(scheduleId);
+          if (!schedule) {
+            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Delete the schedule
+          scheduledMessages.delete(scheduleId);
+          db.deleteScheduledMessage(scheduleId);
+          
+          const embed = new EmbedBuilder()
+            .setTitle("✅ Schedule Deleted")
+            .setDescription("The scheduled message has been successfully deleted.")
+            .setColor("#00FF00");
+          
+          await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+          return;
+        }
+        if (action === "toggle") {
+          const scheduleId = parts[2];
+          const schedule = scheduledMessages.get(scheduleId);
+          if (!schedule) {
+            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Toggle the schedule status
+          schedule.status = schedule.status === 'scheduled' ? 'paused' : 'scheduled';
+          scheduledMessages.set(scheduleId, schedule);
+          db.saveScheduledMessage(schedule);
+          
+          const embed = new EmbedBuilder()
+            .setTitle("✅ Schedule Updated")
+            .setDescription(`The scheduled message has been ${schedule.status === 'scheduled' ? 'activated' : 'deactivated'}.`)
+            .setColor("#00FF00");
+          
+          await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+          return;
+        }
       }
 
       if (ctx === "dynamic") {
@@ -3949,6 +3996,15 @@ client.on("interactionCreate", async (interaction) => {
           
           return interaction.showModal(modal);
         }
+      } else if (ctx === "schedule") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to manage schedules.", "#FF0000", "Permission Denied", false);
+        }
+
+        if (action === "select_manage") {
+          const scheduleId = interaction.values[0].replace("manage_schedule:", "");
+          return showScheduleDetailsMenu(interaction, scheduleId);
+        }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
@@ -4457,6 +4513,7 @@ client.on("interactionCreate", async (interaction) => {
           const channelId = interaction.fields.getTextInputValue("channel_id");
           const scheduleTime = interaction.fields.getTextInputValue("schedule_time");
           const messageJson = interaction.fields.getTextInputValue("message_json");
+          const recurringInterval = interaction.fields.getTextInputValue("recurring_interval") || "";
           const duration = interaction.fields.getTextInputValue("duration") || "";
 
           // Validate channel
@@ -4495,6 +4552,37 @@ client.on("interactionCreate", async (interaction) => {
             autoDeletDuration = durationNum;
           }
 
+          // Validate and parse recurring interval
+          let recurringMs = null;
+          let recurringDisplay = null;
+          let isRecurring = false;
+          if (recurringInterval) {
+            const lower = recurringInterval.toLowerCase().trim();
+            if (lower === "daily" || lower === "day") {
+              recurringMs = 24 * 60 * 60 * 1000; // 24 hours in ms
+              recurringDisplay = "Daily";
+              isRecurring = true;
+            } else if (lower === "weekly" || lower === "week") {
+              recurringMs = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+              recurringDisplay = "Weekly";
+              isRecurring = true;
+            } else if (lower === "hourly" || lower === "hour") {
+              recurringMs = 60 * 60 * 1000; // 1 hour in ms
+              recurringDisplay = "Hourly";
+              isRecurring = true;
+            } else {
+              // Try to parse as minutes
+              const minutes = parseInt(lower);
+              if (!isNaN(minutes) && minutes > 0) {
+                recurringMs = minutes * 60 * 1000;
+                recurringDisplay = `Every ${minutes} minutes`;
+                isRecurring = true;
+              } else {
+                return interaction.editReply({ content: "❌ Invalid recurring interval. Use 'daily', 'weekly', 'hourly', or a number of minutes (e.g., 30).", components: [], flags: MessageFlags.Ephemeral });
+              }
+            }
+          }
+
           // Create schedule entry
           const scheduleId = generateId();
           const scheduleEntry = {
@@ -4503,6 +4591,10 @@ client.on("interactionCreate", async (interaction) => {
             channelId: channelId,
             scheduledTime: scheduledDate.toISOString(),
             autoDeleteDuration: autoDeletDuration,
+            isRecurring: isRecurring,
+            recurringInterval: recurringMs,
+            recurringDisplay: recurringDisplay,
+            lastMessageId: null, // Store ID of last sent message for deletion
             guildId: interaction.guild.id,
             createdBy: interaction.user.id,
             createdAt: new Date().toISOString(),
@@ -4516,11 +4608,12 @@ client.on("interactionCreate", async (interaction) => {
             
             const embed = new EmbedBuilder()
               .setTitle("✅ Message Scheduled Successfully")
-              .setDescription(`Your message has been scheduled for ${scheduleTime}`)
+              .setDescription(`Your message has been scheduled for ${scheduleTime}${isRecurring ? ` and will repeat ${recurringDisplay.toLowerCase()}` : ''}`)
               .setColor("#00FF00")
               .addFields([
                 { name: "Channel", value: `<#${channelId}>`, inline: true },
                 { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: true },
+                { name: "Recurring", value: isRecurring ? `Yes (${recurringDisplay})` : "No", inline: true },
                 { name: "Auto-delete", value: autoDeletDuration ? `${autoDeletDuration} minutes` : "No", inline: true },
                 { name: "Message Preview", value: `\`\`\`json\n${messageJson.substring(0, 200)}${messageJson.length > 200 ? '...' : ''}\n\`\`\``, inline: false }
               ]);
@@ -6046,30 +6139,31 @@ async function showScheduledMessagesDashboard(interaction) {
         inline: false
       }]);
     } else {
-      const activeSchedules = schedules.filter(s => s.isActive);
-      const inactiveSchedules = schedules.filter(s => !s.isActive);
+      const activeSchedules = schedules.filter(s => s.status === 'scheduled');
+      const completedSchedules = schedules.filter(s => s.status === 'completed');
+      const recurringSchedules = schedules.filter(s => s.isRecurring);
       
       embed.addFields([
         {
           name: "📊 Summary",
-          value: `**Active:** ${activeSchedules.length}\n**Inactive:** ${inactiveSchedules.length}\n**Total:** ${schedules.length}`,
+          value: `**Active:** ${activeSchedules.length}\n**Completed:** ${completedSchedules.length}\n**Recurring:** ${recurringSchedules.length}\n**Total:** ${schedules.length}`,
           inline: true
         }
       ]);
       
       // Show next 5 upcoming schedules
       const upcoming = activeSchedules
-        .filter(s => s.scheduleTime > Date.now())
-        .sort((a, b) => a.scheduleTime - b.scheduleTime)
+        .filter(s => new Date(s.scheduledTime) > new Date())
+        .sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime))
         .slice(0, 5);
       
       if (upcoming.length > 0) {
         const upcomingText = upcoming.map(schedule => {
-          const menu = db.getInfoMenu(schedule.menuId);
           const channel = client.channels.cache.get(schedule.channelId);
-          const timeStr = `<t:${Math.floor(schedule.scheduleTime.getTime() / 1000)}:R>`;
-          const recurringStr = schedule.recurring ? ` (${schedule.recurringInterval})` : '';
-          return `**${menu?.name || 'Unknown Menu'}**\n📍 ${channel?.name || 'Unknown Channel'}\n⏰ ${timeStr}${recurringStr}`;
+          const timeStr = `<t:${Math.floor(new Date(schedule.scheduledTime).getTime() / 1000)}:R>`;
+          const recurringStr = schedule.isRecurring ? ` (${schedule.recurringDisplay})` : '';
+          const jsonPreview = JSON.stringify(schedule.messageContent).substring(0, 50);
+          return `**Message Preview:** ${jsonPreview}...\n📍 ${channel?.name || 'Unknown Channel'}\n⏰ ${timeStr}${recurringStr}`;
         }).join('\n\n');
         
         embed.addFields([{
@@ -6236,15 +6330,25 @@ async function showManageSchedulesMenu(interaction) {
       .setColor("#ffa500");
     
     const scheduleOptions = schedules.slice(0, 25).map(schedule => {
-      const menu = db.getInfoMenu(schedule.menuId);
       const channel = client.channels.cache.get(schedule.channelId);
-      const timeStr = `<t:${Math.floor(schedule.scheduleTime.getTime() / 1000)}:R>`;
+      const timeStr = `<t:${Math.floor(new Date(schedule.scheduledTime).getTime() / 1000)}:R>`;
+      
+      // Get a preview of the message content
+      let messagePreview = "Unknown Message";
+      if (schedule.messageContent) {
+        if (schedule.messageContent.content) {
+          messagePreview = schedule.messageContent.content.substring(0, 50);
+        } else if (schedule.messageContent.embeds && schedule.messageContent.embeds[0]) {
+          messagePreview = schedule.messageContent.embeds[0].title || schedule.messageContent.embeds[0].description || "Embed Message";
+          messagePreview = messagePreview.substring(0, 50);
+        }
+      }
       
       return {
-        label: menu?.name || 'Unknown Menu',
+        label: messagePreview,
         value: `manage_schedule:${schedule.id}`,
         description: `${channel?.name || 'Unknown Channel'} • ${timeStr}`,
-        emoji: schedule.recurring ? '🔄' : '⏰'
+        emoji: schedule.isRecurring ? '🔄' : '⏰'
       };
     });
     
@@ -6437,8 +6541,94 @@ function getScheduledMessages() {
 
 // Initialize scheduled messages on bot start
 function initializeScheduledMessages() {
-  // For now, just log that the system is ready
+  // Check for scheduled messages every minute
+  setInterval(checkScheduledMessages, 60000); // Check every minute
   console.log("Scheduled messages system initialized");
+}
+
+// Check and execute scheduled messages
+async function checkScheduledMessages() {
+  try {
+    const now = new Date();
+    
+    // Check all scheduled messages
+    for (const [scheduleId, schedule] of scheduledMessages) {
+      if (schedule.status !== 'scheduled') continue;
+      
+      const scheduledTime = new Date(schedule.scheduledTime);
+      
+      // Check if it's time to send the message
+      if (now >= scheduledTime) {
+        console.log(`Executing scheduled message: ${scheduleId}`);
+        await executeScheduledMessage(schedule);
+        
+        // Handle recurring messages
+        if (schedule.isRecurring && schedule.recurringInterval) {
+          // Schedule the next occurrence
+          const nextTime = new Date(scheduledTime.getTime() + schedule.recurringInterval);
+          schedule.scheduledTime = nextTime.toISOString();
+          
+          // Update in database
+          db.saveScheduledMessage(schedule);
+          console.log(`Recurring message rescheduled for: ${nextTime.toISOString()}`);
+        } else {
+          // Mark as completed for non-recurring messages
+          schedule.status = 'completed';
+          db.saveScheduledMessage(schedule);
+          console.log(`Non-recurring message completed: ${scheduleId}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error checking scheduled messages:", error);
+  }
+}
+
+// Execute a scheduled message
+async function executeScheduledMessage(schedule) {
+  try {
+    const channel = client.channels.cache.get(schedule.channelId);
+    if (!channel || !channel.isTextBased()) {
+      console.error(`Invalid channel for scheduled message ${schedule.id}: ${schedule.channelId}`);
+      return;
+    }
+
+    // Delete previous message if this is a recurring message
+    if (schedule.isRecurring && schedule.lastMessageId) {
+      try {
+        const previousMessage = await channel.messages.fetch(schedule.lastMessageId);
+        await previousMessage.delete();
+        console.log(`Deleted previous recurring message: ${schedule.lastMessageId}`);
+      } catch (error) {
+        console.warn(`Could not delete previous message ${schedule.lastMessageId}:`, error.message);
+      }
+    }
+
+    // Send the new message
+    const sentMessage = await channel.send(schedule.messageContent);
+    console.log(`Sent scheduled message ${schedule.id} to ${channel.name}`);
+
+    // Update the lastMessageId for recurring messages
+    if (schedule.isRecurring) {
+      schedule.lastMessageId = sentMessage.id;
+      scheduledMessages.set(schedule.id, schedule);
+    }
+
+    // Handle auto-delete if specified
+    if (schedule.autoDeleteDuration) {
+      setTimeout(async () => {
+        try {
+          await sentMessage.delete();
+          console.log(`Auto-deleted message ${sentMessage.id} after ${schedule.autoDeleteDuration} minutes`);
+        } catch (error) {
+          console.warn(`Could not auto-delete message ${sentMessage.id}:`, error.message);
+        }
+      }, schedule.autoDeleteDuration * 60 * 1000);
+    }
+
+  } catch (error) {
+    console.error(`Error executing scheduled message ${schedule.id}:`, error);
+  }
 }
 
 // Utility function to generate IDs
