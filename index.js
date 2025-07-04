@@ -1541,9 +1541,16 @@ const client = new Client({
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+  
   // Load all menus from Firestore when the bot starts
   await db.loadAllMenus();
   await db.loadAllInfoMenus();
+
+  // Initialize new features
+  initializeScheduledMessages();
+  updateBotHealth();
+  
+  console.log("🚀 All systems initialized successfully!");
 
   const rest = new REST().setToken(process.env.TOKEN);
   const cmd = new SlashCommandBuilder()
@@ -5779,6 +5786,426 @@ async function showPerformanceDashboard(interaction) {
 }
 
 // --- Dashboard Functions ---
+
+// Scheduled Messages Dashboard
+async function showScheduledMessagesDashboard(interaction) {
+  try {
+    const schedules = getScheduledMessages();
+    
+    const embed = new EmbedBuilder()
+      .setTitle("⏰ Scheduled Messages")
+      .setDescription("Manage your scheduled info menu deliveries")
+      .setColor("#ff9500")
+      .setTimestamp();
+    
+    if (schedules.length === 0) {
+      embed.addFields([{
+        name: "No Scheduled Messages",
+        value: "You haven't scheduled any messages yet. Click 'Schedule New Message' to get started!",
+        inline: false
+      }]);
+    } else {
+      const activeSchedules = schedules.filter(s => s.isActive);
+      const inactiveSchedules = schedules.filter(s => !s.isActive);
+      
+      embed.addFields([
+        {
+          name: "📊 Summary",
+          value: `**Active:** ${activeSchedules.length}\n**Inactive:** ${inactiveSchedules.length}\n**Total:** ${schedules.length}`,
+          inline: true
+        }
+      ]);
+      
+      // Show next 5 upcoming schedules
+      const upcoming = activeSchedules
+        .filter(s => s.scheduleTime > Date.now())
+        .sort((a, b) => a.scheduleTime - b.scheduleTime)
+        .slice(0, 5);
+      
+      if (upcoming.length > 0) {
+        const upcomingText = upcoming.map(schedule => {
+          const menu = db.getInfoMenu(schedule.menuId);
+          const channel = client.channels.cache.get(schedule.channelId);
+          const timeStr = `<t:${Math.floor(schedule.scheduleTime.getTime() / 1000)}:R>`;
+          const recurringStr = schedule.recurring ? ` (${schedule.recurringInterval})` : '';
+          return `**${menu?.name || 'Unknown Menu'}**\n📍 ${channel?.name || 'Unknown Channel'}\n⏰ ${timeStr}${recurringStr}`;
+        }).join('\n\n');
+        
+        embed.addFields([{
+          name: "🔜 Upcoming Schedules",
+          value: upcomingText,
+          inline: false
+        }]);
+      }
+    }
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("schedule:new")
+        .setLabel("Schedule New Message")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("➕"),
+      new ButtonBuilder()
+        .setCustomId("schedule:manage")
+        .setLabel("Manage Schedules")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("📝")
+        .setDisabled(schedules.length === 0),
+      new ButtonBuilder()
+        .setCustomId("schedule:refresh")
+        .setLabel("Refresh")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🔄"),
+      new ButtonBuilder()
+        .setCustomId("dash:main")
+        .setLabel("Back to Dashboard")
+        .setStyle(ButtonStyle.Secondary)
+    );
+    
+    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error showing scheduled messages dashboard:", error);
+    await interaction.editReply({ content: "❌ Error loading scheduled messages dashboard.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Dynamic Content Help
+async function showDynamicContentHelp(interaction) {
+  try {
+    const embed = new EmbedBuilder()
+      .setTitle("🔮 Dynamic Content Variables")
+      .setDescription("Use these variables in your info menu pages to create dynamic content!")
+      .setColor("#9932cc")
+      .setTimestamp();
+    
+    const variableGroups = [
+      {
+        name: "👤 User Variables",
+        value: "• `{user}` - Mentions the user\n• `{user.name}` - User's display name\n• `{user.id}` - User's ID\n• `{user.avatar}` - User's avatar URL\n• `{user.joined}` - When user joined server"
+      },
+      {
+        name: "🏠 Server Variables", 
+        value: "• `{server}` - Server name\n• `{server.id}` - Server ID\n• `{server.members}` - Member count\n• `{server.icon}` - Server icon URL"
+      },
+      {
+        name: "⏰ Time Variables",
+        value: "• `{time}` - Current time (full)\n• `{time.short}` - Current time (short)\n• `{date}` - Current date\n• `{timestamp}` - Relative timestamp"
+      },
+      {
+        name: "🎲 Random Variables",
+        value: "• `{random.number}` - Random number (1-100)\n• `{random.color}` - Random hex color"
+      },
+      {
+        name: "🤖 Bot Variables",
+        value: "• `{bot.name}` - Bot's name\n• `{bot.ping}` - Bot's ping\n• `{bot.uptime}` - Bot's uptime"
+      },
+      {
+        name: "📸 Rich Media Support",
+        value: "• Direct image URLs will be auto-detected\n• Videos, audio, and documents are supported\n• Media info will be shown automatically"
+      }
+    ];
+    
+    embed.addFields(variableGroups);
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("dynamic:test")
+        .setLabel("Test Variables")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🧪"),
+      new ButtonBuilder()
+        .setCustomId("dash:main")
+        .setLabel("Back to Dashboard")
+        .setStyle(ButtonStyle.Secondary)
+    );
+    
+    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error showing dynamic content help:", error);
+    await interaction.editReply({ content: "❌ Error loading dynamic content help.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Schedule New Message Menu
+async function showScheduleNewMessageMenu(interaction) {
+  try {
+    const infoMenus = db.getAllInfoMenus();
+    
+    if (infoMenus.length === 0) {
+      await interaction.editReply({ 
+        content: "❌ No info menus found. Create some info menus first before scheduling messages.",
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle("📅 Schedule New Message")
+      .setDescription("Select an info menu to schedule for delivery")
+      .setColor("#00ff00");
+    
+    const menuOptions = infoMenus.slice(0, 25).map(menu => ({
+      label: menu.name,
+      value: `schedule_menu:${menu.id}`,
+      description: `${menu.pages.length} pages • ${menu.messageId ? 'Published' : 'Draft'}`,
+      emoji: menu.pages[0]?.emoji || '📋'
+    }));
+    
+    const selectRow = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("schedule:select_menu")
+        .setPlaceholder("Choose an info menu to schedule...")
+        .addOptions(menuOptions)
+    );
+    
+    const buttonRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("schedule:back")
+        .setLabel("Back to Schedules")
+        .setStyle(ButtonStyle.Secondary)
+    );
+    
+    await interaction.editReply({ 
+      embeds: [embed], 
+      components: [selectRow, buttonRow], 
+      flags: MessageFlags.Ephemeral 
+    });
+  } catch (error) {
+    console.error("Error showing schedule new message menu:", error);
+    await interaction.editReply({ content: "❌ Error loading schedule menu.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Show manage schedules menu
+async function showManageSchedulesMenu(interaction) {
+  try {
+    const schedules = getScheduledMessages();
+    
+    if (schedules.length === 0) {
+      await interaction.editReply({ 
+        content: "❌ No scheduled messages found. Create some schedules first!",
+        flags: MessageFlags.Ephemeral 
+      });
+      return;
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle("📝 Manage Scheduled Messages")
+      .setDescription("Select a scheduled message to edit or delete")
+      .setColor("#ffa500");
+    
+    const scheduleOptions = schedules.slice(0, 25).map(schedule => {
+      const menu = db.getInfoMenu(schedule.menuId);
+      const channel = client.channels.cache.get(schedule.channelId);
+      const timeStr = `<t:${Math.floor(schedule.scheduleTime.getTime() / 1000)}:R>`;
+      
+      return {
+        label: menu?.name || 'Unknown Menu',
+        value: `manage_schedule:${schedule.id}`,
+        description: `${channel?.name || 'Unknown Channel'} • ${timeStr}`,
+        emoji: schedule.recurring ? '🔄' : '⏰'
+      };
+    });
+    
+    const selectRow = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("schedule:select_manage")
+        .setPlaceholder("Choose a schedule to manage...")
+        .addOptions(scheduleOptions)
+    );
+    
+    const buttonRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("schedule:back")
+        .setLabel("Back to Schedules")
+        .setStyle(ButtonStyle.Secondary)
+    );
+    
+    await interaction.editReply({ 
+      embeds: [embed], 
+      components: [selectRow, buttonRow], 
+      flags: MessageFlags.Ephemeral 
+    });
+  } catch (error) {
+    console.error("Error showing manage schedules menu:", error);
+    await interaction.editReply({ content: "❌ Error loading manage schedules menu.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Rich Media Support and Dynamic Content System
+const dynamicContentVariables = {
+  // User variables
+  '{user}': (interaction) => `<@${interaction.user.id}>`,
+  '{user.name}': (interaction) => interaction.user.displayName || interaction.user.username,
+  '{user.id}': (interaction) => interaction.user.id,
+  '{user.avatar}': (interaction) => interaction.user.displayAvatarURL(),
+  '{user.joined}': (interaction) => interaction.member?.joinedAt ? `<t:${Math.floor(interaction.member.joinedAt.getTime() / 1000)}:R>` : 'Unknown',
+  
+  // Server variables
+  '{server}': (interaction) => interaction.guild?.name || 'Unknown Server',
+  '{server.id}': (interaction) => interaction.guild?.id || 'Unknown',
+  '{server.members}': (interaction) => interaction.guild?.memberCount || 'Unknown',
+  '{server.icon}': (interaction) => interaction.guild?.iconURL() || '',
+  
+  // Time variables
+  '{time}': () => `<t:${Math.floor(Date.now() / 1000)}:F>`,
+  '{time.short}': () => `<t:${Math.floor(Date.now() / 1000)}:t>`,
+  '{date}': () => `<t:${Math.floor(Date.now() / 1000)}:D>`,
+  '{timestamp}': () => `<t:${Math.floor(Date.now() / 1000)}:R>`,
+  
+  // Random variables
+  '{random.number}': () => Math.floor(Math.random() * 100) + 1,
+  '{random.color}': () => '#' + Math.floor(Math.random()*16777215).toString(16),
+  
+  // Bot variables
+  '{bot.name}': () => client.user?.username || 'Bot',
+  '{bot.ping}': () => `${client.ws.ping}ms`,
+  '{bot.uptime}': () => {
+    if (!performanceMetrics) return '0h 0m';
+    const uptime = performanceMetrics.bot.uptime;
+    const hours = Math.floor(uptime / (1000 * 60 * 60));
+    const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  }
+};
+
+// Process dynamic content
+function processDynamicContent(content, interaction) {
+  if (!content || typeof content !== 'string') return content;
+  
+  let processedContent = content;
+  
+  // Replace all dynamic variables
+  for (const [variable, resolver] of Object.entries(dynamicContentVariables)) {
+    if (processedContent.includes(variable)) {
+      try {
+        const value = resolver(interaction);
+        processedContent = processedContent.replaceAll(variable, value);
+      } catch (error) {
+        console.error(`Error processing dynamic variable ${variable}:`, error);
+        processedContent = processedContent.replaceAll(variable, `[Error: ${variable}]`);
+      }
+    }
+  }
+  
+  return processedContent;
+}
+
+// Rich media validation and processing
+function validateAndProcessRichMedia(content) {
+  const richMediaPatterns = {
+    // Image URLs
+    image: /\.(jpg|jpeg|png|gif|webp)(\?[^\s]*)?$/i,
+    // Video URLs
+    video: /\.(mp4|webm|mov)(\?[^\s]*)?$/i,
+    // Audio URLs
+    audio: /\.(mp3|wav|ogg)(\?[^\s]*)?$/i,
+    // Document URLs
+    document: /\.(pdf|doc|docx|txt)(\?[^\s]*)?$/i
+  };
+  
+  const urls = content.match(/https?:\/\/[^\s]+/g) || [];
+  const mediaInfo = {
+    images: [],
+    videos: [],
+    audio: [],
+    documents: [],
+    hasRichMedia: false
+  };
+  
+  urls.forEach(url => {
+    if (richMediaPatterns.image.test(url)) {
+      mediaInfo.images.push(url);
+      mediaInfo.hasRichMedia = true;
+    } else if (richMediaPatterns.video.test(url)) {
+      mediaInfo.videos.push(url);
+      mediaInfo.hasRichMedia = true;
+    } else if (richMediaPatterns.audio.test(url)) {
+      mediaInfo.audio.push(url);
+      mediaInfo.hasRichMedia = true;
+    } else if (richMediaPatterns.document.test(url)) {
+      mediaInfo.documents.push(url);
+      mediaInfo.hasRichMedia = true;
+    }
+  });
+  
+  return mediaInfo;
+}
+
+// Enhanced embed builder with rich media support
+function createEnhancedEmbed(page, interaction) {
+  const processedTitle = processDynamicContent(page.title, interaction);
+  const processedDescription = processDynamicContent(page.desc, interaction);
+  
+  const embed = new EmbedBuilder()
+    .setTitle(processedTitle)
+    .setDescription(processedDescription)
+    .setColor(page.color || "#5865F2");
+  
+  // Process rich media
+  const mediaInfo = validateAndProcessRichMedia(processedDescription);
+  
+  // Set image if found
+  if (mediaInfo.images.length > 0) {
+    embed.setImage(mediaInfo.images[0]);
+  }
+  
+  // Add media info field if rich media detected
+  if (mediaInfo.hasRichMedia) {
+    const mediaTypes = [];
+    if (mediaInfo.images.length > 0) mediaTypes.push(`📸 ${mediaInfo.images.length} image(s)`);
+    if (mediaInfo.videos.length > 0) mediaTypes.push(`🎥 ${mediaInfo.videos.length} video(s)`);
+    if (mediaInfo.audio.length > 0) mediaTypes.push(`🎵 ${mediaInfo.audio.length} audio file(s)`);
+    if (mediaInfo.documents.length > 0) mediaTypes.push(`📄 ${mediaInfo.documents.length} document(s)`);
+    
+    if (mediaTypes.length > 0) {
+      embed.addFields([{
+        name: "📎 Rich Media Detected",
+        value: mediaTypes.join('\n'),
+        inline: true
+      }]);
+    }
+  }
+  
+  return embed;
+}
+
+// Scheduled Messages System
+const scheduledMessages = new Map(); // messageId -> scheduleData
+const activeSchedules = new Map(); // scheduleId -> timeout
+
+// Schedule data structure
+class ScheduleData {
+  constructor(options) {
+    this.id = options.id || generateId();
+    this.menuId = options.menuId;
+    this.channelId = options.channelId;
+    this.scheduleTime = options.scheduleTime; // Date object
+    this.recurring = options.recurring || false;
+    this.recurringInterval = options.recurringInterval || 'daily'; // daily, weekly, monthly
+    this.isActive = options.isActive || true;
+    this.createdBy = options.createdBy;
+    this.createdAt = options.createdAt || Date.now();
+  }
+}
+
+// Get all scheduled messages
+function getScheduledMessages() {
+  return Array.from(scheduledMessages.values());
+}
+
+// Initialize scheduled messages on bot start
+function initializeScheduledMessages() {
+  // For now, just log that the system is ready
+  console.log("Scheduled messages system initialized");
+}
+
+// Utility function to generate IDs
+function generateId() {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+// ...existing code...
 
 /**
  * Sends the main dashboard embed and components to the user.
