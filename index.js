@@ -4221,54 +4221,6 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        if (action === "toggle_type") {
-          const componentType = parts[2]; // 'dropdown' or 'button'
-          const infoMenuId = parts[3]; // The menu ID
-          
-          if (!infoMenuId) {
-            return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
-          }
-
-          const menu = db.getInfoMenu(infoMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
-          }
-          
-          // Initialize selectionTypes as an array if it's not already
-          let selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
-                              (menu.selectionType ? [menu.selectionType] : []);
-          
-          if (selectionTypes.includes(componentType)) {
-            // Remove the type if it's currently enabled
-            selectionTypes = selectionTypes.filter(type => type !== componentType);
-            await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
-            
-            // Remove this component type from pages that currently use it
-            const pages = db.getInfoMenuPages(infoMenuId);
-            if (pages && pages.length > 0) {
-              for (const page of pages) {
-                const currentDisplayIn = page.displayIn || [];
-                const updatedDisplayIn = currentDisplayIn.filter(type => type !== componentType);
-                const updatedPage = { ...page, displayIn: updatedDisplayIn };
-                await db.saveInfoMenuPage(infoMenuId, updatedPage);
-              }
-            }
-            
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled! Pages using this type have been updated.`, "#00FF00", "Success", false);
-          } else {
-            // Add the type if it's currently disabled
-            selectionTypes.push(componentType);
-            await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
-            
-            // Don't automatically add this type to existing pages - let users configure each page individually
-            // This preserves the existing page configurations
-            
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled! You can now configure individual pages to use this display type.`, "#00FF00", "Success", false);
-          }
-          
-          return showInfoMenuConfiguration(interaction, infoMenuId);
-        }
-
         // Actions that require menuId
         const infoMenuId = parts[2];
         if (!infoMenuId) {
@@ -6836,15 +6788,11 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             // Get the current menu to determine where pages should display (if not specified in JSON)
-            const currentMenu = db.getInfoMenu(infoMenuId);
-            const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
-                                  (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
-
             const pageId = await db.saveInfoMenuPage(infoMenuId, {
               id: pageData.id,
               name: pageData.name,
               content: pageData.content,
-              displayIn: pageData.displayIn || selectionTypes // Use menu's selection types if not specified
+              displayIn: pageData.displayIn || ['dropdown', 'button'] // Default to both if not specified
             });
             await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" added successfully!`, "#00FF00", "Success", false);
             return showInfoMenuConfiguration(interaction, infoMenuId);
@@ -7131,11 +7079,6 @@ client.on("interactionCreate", async (interaction) => {
           // Create the new page
           const pageId = `page_${Date.now()}`;
           
-          // Get the current menu to determine where pages should display
-          const currentMenu = db.getInfoMenu(infoMenuId);
-          const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
-                                (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
-          
           const newPage = {
             id: pageId,
             name: pageName.trim(),
@@ -7144,7 +7087,7 @@ client.on("interactionCreate", async (interaction) => {
               description: pageDescription.trim(),
               color: validColor
             },
-            displayIn: selectionTypes, // Use the menu's current selection types (already an array)
+            displayIn: ['dropdown', 'button'], // Default to both - users can configure individually
             emoji: pageEmoji.trim() || null,
             category: "Custom",
             order: Date.now(),
@@ -10288,11 +10231,6 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
   // Create page with template data
   const pageId = `page_${Date.now()}`;
   
-  // Get the current menu to determine where pages should display
-  const currentMenu = db.getInfoMenu(infoMenuId);
-  const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
-                        (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
-  
   const newPage = {
     id: pageId,
     name: template.name,
@@ -10301,7 +10239,7 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
       description: template.description,
       color: template.color
     },
-    displayIn: selectionTypes, // Use the menu's current selection types (already an array)
+    displayIn: ['dropdown', 'button'], // Default to both - users can configure individually
     emoji: template.emoji,
     category: template.category,
     order: Date.now(), // Use timestamp for ordering
@@ -10472,7 +10410,7 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
 
   const embed = new EmbedBuilder()
     .setTitle(`🎛️ Page Display Settings: ${menu.name}`)
-    .setDescription(`Configure where each page appears when published.\n\n📋 **Dropdown** - Appears in the select menu\n🔘 **Button** - Appears as a direct button\n📋🔘 **Both** - Appears in both dropdown and buttons\n❌ **Hidden** - Page exists but won't be shown\n\n**Click the buttons below to toggle each page:**`)
+    .setDescription(`Configure where each page appears when published. The menu will automatically include the appropriate components based on your page settings.\n\n📋 **Dropdown** - Appears in the select menu\n🔘 **Button** - Appears as a direct button\n📋🔘 **Both** - Appears in both dropdown and buttons\n❌ **Hidden** - Page exists but won't be shown\n\n**Click the buttons below to toggle each page:**`)
     .setColor("#5865F2");
 
   const components = [];
@@ -10580,77 +10518,72 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
       });
     }
 
-    // Create interaction components based on selection type
+    // Create interaction components based on what pages are configured to use
     const components = [];
-    const selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
-                          (menu.selectionType ? [menu.selectionType] : []);
+    
+    // Check what display types are actually used by pages
+    const dropdownPages = pages.filter(page => {
+      const displayIn = page.displayIn || [];
+      return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+    });
+    
+    const buttonPages = pages.filter(page => {
+      const displayIn = page.displayIn || [];
+      return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+    });
 
-    if (selectionTypes.includes("dropdown")) {
-      // Filter pages that should appear in dropdown
-      const dropdownPages = pages.filter(page => {
-        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
-        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
-      });
+    // Add dropdown component if there are pages configured for dropdown
+    if (dropdownPages.length > 0) {
+      const pageOptions = dropdownPages.slice(0, 25).map(page => ({
+        label: page.name.substring(0, 100),
+        value: page.id,
+        description: page.dropdownDescription || (page.content.description ? page.content.description.substring(0, 100) : undefined),
+        emoji: page.emoji || '📄'
+      }));
 
-      if (dropdownPages.length > 0) {
-        const pageOptions = dropdownPages.slice(0, 25).map(page => ({
-          label: page.name.substring(0, 100),
-          value: page.id,
-          description: page.dropdownDescription || (page.content.description ? page.content.description.substring(0, 100) : undefined),
-          emoji: page.emoji || '📄'
-        }));
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`info-menu-select:${infoMenuId}`)
+        .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
+        .addOptions(pageOptions);
 
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId(`info-menu-select:${infoMenuId}`)
-          .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
-          .addOptions(pageOptions);
-
-        components.push(new ActionRowBuilder().addComponents(selectMenu));
-      }
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
     }
 
-    if (selectionTypes.includes("button")) {
-      // Filter pages that should appear as buttons
-      const buttonPages = pages.filter(page => {
-        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
-        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
-      });
+    // Add button components if there are pages configured for buttons
+    if (buttonPages.length > 0) {
+      // Create buttons for pages (max 25 buttons across 5 rows)
+      const maxButtons = Math.min(buttonPages.length, 25);
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+      let rowCount = 0;
 
-      if (buttonPages.length > 0) {
-        // Create buttons for pages (max 25 buttons across 5 rows)
-        const maxButtons = Math.min(buttonPages.length, 25);
-        let currentRow = new ActionRowBuilder();
-        let buttonsInRow = 0;
-        let rowCount = 0;
+      // If dropdown is already taking a row, we have 4 rows left for buttons
+      const maxRows = dropdownPages.length > 0 ? 4 : 5;
 
-        // If dropdown is already taking a row, we have 4 rows left for buttons
-        const maxRows = selectionTypes.includes("dropdown") ? 4 : 5;
+      for (let i = 0; i < maxButtons; i++) {
+        const page = buttonPages[i];
+        const buttonStyle = page.buttonColor || 'Secondary';
+        const button = new ButtonBuilder()
+          .setCustomId(`info-page:${infoMenuId}:${page.id}`)
+          .setLabel(page.name.substring(0, 80))
+          .setStyle(ButtonStyle[buttonStyle]);
 
-        for (let i = 0; i < maxButtons; i++) {
-          const page = buttonPages[i];
-          const buttonStyle = page.buttonColor || 'Secondary'; // Use buttonColor instead of buttonStyle
-          const button = new ButtonBuilder()
-            .setCustomId(`info-page:${infoMenuId}:${page.id}`)
-            .setLabel(page.name.substring(0, 80))
-            .setStyle(ButtonStyle[buttonStyle]);
+        // Add emoji if page has one
+        if (page.emoji) {
+          button.setEmoji(page.emoji);
+        }
 
-          // Add emoji if page has one
-          if (page.emoji) {
-            button.setEmoji(page.emoji);
-          }
+        currentRow.addComponents(button);
+        buttonsInRow++;
 
-          currentRow.addComponents(button);
-          buttonsInRow++;
-
-          // Start new row after 5 buttons or if it's the last button
-          if (buttonsInRow === 5 || i === maxButtons - 1) {
-            components.push(currentRow);
-            currentRow = new ActionRowBuilder();
-            buttonsInRow = 0;
-            rowCount++;
-            
-            if (rowCount >= maxRows) break; // Discord limit
-          }
+        // Start new row after 5 buttons or if it's the last button
+        if (buttonsInRow === 5 || i === maxButtons - 1) {
+          components.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+          rowCount++;
+          
+          if (rowCount >= maxRows) break; // Discord limit
         }
       }
     }
@@ -11112,12 +11045,12 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       .setDescription(menu.desc)
       .addFields(
         { name: "Menu ID", value: `\`${infoMenuId}\``, inline: true },
-        { name: "Selection Type", value: Array.isArray(menu.selectionType) ? menu.selectionType.join(" + ") || "None set" : (menu.selectionType || "None set"), inline: true },
         { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
+        { name: "Display Types", value: `📋 Dropdown: ${dropdownPages.length > 0 ? "✅" : "❌"}\n🔘 Buttons: ${buttonPages.length > 0 ? "✅" : "❌"}`, inline: true }
       )
       .setColor(menu.embedColor || "#5865F2");
 
-    // Add page display breakdown
+    // Add page display breakdown and build embed fields
     if (menu.pages.length > 0) {
       const pages = menu.pages;
       
@@ -11136,6 +11069,9 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         const displayIn = page.displayIn || [];
         return Array.isArray(displayIn) ? displayIn.length === 0 : false;
       });
+
+      // Update the Display Types field
+      embed.spliceFields(2, 1, { name: "Display Types", value: `📋 Dropdown: ${dropdownPages.length > 0 ? "✅" : "❌"}\n🔘 Buttons: ${buttonPages.length > 0 ? "✅" : "❌"}`, inline: true });
 
       embed.addFields([
         { 
@@ -11192,12 +11128,18 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       }
     );
 
+    // Check if there are any pages configured to be displayed
+    const hasDisplayablePages = menu.pages.some(page => {
+      const displayIn = page.displayIn || [];
+      return Array.isArray(displayIn) && displayIn.length > 0;
+    });
+
     const row_publish_delete = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`info:publish:${infoMenuId}`)
         .setLabel("Publish Menu")
         .setStyle(ButtonStyle.Success)
-        .setDisabled(menu.pages.length === 0 || (!Array.isArray(menu.selectionType) && !menu.selectionType) || (Array.isArray(menu.selectionType) && menu.selectionType.length === 0)),
+        .setDisabled(menu.pages.length === 0 || !hasDisplayablePages),
       new ButtonBuilder()
         .setCustomId(`info:edit_published:${infoMenuId}`)
         .setLabel("Update Published Menu")
@@ -11219,14 +11161,6 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     );
 
     const row_selection_and_pages = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`info:toggle_type:dropdown:${infoMenuId}`)
-        .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("dropdown") || menu.selectionType === "dropdown" ? "Disable Dropdown" : "Enable Dropdown")
-        .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("dropdown") || menu.selectionType === "dropdown" ? ButtonStyle.Danger : ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`info:toggle_type:button:${infoMenuId}`)
-        .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? "Disable Buttons" : "Enable Buttons")
-        .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? ButtonStyle.Danger : ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`info:configure_display:${infoMenuId}`)
         .setLabel("Configure Page Display")
