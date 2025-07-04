@@ -1557,9 +1557,8 @@ client.on("interactionCreate", async (interaction) => {
 
   // Check if it's a configuration interaction that should not be deferred
   const isConfigurationInteraction = (
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_display_select:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:configure_display:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:set_display:"))
+    (interaction.isButton() && interaction.customId.startsWith("info:cycle_display:"))
   );
 
   // Defer non-modal-trigger interactions
@@ -2476,19 +2475,18 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
-        // Actions that require menuId
-        const infoMenuId = parts[2];
-        if (!infoMenuId) {
-          return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
-        }
-
-        const menu = db.getInfoMenu(infoMenuId);
-        if (!menu) {
-          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
-        }
-
         if (action === "toggle_type") {
-          const componentType = parts[3]; // 'dropdown' or 'button'
+          const componentType = parts[2]; // 'dropdown' or 'button'
+          const infoMenuId = parts[3]; // The menu ID
+          
+          if (!infoMenuId) {
+            return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+          }
+
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          }
           
           // Initialize selectionTypes as an array if it's not already
           let selectionTypes = Array.isArray(menu.selectionType) ? menu.selectionType : 
@@ -2507,6 +2505,17 @@ client.on("interactionCreate", async (interaction) => {
           }
           
           return showInfoMenuConfiguration(interaction, infoMenuId);
+        }
+
+        // Actions that require menuId
+        const infoMenuId = parts[2];
+        if (!infoMenuId) {
+          return sendEphemeralEmbed(interaction, "❌ Menu ID missing.", "#FF0000", "Error", false);
+        }
+
+        const menu = db.getInfoMenu(infoMenuId);
+        if (!menu) {
+          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
         }
 
         if (action === "add_page") {
@@ -2788,12 +2797,11 @@ client.on("interactionCreate", async (interaction) => {
           return showPageDisplayConfiguration(interaction, infoMenuId);
         }
 
-        if (action === "set_display") {
+        if (action === "cycle_display") {
           const pageId = parts[3];
-          const displayType = parts[4]; // 'dropdown_only', 'button_only', 'both', 'hidden'
-
-          if (!pageId || !displayType) {
-            return sendEphemeralEmbed(interaction, "❌ Invalid display configuration.", "#FF0000", "Error", false);
+          
+          if (!pageId) {
+            return sendEphemeralEmbed(interaction, "❌ Page ID missing.", "#FF0000", "Error", false);
           }
 
           const page = db.getInfoMenuPage(infoMenuId, pageId);
@@ -2801,37 +2809,40 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
           }
 
-          // Set the display preferences based on the selected option
-          let newDisplayIn;
-          switch (displayType) {
-            case 'dropdown_only':
-              newDisplayIn = ['dropdown'];
-              break;
-            case 'button_only':
-              newDisplayIn = ['button'];
-              break;
-            case 'both':
-              newDisplayIn = ['dropdown', 'button'];
-              break;
-            case 'hidden':
-              newDisplayIn = [];
-              break;
-            default:
-              return sendEphemeralEmbed(interaction, "❌ Invalid display type.", "#FF0000", "Error", false);
+          // Cycle through display options: Both → Dropdown Only → Button Only → Hidden → Both
+          const currentDisplay = page.displayIn || ['dropdown', 'button'];
+          let newDisplay;
+          let statusMessage;
+
+          if (Array.isArray(currentDisplay)) {
+            if (currentDisplay.includes('dropdown') && currentDisplay.includes('button')) {
+              // Currently Both → change to Dropdown Only
+              newDisplay = ['dropdown'];
+              statusMessage = "📋 Dropdown Only";
+            } else if (currentDisplay.includes('dropdown') && !currentDisplay.includes('button')) {
+              // Currently Dropdown Only → change to Button Only
+              newDisplay = ['button'];
+              statusMessage = "🔘 Button Only";
+            } else if (currentDisplay.includes('button') && !currentDisplay.includes('dropdown')) {
+              // Currently Button Only → change to Hidden
+              newDisplay = [];
+              statusMessage = "❌ Hidden";
+            } else {
+              // Currently Hidden → change to Both
+              newDisplay = ['dropdown', 'button'];
+              statusMessage = "📋🔘 Both";
+            }
+          } else {
+            // Fallback: set to Both
+            newDisplay = ['dropdown', 'button'];
+            statusMessage = "📋🔘 Both";
           }
 
-          // Update the page with new display settings
-          const updatedPage = { ...page, displayIn: newDisplayIn };
+          // Update the page
+          const updatedPage = { ...page, displayIn: newDisplay };
           await db.saveInfoMenuPage(infoMenuId, updatedPage);
 
-          const displayName = {
-            'dropdown_only': '📋 Dropdown Only',
-            'button_only': '🔘 Button Only',
-            'both': '📋🔘 Both Dropdown & Button',
-            'hidden': '❌ Hidden'
-          }[displayType];
-
-          await sendEphemeralEmbed(interaction, `✅ Page "${page.name}" display set to: ${displayName}`, "#00FF00", "Success", false);
+          await sendEphemeralEmbed(interaction, `✅ "${page.name}" set to: ${statusMessage}`, "#00FF00", "Success", false);
           
           // Return to the display configuration screen
           return showPageDisplayConfiguration(interaction, infoMenuId);
@@ -3352,90 +3363,6 @@ client.on("interactionCreate", async (interaction) => {
               flags: MessageFlags.Ephemeral
             });
           }
-        }
-
-        if (action === "page_display_select") {
-          const infoMenuId = parts[2];
-          const selectedPageId = interaction.values[0];
-
-          if (!infoMenuId || !selectedPageId) {
-            const errorMessage = {
-              content: "❌ Invalid page selection.",
-              flags: MessageFlags.Ephemeral
-            };
-            return interaction.deferred || interaction.replied ? 
-              interaction.editReply(errorMessage) : 
-              interaction.reply(errorMessage);
-          }
-
-          const menu = db.getInfoMenu(infoMenuId);
-          if (!menu) {
-            const errorMessage = {
-              content: "❌ Information menu not found.",
-              flags: MessageFlags.Ephemeral
-            };
-            return interaction.deferred || interaction.replied ? 
-              interaction.editReply(errorMessage) : 
-              interaction.reply(errorMessage);
-          }
-
-          const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
-          if (!page) {
-            const errorMessage = {
-              content: "❌ Page not found.",
-              flags: MessageFlags.Ephemeral
-            };
-            return interaction.deferred || interaction.replied ? 
-              interaction.editReply(errorMessage) : 
-              interaction.reply(errorMessage);
-          }
-
-          // Show page display configuration options
-          const currentDisplayIn = page.displayIn || ['dropdown', 'button'];
-          const isInDropdown = Array.isArray(currentDisplayIn) ? currentDisplayIn.includes('dropdown') : currentDisplayIn === 'dropdown';
-          const isInButton = Array.isArray(currentDisplayIn) ? currentDisplayIn.includes('button') : currentDisplayIn === 'button';
-
-          const embed = new EmbedBuilder()
-            .setTitle(`⚙️ Configure Display: ${page.name}`)
-            .setDescription(`Choose where this page should appear:\n\n**Current Settings:**\n📋 Dropdown: ${isInDropdown ? '✅ Yes' : '❌ No'}\n🔘 Button: ${isInButton ? '✅ Yes' : '❌ No'}`)
-            .setColor("#5865F2");
-
-          const row1 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:dropdown_only`)
-              .setLabel("📋 Dropdown Only")
-              .setStyle(isInDropdown && !isInButton ? ButtonStyle.Success : ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:button_only`)
-              .setLabel("🔘 Button Only")
-              .setStyle(!isInDropdown && isInButton ? ButtonStyle.Success : ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:both`)
-              .setLabel("📋🔘 Both")
-              .setStyle(isInDropdown && isInButton ? ButtonStyle.Success : ButtonStyle.Secondary)
-          );
-
-          const row2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:hidden`)
-              .setLabel("❌ Hidden")
-              .setStyle(!isInDropdown && !isInButton ? ButtonStyle.Danger : ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`info:configure_display:${infoMenuId}`)
-              .setLabel("Back to Page List")
-              .setStyle(ButtonStyle.Secondary)
-              .setEmoji("⬅️")
-          );
-
-          const responseData = {
-            embeds: [embed],
-            components: [row1, row2],
-            flags: MessageFlags.Ephemeral
-          };
-
-          return interaction.deferred || interaction.replied ? 
-            interaction.editReply(responseData) : 
-            interaction.reply(responseData);
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -5895,105 +5822,47 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(`🎛️ Page Display Configuration: ${menu.name}`)
-    .setDescription(`Configure which pages appear in dropdown menus vs buttons.\n\n**How it works:**\n📋 **Dropdown** - Compact list, good for many pages\n🔘 **Button** - Direct access, limited to ~20 pages\n📋🔘 **Both** - Maximum accessibility\n❌ **Hidden** - Page exists but not shown\n\n**Current Settings:**`)
+    .setTitle(`🎛️ Page Display Settings: ${menu.name}`)
+    .setDescription(`Configure where each page appears when published.\n\n📋 **Dropdown** - Appears in the select menu\n🔘 **Button** - Appears as a direct button\n📋🔘 **Both** - Appears in both dropdown and buttons\n❌ **Hidden** - Page exists but won't be shown\n\n**Click the buttons below to toggle each page:**`)
     .setColor("#5865F2");
 
-  // Group pages by their display settings
-  const dropdownOnlyPages = pages.filter(page => {
-    const displayIn = page.displayIn || ['dropdown', 'button'];
-    return Array.isArray(displayIn) ? 
-      (displayIn.includes('dropdown') && !displayIn.includes('button')) :
-      displayIn === 'dropdown';
-  });
-
-  const buttonOnlyPages = pages.filter(page => {
-    const displayIn = page.displayIn || ['dropdown', 'button'];
-    return Array.isArray(displayIn) ? 
-      (displayIn.includes('button') && !displayIn.includes('dropdown')) :
-      displayIn === 'button';
-  });
-
-  const bothPages = pages.filter(page => {
-    const displayIn = page.displayIn || ['dropdown', 'button'];
-    return Array.isArray(displayIn) ? 
-      (displayIn.includes('dropdown') && displayIn.includes('button')) :
-      false;
-  });
-
-  const neitherPages = pages.filter(page => {
-    const displayIn = page.displayIn || ['dropdown', 'button'];
-    return Array.isArray(displayIn) ? displayIn.length === 0 : false;
-  });
-
-  // Add fields showing current configuration
-  if (dropdownOnlyPages.length > 0) {
-    embed.addFields([{
-      name: "📋 Dropdown Only",
-      value: dropdownOnlyPages.map(p => `• ${p.name}`).join('\n'),
-      inline: true
-    }]);
-  }
-
-  if (buttonOnlyPages.length > 0) {
-    embed.addFields([{
-      name: "🔘 Button Only", 
-      value: buttonOnlyPages.map(p => `• ${p.name}`).join('\n'),
-      inline: true
-    }]);
-  }
-
-  if (bothPages.length > 0) {
-    embed.addFields([{
-      name: "📋🔘 Both Dropdown & Button",
-      value: bothPages.map(p => `• ${p.name}`).join('\n'),
-      inline: true
-    }]);
-  }
-
-  if (neitherPages.length > 0) {
-    embed.addFields([{
-      name: "❌ Hidden (Neither)",
-      value: neitherPages.map(p => `• ${p.name}`).join('\n'),
-      inline: true
-    }]);
-  }
-
   const components = [];
-
-  // Add dropdown to select a page to configure
-  if (pages.length > 0) {
-    const pageOptions = pages.slice(0, 25).map(page => {
-      const displayIn = page.displayIn || ['dropdown', 'button'];
-      let description = "📋🔘 Both";
-      if (Array.isArray(displayIn)) {
-        if (displayIn.includes('dropdown') && !displayIn.includes('button')) {
-          description = "📋 Dropdown only";
-        } else if (displayIn.includes('button') && !displayIn.includes('dropdown')) {
-          description = "🔘 Button only";
-        } else if (displayIn.length === 0) {
-          description = "❌ Hidden";
-        }
+  
+  // Create buttons for each page showing current state
+  const pageButtons = pages.slice(0, 20).map(page => { // Limit to 20 pages to fit in 4 rows
+    const displayIn = page.displayIn || ['dropdown', 'button'];
+    
+    let emoji = "📋🔘";
+    let style = ButtonStyle.Primary;
+    
+    if (Array.isArray(displayIn)) {
+      if (displayIn.includes('dropdown') && !displayIn.includes('button')) {
+        emoji = "📋";
+        style = ButtonStyle.Success;
+      } else if (displayIn.includes('button') && !displayIn.includes('dropdown')) {
+        emoji = "🔘";
+        style = ButtonStyle.Secondary;
+      } else if (displayIn.length === 0) {
+        emoji = "❌";
+        style = ButtonStyle.Danger;
       }
-      
-      return {
-        label: page.name.substring(0, 100),
-        value: page.id,
-        description: description,
-        emoji: "⚙️"
-      };
-    });
+    }
+    
+    return new ButtonBuilder()
+      .setCustomId(`info:cycle_display:${infoMenuId}:${page.id}`)
+      .setLabel(`${page.name}`.substring(0, 80))
+      .setEmoji(emoji)
+      .setStyle(style);
+  });
 
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId(`info:page_display_select:${infoMenuId}`)
-      .setPlaceholder("Select a page to configure its display settings...")
-      .addOptions(pageOptions);
-
-    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  // Split buttons into rows of 5
+  for (let i = 0; i < pageButtons.length; i += 5) {
+    const row = new ActionRowBuilder().addComponents(pageButtons.slice(i, i + 5));
+    components.push(row);
   }
 
-  // Back button
-  const backRow = new ActionRowBuilder().addComponents(
+  // Add navigation buttons
+  const navRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`info:back_to_config:${infoMenuId}`)
       .setLabel("Back to Menu Config")
@@ -6001,7 +5870,7 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
       .setEmoji("⬅️")
   );
 
-  components.push(backRow);
+  components.push(navRow);
 
   const responseData = {
     embeds: [embed],
