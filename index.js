@@ -196,23 +196,33 @@ const db = {
     if (!firebaseEnabled) return;
     
     try {
-      const scheduledRef = doc(dbFirestore, "scheduledMessages", scheduleData.id);
+      const scheduledRef = doc(dbFirestore, "artifacts", appId, "public", "data", "scheduled_messages", scheduleData.id);
       setDoc(scheduledRef, scheduleData);
     } catch (error) {
       console.error("Error saving scheduled message:", error);
     }
   },
 
-  getScheduledMessages() {
-    if (!firebaseEnabled) return [];
+  async getScheduledMessages() {
+    if (!firebaseEnabled) return Array.from(scheduledMessages.values());
     
     try {
-      // For now, return empty array as we'd need to implement Firebase query
-      // In a real implementation, this would query the scheduledMessages collection
-      return [];
+      const { collection, getDocs } = require('firebase/firestore');
+      const scheduledRef = collection(dbFirestore, "artifacts", appId, "public", "data", "scheduled_messages");
+      const snapshot = await getDocs(scheduledRef);
+      
+      const schedules = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        schedules.push(data);
+        // Also load into memory for runtime access
+        scheduledMessages.set(doc.id, data);
+      });
+      
+      return schedules;
     } catch (error) {
       console.error("Error getting scheduled messages:", error);
-      return [];
+      return Array.from(scheduledMessages.values());
     }
   },
 
@@ -220,7 +230,7 @@ const db = {
     if (!firebaseEnabled) return;
     
     try {
-      const scheduledRef = doc(dbFirestore, "scheduledMessages", scheduleId);
+      const scheduledRef = doc(dbFirestore, "artifacts", appId, "public", "data", "scheduled_messages", scheduleId);
       deleteDoc(scheduledRef);
     } catch (error) {
       console.error("Error deleting scheduled message:", error);
@@ -1615,7 +1625,7 @@ client.once("ready", async () => {
   await db.loadAllInfoMenus();
 
   // Initialize new features
-  initializeScheduledMessages();
+  initializeScheduledMessages().catch(console.error);
   updateBotHealth();
   
   console.log("🚀 All systems initialized successfully!");
@@ -1872,10 +1882,10 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("schedule_time")
-                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM)")
+                  .setLabel("Schedule Time (YYYY-MM-DD HH:MM, optional)")
                   .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("2024-12-25 14:30")
+                  .setRequired(false)
+                  .setPlaceholder("2024-12-25 14:30 (leave blank to start immediately)")
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -1897,10 +1907,10 @@ client.on("interactionCreate", async (interaction) => {
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("duration")
-                  .setLabel("Auto-delete Duration (minutes, optional)")
+                  .setLabel("Auto-delete Duration (minutes, non-recurring only)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("60")
+                  .setPlaceholder("60 (ignored for recurring messages)")
               )
             );
           
@@ -4522,16 +4532,22 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: MessageFlags.Ephemeral });
           }
 
-          // Validate date format
-          const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
-          if (!dateRegex.test(scheduleTime)) {
-            return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
-          }
+          // Validate date format (if provided)
+          let scheduledDate;
+          if (scheduleTime && scheduleTime.trim()) {
+            const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+            if (!dateRegex.test(scheduleTime)) {
+              return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
+            }
 
-          // Parse and validate the date
-          const scheduledDate = new Date(scheduleTime);
-          if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
-            return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
+            // Parse and validate the date
+            scheduledDate = new Date(scheduleTime);
+            if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+              return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
+            }
+          } else {
+            // If no schedule time provided, start immediately
+            scheduledDate = new Date();
           }
 
           // Validate JSON
@@ -4542,15 +4558,17 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.editReply({ content: "❌ Invalid JSON format. Please provide valid JSON for the message.", components: [], flags: MessageFlags.Ephemeral });
           }
 
-          // Validate duration if provided
+          // Validate duration if provided (only for non-recurring messages)
           let autoDeletDuration = null;
-          if (duration) {
+          if (duration && !isRecurring) {
             const durationNum = parseInt(duration);
             if (isNaN(durationNum) || durationNum <= 0) {
               return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: MessageFlags.Ephemeral });
             }
             autoDeletDuration = durationNum;
           }
+          
+          // Note: Auto-delete is ignored for recurring messages since they replace themselves
 
           // Validate and parse recurring interval
           let recurringMs = null;
@@ -4608,13 +4626,13 @@ client.on("interactionCreate", async (interaction) => {
             
             const embed = new EmbedBuilder()
               .setTitle("✅ Message Scheduled Successfully")
-              .setDescription(`Your message has been scheduled for ${scheduleTime}${isRecurring ? ` and will repeat ${recurringDisplay.toLowerCase()}` : ''}`)
+              .setDescription(`Your message has been ${scheduleTime ? `scheduled for ${scheduleTime}` : 'scheduled to start immediately'}${isRecurring ? ` and will repeat ${recurringDisplay.toLowerCase()}` : ''}`)
               .setColor("#00FF00")
               .addFields([
                 { name: "Channel", value: `<#${channelId}>`, inline: true },
                 { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: true },
                 { name: "Recurring", value: isRecurring ? `Yes (${recurringDisplay})` : "No", inline: true },
-                { name: "Auto-delete", value: autoDeletDuration ? `${autoDeletDuration} minutes` : "No", inline: true },
+                { name: "Auto-delete", value: autoDeletDuration ? `${autoDeletDuration} minutes` : (isRecurring ? "N/A (recurring)" : "No"), inline: true },
                 { name: "Message Preview", value: `\`\`\`json\n${messageJson.substring(0, 200)}${messageJson.length > 200 ? '...' : ''}\n\`\`\``, inline: false }
               ]);
 
@@ -6124,7 +6142,7 @@ async function showPerformanceDashboard(interaction) {
 // Scheduled Messages Dashboard
 async function showScheduledMessagesDashboard(interaction) {
   try {
-    const schedules = getScheduledMessages();
+    const schedules = await getScheduledMessages();
     
     const embed = new EmbedBuilder()
       .setTitle("⏰ Scheduled Messages")
@@ -6314,7 +6332,7 @@ async function showScheduleNewMessageMenu(interaction) {
 // Show manage schedules menu
 async function showManageSchedulesMenu(interaction) {
   try {
-    const schedules = getScheduledMessages();
+    const schedules = await getScheduledMessages();
     
     if (schedules.length === 0) {
       await interaction.editReply({ 
@@ -6535,15 +6553,26 @@ class ScheduleData {
 }
 
 // Get all scheduled messages
-function getScheduledMessages() {
-  return Array.from(scheduledMessages.values());
+async function getScheduledMessages() {
+  return await db.getScheduledMessages();
 }
 
 // Initialize scheduled messages on bot start
-function initializeScheduledMessages() {
-  // Check for scheduled messages every minute
-  setInterval(checkScheduledMessages, 60000); // Check every minute
-  console.log("Scheduled messages system initialized");
+async function initializeScheduledMessages() {
+  try {
+    // Load existing scheduled messages from Firebase
+    console.log("Loading scheduled messages from database...");
+    const schedules = await db.getScheduledMessages();
+    console.log(`Loaded ${schedules.length} scheduled messages from database`);
+    
+    // Check for scheduled messages every minute
+    setInterval(checkScheduledMessages, 60000); // Check every minute
+    console.log("Scheduled messages system initialized");
+  } catch (error) {
+    console.error("Error initializing scheduled messages:", error);
+    console.log("Starting scheduled messages system without database data");
+    setInterval(checkScheduledMessages, 60000);
+  }
 }
 
 // Check and execute scheduled messages
