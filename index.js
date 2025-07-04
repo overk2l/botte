@@ -1772,6 +1772,11 @@ client.on("interactionCreate", async (interaction) => {
   // Defer non-modal-trigger interactions, but handle dashboard navigation differently
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
+      // Debug logging for webhook buttons
+      if (interaction.customId?.startsWith("schedule:webhook:")) {
+        console.log(`[DEBUG] Webhook button detected but not in modal trigger list: ${interaction.customId}`);
+        console.log(`[DEBUG] isModalTrigger: ${isModalTrigger}`);
+      }
       // Always defer interactions that need responses
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
@@ -1963,10 +1968,23 @@ client.on("interactionCreate", async (interaction) => {
           const scheduleId = parts[2];
           const schedule = scheduledMessages.get(scheduleId);
           if (!schedule) {
-            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+            // Check if interaction was deferred and handle appropriately
+            if (interaction.deferred || interaction.replied) {
+              return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+            } else {
+              return interaction.reply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+            }
           }
           
-          // Show webhook configuration modal
+          // Show webhook configuration modal (only works on non-deferred interactions)
+          if (interaction.deferred || interaction.replied) {
+            // If already deferred, we can't show a modal, so provide alternative
+            return interaction.editReply({ 
+              content: "❌ Cannot configure webhook at this time. Please try clicking the Configure Webhook button again.",
+              flags: MessageFlags.Ephemeral 
+            });
+          }
+          
           const modal = new ModalBuilder()
             .setCustomId(`schedule:modal:webhook:${scheduleId}`)
             .setTitle("Configure Webhook Settings")
