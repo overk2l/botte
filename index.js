@@ -11145,7 +11145,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setCustomId(`hybrid:component_order:${hybridMenuId}`)
       .setLabel("Component Order")
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji("�"),
+      .setEmoji("📑"),
     new ButtonBuilder()
       .setCustomId(`hybrid:customize_dropdown_text:${hybridMenuId}`)
       .setLabel("Customize Dropdown Text")
@@ -11158,7 +11158,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setCustomId(`hybrid:webhook_branding:${hybridMenuId}`)
       .setLabel("Webhook Branding")
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji("�️"),
+      .setEmoji("🏷️"),
     new ButtonBuilder()
       .setCustomId(`hybrid:toggle_webhook:${hybridMenuId}`)
       .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
@@ -11168,7 +11168,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setCustomId(`hybrid:toggle_member_counts:${hybridMenuId}`)
       .setLabel("Configure Counts")
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji("�")
+      .setEmoji("📊")
   );
 
   const row4 = new ActionRowBuilder().addComponents(
