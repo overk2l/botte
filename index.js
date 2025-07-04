@@ -1681,65 +1681,14 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("dynamic:"))
   );
 
-  // Defer non-modal-trigger interactions, but handle dashboard navigation immediately
-  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction && !isDashboardNavigation) {
+  // Defer non-modal-trigger interactions, but handle dashboard navigation differently
+  if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
       // Always defer interactions that need responses
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
-  }
-
-  // New Dashboard Handlers
-  if (interaction.customId === "dash:performance") {
-    return showPerformanceDashboard(interaction);
-  }
-  
-  if (interaction.customId === "dash:scheduled-messages") {
-    return showScheduledMessagesDashboard(interaction);
-  }
-  
-  if (interaction.customId === "dash:dynamic-content") {
-    return showDynamicContentHelp(interaction);
-  }
-  
-  if (interaction.customId === "dash:main") {
-    return sendMainDashboard(interaction);
-  }
-  
-  // Performance Dashboard Handlers
-  if (interaction.customId === "perf:refresh") {
-    return showPerformanceDashboard(interaction);
-  }
-  
-  if (interaction.customId === "perf:clear") {
-    // Clear performance metrics
-    performanceMetrics.interactions.total = 0;
-    performanceMetrics.interactions.successful = 0;
-    performanceMetrics.interactions.failed = 0;
-    performanceMetrics.interactions.responseTimes = [];
-    performanceMetrics.interactions.averageResponseTime = 0;
-    performanceMetrics.menus.infoMenuUsage.clear();
-    performanceMetrics.menus.reactionRoleUsage.clear();
-    performanceMetrics.menus.pageViews.clear();
-    
-    await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
-    setTimeout(() => showPerformanceDashboard(interaction), 1000);
-    return;
-  }
-  
-  // Scheduled Messages Handlers
-  if (interaction.customId === "schedule:refresh") {
-    return showScheduledMessagesDashboard(interaction);
-  }
-  
-  if (interaction.customId === "schedule:new") {
-    return showScheduleNewMessageMenu(interaction);
-  }
-  
-  if (interaction.customId === "schedule:manage") {
-    return showManageSchedulesMenu(interaction);
   }
 
   try {
@@ -1794,7 +1743,63 @@ client.on("interactionCreate", async (interaction) => {
       if (ctx === "dash") {
         if (action === "reaction-roles") return showReactionRolesDashboard(interaction);
         if (action === "info-menus") return showInfoMenusDashboard(interaction);
+        if (action === "scheduled-messages") return showScheduledMessagesDashboard(interaction);
+        if (action === "performance") return showPerformanceDashboard(interaction);
+        if (action === "dynamic-content") return showDynamicContentHelp(interaction);
+        if (action === "main") return sendMainDashboard(interaction);
         if (action === "back") return sendMainDashboard(interaction);
+      }
+
+      if (ctx === "perf") {
+        if (action === "refresh") return showPerformanceDashboard(interaction);
+        if (action === "clear") {
+          // Clear performance metrics
+          performanceMetrics.interactions.total = 0;
+          performanceMetrics.interactions.successful = 0;
+          performanceMetrics.interactions.failed = 0;
+          performanceMetrics.interactions.responseTimes = [];
+          performanceMetrics.interactions.averageResponseTime = 0;
+          performanceMetrics.menus.infoMenuUsage.clear();
+          performanceMetrics.menus.reactionRoleUsage.clear();
+          performanceMetrics.menus.pageViews.clear();
+          
+          await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
+          setTimeout(() => showPerformanceDashboard(interaction), 1000);
+          return;
+        }
+      }
+
+      if (ctx === "schedule") {
+        if (action === "refresh") return showScheduledMessagesDashboard(interaction);
+        if (action === "new") return showScheduleNewMessageMenu(interaction);
+        if (action === "manage") return showManageSchedulesMenu(interaction);
+        if (action === "back") return showScheduledMessagesDashboard(interaction);
+      }
+
+      if (ctx === "dynamic") {
+        if (action === "test") {
+          const testEmbed = new EmbedBuilder()
+            .setTitle("🧪 Dynamic Content Test")
+            .setDescription("Here's how dynamic variables work in real-time!")
+            .setColor("#9932cc")
+            .addFields([
+              { name: "User Info", value: `Hello ${processDynamicContent('{user}', interaction)}!\nYour name is: ${processDynamicContent('{user.name}', interaction)}\nYour ID: ${processDynamicContent('{user.id}', interaction)}`, inline: false },
+              { name: "Server Info", value: `Server: ${processDynamicContent('{server}', interaction)}\nMembers: ${processDynamicContent('{server.members}', interaction)}`, inline: false },
+              { name: "Time Info", value: `Current time: ${processDynamicContent('{time}', interaction)}\nShort time: ${processDynamicContent('{time.short}', interaction)}\nRelative: ${processDynamicContent('{timestamp}', interaction)}`, inline: false },
+              { name: "Bot Info", value: `Bot: ${processDynamicContent('{bot.name}', interaction)}\nPing: ${processDynamicContent('{bot.ping}', interaction)}\nUptime: ${processDynamicContent('{bot.uptime}', interaction)}`, inline: false },
+              { name: "Random", value: `Random number: ${processDynamicContent('{random.number}', interaction)}\nRandom color: ${processDynamicContent('{random.color}', interaction)}`, inline: false }
+            ]);
+          
+          const backButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId("dash:dynamic-content")
+              .setLabel("Back to Dynamic Content")
+              .setStyle(ButtonStyle.Secondary)
+          );
+          
+          await interaction.editReply({ embeds: [testEmbed], components: [backButton], flags: MessageFlags.Ephemeral });
+          return;
+        }
       }
 
       if (ctx === "rr") {
