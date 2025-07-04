@@ -2533,6 +2533,163 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        if (action === "back_to_info_config") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          });
+        }
+
+        if (action === "back_to_roles_config") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridRolesConfiguration(interaction, hybridMenuId);
+          });
+        }
+
+        if (action === "edit_role") {
+          const hybridMenuId = parts[2];
+          const roleType = parts[3];
+          const roleId = parts[4];
+          
+          console.log(`[Hybrid Debug] Edit role button clicked for menu: ${hybridMenuId}, role: ${roleId}, type: ${roleType}`);
+          
+          // For now, show a placeholder message indicating this feature is coming soon
+          return sendEphemeralEmbed(interaction, "🚧 Role editing features coming soon! This will allow you to customize role descriptions, emojis, and button colors.", "#FFA500", "Coming Soon", false);
+        }
+
+        if (action === "remove_role") {
+          const hybridMenuId = parts[2];
+          const roleType = parts[3];
+          const roleId = parts[4];
+          
+          console.log(`[Hybrid Debug] Remove role button clicked for menu: ${hybridMenuId}, role: ${roleId}, type: ${roleType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) {
+              return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+            }
+
+            // Remove the role from the appropriate array
+            if (roleType === "dropdown") {
+              const updatedDropdownRoles = (menu.dropdownRoles || []).filter(id => id !== roleId);
+              await db.updateHybridMenu(hybridMenuId, { dropdownRoles: updatedDropdownRoles });
+            } else if (roleType === "button") {
+              const updatedButtonRoles = (menu.buttonRoles || []).filter(id => id !== roleId);
+              await db.updateHybridMenu(hybridMenuId, { buttonRoles: updatedButtonRoles });
+            }
+
+            console.log(`[Hybrid Debug] Successfully removed ${roleType} role: ${roleId}`);
+            await sendEphemeralEmbed(interaction, `✅ Role "${role.name}" removed from ${roleType} roles!`, "#00FF00", "Success", false);
+            return showHybridRolesConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error removing role:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error removing role. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "component_order") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Component order button clicked for menu: ${hybridMenuId}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const embed = new EmbedBuilder()
+              .setTitle(`📑 Component Order: ${menu.name}`)
+              .setDescription("Configure the order in which components appear in your published hybrid menu.\n\n**Current Order:**")
+              .setColor("#5865F2");
+
+            // Get current component order or use defaults
+            const currentOrder = menu.componentOrder || {
+              infoDropdown: 1,
+              roleDropdown: 2,
+              infoButtons: 3,
+              roleButtons: 4
+            };
+
+            // Create ordered list of components
+            const orderEntries = Object.entries(currentOrder).sort((a, b) => a[1] - b[1]);
+            const orderDisplay = orderEntries.map(([key, order], index) => {
+              const componentNames = {
+                infoDropdown: "📋 Info Pages Dropdown",
+                roleDropdown: "🎭 Role Selection Dropdown", 
+                infoButtons: "📋 Info Pages Buttons",
+                roleButtons: "🎭 Role Selection Buttons"
+              };
+              return `${index + 1}. ${componentNames[key] || key}`;
+            }).join('\n');
+
+            embed.addFields([
+              { name: "Current Component Order", value: orderDisplay, inline: false },
+              { name: "How it works", value: "Components are arranged in the published menu according to this order. Lower numbers appear first.", inline: false }
+            ]);
+
+            const components = [];
+
+            // Add reorder buttons
+            const reorderRow1 = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`hybrid:move_component:${hybridMenuId}:infoDropdown:up`)
+                .setLabel("📋↑ Info Dropdown Up")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentOrder.infoDropdown === 1),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:move_component:${hybridMenuId}:infoDropdown:down`)
+                .setLabel("📋↓ Info Dropdown Down")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentOrder.infoDropdown === 4),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:move_component:${hybridMenuId}:roleDropdown:up`)
+                .setLabel("🎭↑ Role Dropdown Up")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentOrder.roleDropdown === 1)
+            );
+
+            const reorderRow2 = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`hybrid:move_component:${hybridMenuId}:roleDropdown:down`)
+                .setLabel("🎭↓ Role Dropdown Down")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentOrder.roleDropdown === 4),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:reset_component_order:${hybridMenuId}`)
+                .setLabel("🔄 Reset to Default")
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:back_to_config:${hybridMenuId}`)
+                .setLabel("Back to Menu Config")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("⬅️")
+            );
+
+            components.push(reorderRow1, reorderRow2);
+
+            const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+            
+            if (interaction.deferred || interaction.replied) {
+              await interaction.editReply(responseData);
+            } else {
+              await interaction.reply(responseData);
+            }
+
+            console.log(`[Hybrid Debug] Successfully showed component order configuration`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error showing component order:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error showing component order configuration. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
         if (action === "add_info_page") {
           const hybridMenuId = parts[2];
           const modal = new ModalBuilder()
@@ -5045,6 +5202,133 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Debug] Error in save_role_display:`, error);
             return sendEphemeralEmbed(interaction, "❌ Error saving role display type. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "manage_info_page") {
+          const hybridMenuId = parts[2];
+          const pageId = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Processing manage_info_page for menu: ${hybridMenuId}, page: ${pageId}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const page = menu.pages?.find(p => p.id === pageId);
+            if (!page) {
+              console.log(`[Hybrid Debug] Page not found: ${pageId}`);
+              return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            }
+
+            // Show page management options
+            const embed = new EmbedBuilder()
+              .setTitle(`📝 Manage Page: ${page.name}`)
+              .setDescription(`**Page Content:**\n${page.content.substring(0, 1000)}${page.content.length > 1000 ? '...' : ''}`)
+              .setColor("#5865F2")
+              .addFields([
+                { name: "Created", value: page.createdAt ? new Date(page.createdAt).toLocaleDateString() : "Unknown", inline: true },
+                { name: "Updated", value: page.updatedAt ? new Date(page.updatedAt).toLocaleDateString() : "Not updated", inline: true },
+                { name: "Page ID", value: page.id, inline: true }
+              ]);
+
+            const actionRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`hybrid:edit_info_page:${hybridMenuId}:${pageId}`)
+                .setLabel("Edit Page")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("✏️"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:delete_info_page:${hybridMenuId}:${pageId}`)
+                .setLabel("Delete Page")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("🗑️"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:back_to_info_config:${hybridMenuId}`)
+                .setLabel("Back")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("⬅️")
+            );
+
+            const responseData = { embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral };
+            
+            if (interaction.deferred || interaction.replied) {
+              await interaction.editReply(responseData);
+            } else {
+              await interaction.reply(responseData);
+            }
+
+            console.log(`[Hybrid Debug] Successfully showed page management for page: ${pageId}`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in manage_info_page:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error managing page. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "manage_role") {
+          const hybridMenuId = parts[2];
+          const roleValue = interaction.values[0]; // Format: "dropdown_roleId" or "button_roleId"
+          const [roleType, roleId] = roleValue.split('_');
+          
+          console.log(`[Hybrid Debug] Processing manage_role for menu: ${hybridMenuId}, role: ${roleId}, type: ${roleType}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Hybrid Debug] Hybrid menu not found: ${hybridMenuId}`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) {
+              console.log(`[Hybrid Debug] Role not found: ${roleId}`);
+              return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+            }
+
+            // Show role management options
+            const embed = new EmbedBuilder()
+              .setTitle(`🎭 Manage Role: ${role.name}`)
+              .setDescription(`**Role Information:**\nName: ${role.name}\nID: ${role.id}\nType: ${roleType.charAt(0).toUpperCase() + roleType.slice(1)}\nMembers: ${role.members.size}`)
+              .setColor(role.color || "#5865F2")
+              .addFields([
+                { name: "Position", value: role.position.toString(), inline: true },
+                { name: "Mentionable", value: role.mentionable ? "Yes" : "No", inline: true },
+                { name: "Hoisted", value: role.hoist ? "Yes" : "No", inline: true }
+              ]);
+
+            const actionRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`hybrid:edit_role:${hybridMenuId}:${roleType}:${roleId}`)
+                .setLabel("Edit Role Settings")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("✏️"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:remove_role:${hybridMenuId}:${roleType}:${roleId}`)
+                .setLabel("Remove Role")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("🗑️"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:back_to_roles_config:${hybridMenuId}`)
+                .setLabel("Back")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("⬅️")
+            );
+
+            const responseData = { embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral };
+            
+            if (interaction.deferred || interaction.replied) {
+              await interaction.editReply(responseData);
+            } else {
+              await interaction.reply(responseData);
+            }
+
+            console.log(`[Hybrid Debug] Successfully showed role management for role: ${roleId}`);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in manage_role:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error managing role. Please try again.", "#FF0000", "Error", false);
           }
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
