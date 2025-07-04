@@ -2510,7 +2510,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Configuration (JSON)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {"title": "Title", "description": "..."}}')
+                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {"title": "Title", "description": "..."}, "displayIn": ["dropdown", "button"]}')
                   .setMaxLength(4000)
               )
             );
@@ -2772,6 +2772,59 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "manage_pages") {
           return showInfoMenuPageManagement(interaction, infoMenuId);
+        }
+
+        if (action === "configure_display") {
+          return showPageDisplayConfiguration(interaction, infoMenuId);
+        }
+
+        if (action === "set_display") {
+          const pageId = parts[3];
+          const displayType = parts[4]; // 'dropdown_only', 'button_only', 'both', 'hidden'
+
+          if (!pageId || !displayType) {
+            return sendEphemeralEmbed(interaction, "❌ Invalid display configuration.", "#FF0000", "Error", false);
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          // Set the display preferences based on the selected option
+          let newDisplayIn;
+          switch (displayType) {
+            case 'dropdown_only':
+              newDisplayIn = ['dropdown'];
+              break;
+            case 'button_only':
+              newDisplayIn = ['button'];
+              break;
+            case 'both':
+              newDisplayIn = ['dropdown', 'button'];
+              break;
+            case 'hidden':
+              newDisplayIn = [];
+              break;
+            default:
+              return sendEphemeralEmbed(interaction, "❌ Invalid display type.", "#FF0000", "Error", false);
+          }
+
+          // Update the page with new display settings
+          const updatedPage = { ...page, displayIn: newDisplayIn };
+          await db.saveInfoMenuPage(infoMenuId, updatedPage);
+
+          const displayName = {
+            'dropdown_only': '📋 Dropdown Only',
+            'button_only': '🔘 Button Only',
+            'both': '📋🔘 Both Dropdown & Button',
+            'hidden': '❌ Hidden'
+          }[displayType];
+
+          await sendEphemeralEmbed(interaction, `✅ Page "${page.name}" display set to: ${displayName}`, "#00FF00", "Success", false);
+          
+          // Return to the display configuration screen
+          return showPageDisplayConfiguration(interaction, infoMenuId);
         }
 
         if (action === "back_to_config") {
@@ -3289,6 +3342,77 @@ client.on("interactionCreate", async (interaction) => {
               flags: MessageFlags.Ephemeral
             });
           }
+        }
+
+        if (action === "page_display_select") {
+          const infoMenuId = parts[2];
+          const selectedPageId = interaction.values[0];
+
+          if (!infoMenuId || !selectedPageId) {
+            return interaction.editReply({
+              content: "❌ Invalid page selection.",
+              flags: MessageFlags.Ephemeral
+            });
+          }
+
+          const menu = db.getInfoMenu(infoMenuId);
+          if (!menu) {
+            return interaction.editReply({
+              content: "❌ Information menu not found.",
+              flags: MessageFlags.Ephemeral
+            });
+          }
+
+          const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
+          if (!page) {
+            return interaction.editReply({
+              content: "❌ Page not found.",
+              flags: MessageFlags.Ephemeral
+            });
+          }
+
+          // Show page display configuration options
+          const currentDisplayIn = page.displayIn || ['dropdown', 'button'];
+          const isInDropdown = Array.isArray(currentDisplayIn) ? currentDisplayIn.includes('dropdown') : currentDisplayIn === 'dropdown';
+          const isInButton = Array.isArray(currentDisplayIn) ? currentDisplayIn.includes('button') : currentDisplayIn === 'button';
+
+          const embed = new EmbedBuilder()
+            .setTitle(`⚙️ Configure Display: ${page.name}`)
+            .setDescription(`Choose where this page should appear:\n\n**Current Settings:**\n📋 Dropdown: ${isInDropdown ? '✅ Yes' : '❌ No'}\n🔘 Button: ${isInButton ? '✅ Yes' : '❌ No'}`)
+            .setColor("#5865F2");
+
+          const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:dropdown_only`)
+              .setLabel("📋 Dropdown Only")
+              .setStyle(isInDropdown && !isInButton ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:button_only`)
+              .setLabel("🔘 Button Only")
+              .setStyle(!isInDropdown && isInButton ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:both`)
+              .setLabel("📋🔘 Both")
+              .setStyle(isInDropdown && isInButton ? ButtonStyle.Success : ButtonStyle.Secondary)
+          );
+
+          const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`info:set_display:${infoMenuId}:${selectedPageId}:hidden`)
+              .setLabel("❌ Hidden")
+              .setStyle(!isInDropdown && !isInButton ? ButtonStyle.Danger : ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId(`info:configure_display:${infoMenuId}`)
+              .setLabel("Back to Page List")
+              .setStyle(ButtonStyle.Secondary)
+              .setEmoji("⬅️")
+          );
+
+          return interaction.editReply({
+            embeds: [embed],
+            components: [row1, row2],
+            flags: MessageFlags.Ephemeral
+          });
         }
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
@@ -4235,7 +4359,8 @@ client.on("interactionCreate", async (interaction) => {
             const pageId = await db.saveInfoMenuPage(infoMenuId, {
               id: pageData.id,
               name: pageData.name,
-              content: pageData.content
+              content: pageData.content,
+              displayIn: pageData.displayIn || ['dropdown', 'button'] // Default to both if not specified
             });
             await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" added successfully!`, "#00FF00", "Success", false);
             return showInfoMenuConfiguration(interaction, infoMenuId);
@@ -5706,6 +5831,150 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
 }
 
 /**
+ * Shows the page display configuration interface for an information menu.
+ * Allows users to control which pages appear in dropdown vs buttons.
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu.
+ */
+async function showPageDisplayConfiguration(interaction, infoMenuId) {
+  const menu = db.getInfoMenu(infoMenuId);
+  if (!menu) {
+    return interaction.editReply({
+      content: "❌ Information menu not found.",
+      embeds: [],
+      components: [],
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
+  const pages = db.getInfoMenuPages(infoMenuId);
+  
+  if (pages.length === 0) {
+    return interaction.editReply({
+      content: "❌ No pages found. Add some pages first!",
+      embeds: [],
+      components: [],
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🎛️ Page Display Configuration: ${menu.name}`)
+    .setDescription(`Configure which pages appear in dropdown menus vs buttons.\n\n**How it works:**\n📋 **Dropdown** - Compact list, good for many pages\n🔘 **Button** - Direct access, limited to ~20 pages\n📋🔘 **Both** - Maximum accessibility\n❌ **Hidden** - Page exists but not shown\n\n**Current Settings:**`)
+    .setColor("#5865F2");
+
+  // Group pages by their display settings
+  const dropdownOnlyPages = pages.filter(page => {
+    const displayIn = page.displayIn || ['dropdown', 'button'];
+    return Array.isArray(displayIn) ? 
+      (displayIn.includes('dropdown') && !displayIn.includes('button')) :
+      displayIn === 'dropdown';
+  });
+
+  const buttonOnlyPages = pages.filter(page => {
+    const displayIn = page.displayIn || ['dropdown', 'button'];
+    return Array.isArray(displayIn) ? 
+      (displayIn.includes('button') && !displayIn.includes('dropdown')) :
+      displayIn === 'button';
+  });
+
+  const bothPages = pages.filter(page => {
+    const displayIn = page.displayIn || ['dropdown', 'button'];
+    return Array.isArray(displayIn) ? 
+      (displayIn.includes('dropdown') && displayIn.includes('button')) :
+      false;
+  });
+
+  const neitherPages = pages.filter(page => {
+    const displayIn = page.displayIn || ['dropdown', 'button'];
+    return Array.isArray(displayIn) ? displayIn.length === 0 : false;
+  });
+
+  // Add fields showing current configuration
+  if (dropdownOnlyPages.length > 0) {
+    embed.addFields([{
+      name: "📋 Dropdown Only",
+      value: dropdownOnlyPages.map(p => `• ${p.name}`).join('\n'),
+      inline: true
+    }]);
+  }
+
+  if (buttonOnlyPages.length > 0) {
+    embed.addFields([{
+      name: "🔘 Button Only", 
+      value: buttonOnlyPages.map(p => `• ${p.name}`).join('\n'),
+      inline: true
+    }]);
+  }
+
+  if (bothPages.length > 0) {
+    embed.addFields([{
+      name: "📋🔘 Both Dropdown & Button",
+      value: bothPages.map(p => `• ${p.name}`).join('\n'),
+      inline: true
+    }]);
+  }
+
+  if (neitherPages.length > 0) {
+    embed.addFields([{
+      name: "❌ Hidden (Neither)",
+      value: neitherPages.map(p => `• ${p.name}`).join('\n'),
+      inline: true
+    }]);
+  }
+
+  const components = [];
+
+  // Add dropdown to select a page to configure
+  if (pages.length > 0) {
+    const pageOptions = pages.slice(0, 25).map(page => {
+      const displayIn = page.displayIn || ['dropdown', 'button'];
+      let description = "📋🔘 Both";
+      if (Array.isArray(displayIn)) {
+        if (displayIn.includes('dropdown') && !displayIn.includes('button')) {
+          description = "📋 Dropdown only";
+        } else if (displayIn.includes('button') && !displayIn.includes('dropdown')) {
+          description = "🔘 Button only";
+        } else if (displayIn.length === 0) {
+          description = "❌ Hidden";
+        }
+      }
+      
+      return {
+        label: page.name.substring(0, 100),
+        value: page.id,
+        description: description,
+        emoji: "⚙️"
+      };
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`info:page_display_select:${infoMenuId}`)
+      .setPlaceholder("Select a page to configure its display settings...")
+      .addOptions(pageOptions);
+
+    components.push(new ActionRowBuilder().addComponents(selectMenu));
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:back_to_config:${infoMenuId}`)
+      .setLabel("Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  components.push(backRow);
+
+  return interaction.editReply({
+    embeds: [embed],
+    components: components,
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+/**
  * Publishes an information menu to a channel or edits an existing published message.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  * @param {string} infoMenuId - The ID of the info menu to publish.
@@ -5752,49 +6021,64 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
                           (menu.selectionType ? [menu.selectionType] : []);
 
     if (selectionTypes.includes("dropdown")) {
-      // Create dropdown with pages
-      const pageOptions = pages.slice(0, 25).map(page => ({
-        label: page.name.substring(0, 100),
-        value: page.id,
-        description: page.content.description ? page.content.description.substring(0, 100) : undefined
-      }));
+      // Filter pages that should appear in dropdown
+      const dropdownPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button']; // Default to both for backward compatibility
+        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+      });
 
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`info-menu-select:${infoMenuId}`)
-        .setPlaceholder("Select a page to view...")
-        .addOptions(pageOptions);
+      if (dropdownPages.length > 0) {
+        const pageOptions = dropdownPages.slice(0, 25).map(page => ({
+          label: page.name.substring(0, 100),
+          value: page.id,
+          description: page.content.description ? page.content.description.substring(0, 100) : undefined
+        }));
 
-      components.push(new ActionRowBuilder().addComponents(selectMenu));
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`info-menu-select:${infoMenuId}`)
+          .setPlaceholder("Select a page to view...")
+          .addOptions(pageOptions);
+
+        components.push(new ActionRowBuilder().addComponents(selectMenu));
+      }
     }
 
     if (selectionTypes.includes("button")) {
-      // Create buttons for pages (max 25 buttons across 5 rows)
-      const maxButtons = Math.min(pages.length, 25);
-      let currentRow = new ActionRowBuilder();
-      let buttonsInRow = 0;
-      let rowCount = 0;
+      // Filter pages that should appear as buttons
+      const buttonPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button']; // Default to both for backward compatibility
+        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+      });
 
-      // If dropdown is already taking a row, we have 4 rows left for buttons
-      const maxRows = selectionTypes.includes("dropdown") ? 4 : 5;
+      if (buttonPages.length > 0) {
+        // Create buttons for pages (max 25 buttons across 5 rows)
+        const maxButtons = Math.min(buttonPages.length, 25);
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+        let rowCount = 0;
 
-      for (let i = 0; i < maxButtons; i++) {
-        const page = pages[i];
-        const button = new ButtonBuilder()
-          .setCustomId(`info-page:${infoMenuId}:${page.id}`)
-          .setLabel(page.name.substring(0, 80))
-          .setStyle(ButtonStyle.Secondary);
+        // If dropdown is already taking a row, we have 4 rows left for buttons
+        const maxRows = selectionTypes.includes("dropdown") ? 4 : 5;
 
-        currentRow.addComponents(button);
-        buttonsInRow++;
+        for (let i = 0; i < maxButtons; i++) {
+          const page = buttonPages[i];
+          const button = new ButtonBuilder()
+            .setCustomId(`info-page:${infoMenuId}:${page.id}`)
+            .setLabel(page.name.substring(0, 80))
+            .setStyle(ButtonStyle.Secondary);
 
-        // Start new row after 5 buttons or if it's the last button
-        if (buttonsInRow === 5 || i === maxButtons - 1) {
-          components.push(currentRow);
-          currentRow = new ActionRowBuilder();
-          buttonsInRow = 0;
-          rowCount++;
-          
-          if (rowCount >= maxRows) break; // Discord limit
+          currentRow.addComponents(button);
+          buttonsInRow++;
+
+          // Start new row after 5 buttons or if it's the last button
+          if (buttonsInRow === 5 || i === maxButtons - 1) {
+            components.push(currentRow);
+            currentRow = new ActionRowBuilder();
+            buttonsInRow = 0;
+            rowCount++;
+            
+            if (rowCount >= maxRows) break; // Discord limit
+          }
         }
       }
     }
@@ -5925,10 +6209,55 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         { name: "Menu ID", value: `\`${infoMenuId}\``, inline: true },
         { name: "Selection Type", value: Array.isArray(menu.selectionType) ? menu.selectionType.join(" + ") || "None set" : (menu.selectionType || "None set"), inline: true },
         { name: "Published", value: menu.messageId ? `✅ Yes in <#${menu.channelId}>` : "❌ No", inline: true },
-        { name: "Pages", value: menu.pages.length > 0 ? `${menu.pages.length} pages configured` : "No pages yet", inline: false },
-        { name: "Page List", value: menu.pages.length > 0 ? menu.pages.slice(0, 10).map((page, index) => `${index + 1}. ${page.name}`).join("\n") + (menu.pages.length > 10 ? `\n... and ${menu.pages.length - 10} more` : "") : "None", inline: false }
       )
       .setColor(menu.embedColor || "#5865F2");
+
+    // Add page display breakdown
+    if (menu.pages.length > 0) {
+      const pages = menu.pages;
+      
+      // Count pages by display type
+      const dropdownPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button'];
+        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+      });
+      
+      const buttonPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button'];
+        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+      });
+
+      const hiddenPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button'];
+        return Array.isArray(displayIn) ? displayIn.length === 0 : false;
+      });
+
+      embed.addFields([
+        { 
+          name: "📊 Page Summary", 
+          value: `**Total:** ${pages.length} pages\n📋 **Dropdown:** ${dropdownPages.length}\n🔘 **Button:** ${buttonPages.length}\n❌ **Hidden:** ${hiddenPages.length}`, 
+          inline: true 
+        },
+        { 
+          name: "📚 Recent Pages", 
+          value: pages.length > 0 ? pages.slice(0, 5).map((page, index) => {
+            const displayIn = page.displayIn || ['dropdown', 'button'];
+            let icon = "📋🔘";
+            if (Array.isArray(displayIn)) {
+              if (displayIn.includes('dropdown') && !displayIn.includes('button')) icon = "📋";
+              else if (displayIn.includes('button') && !displayIn.includes('dropdown')) icon = "🔘";
+              else if (displayIn.length === 0) icon = "❌";
+            }
+            return `${icon} ${page.name}`;
+          }).join("\n") + (pages.length > 5 ? `\n*...and ${pages.length - 5} more*` : "") : "None", 
+          inline: true 
+        }
+      ]);
+    } else {
+      embed.addFields([
+        { name: "📚 Pages", value: "No pages yet. Add your first page!", inline: false }
+      ]);
+    }
 
     if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
     if (menu.embedImage) embed.setImage(menu.embedImage);
@@ -5993,6 +6322,12 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setCustomId(`info:toggle_type:button:${infoMenuId}`)
         .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? "Disable Buttons" : "Enable Buttons")
         .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`info:configure_display:${infoMenuId}`)
+        .setLabel("Configure Page Display")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🎛️")
+        .setDisabled(menu.pages.length === 0),
       new ButtonBuilder()
         .setCustomId(`info:manage_pages:${infoMenuId}`)
         .setLabel("Manage Pages")
