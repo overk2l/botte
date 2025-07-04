@@ -123,6 +123,42 @@ const db = {
   // Map to store menuId -> menuObject for quick access to menu data
   menuData: new Map(),
 
+  // Scheduled Messages Methods
+  saveScheduledMessage(scheduleData) {
+    if (!firebaseEnabled) return;
+    
+    try {
+      const scheduledRef = doc(dbFirestore, "scheduledMessages", scheduleData.id);
+      setDoc(scheduledRef, scheduleData);
+    } catch (error) {
+      console.error("Error saving scheduled message:", error);
+    }
+  },
+
+  getScheduledMessages() {
+    if (!firebaseEnabled) return [];
+    
+    try {
+      // For now, return empty array as we'd need to implement Firebase query
+      // In a real implementation, this would query the scheduledMessages collection
+      return [];
+    } catch (error) {
+      console.error("Error getting scheduled messages:", error);
+      return [];
+    }
+  },
+
+  deleteScheduledMessage(scheduleId) {
+    if (!firebaseEnabled) return;
+    
+    try {
+      const scheduledRef = doc(dbFirestore, "scheduledMessages", scheduleId);
+      deleteDoc(scheduledRef);
+    } catch (error) {
+      console.error("Error deleting scheduled message:", error);
+    }
+  },
+
   /**
    * Loads all reaction role menus from Firestore into memory.
    * This should be called once when the bot starts.
@@ -1567,6 +1603,9 @@ process.on('SIGTERM', () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  const interactionStartTime = Date.now();
+  let interactionSuccess = true;
+  
   // Early return for DMs
   if (!interaction.guild) {
     if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu()) {
@@ -1642,6 +1681,57 @@ client.on("interactionCreate", async (interaction) => {
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
+  }
+
+  // New Dashboard Handlers
+  if (interaction.customId === "dash:performance") {
+    return showPerformanceDashboard(interaction);
+  }
+  
+  if (interaction.customId === "dash:scheduled-messages") {
+    return showScheduledMessagesDashboard(interaction);
+  }
+  
+  if (interaction.customId === "dash:dynamic-content") {
+    return showDynamicContentHelp(interaction);
+  }
+  
+  if (interaction.customId === "dash:main") {
+    return sendMainDashboard(interaction);
+  }
+  
+  // Performance Dashboard Handlers
+  if (interaction.customId === "perf:refresh") {
+    return showPerformanceDashboard(interaction);
+  }
+  
+  if (interaction.customId === "perf:clear") {
+    // Clear performance metrics
+    performanceMetrics.interactions.total = 0;
+    performanceMetrics.interactions.successful = 0;
+    performanceMetrics.interactions.failed = 0;
+    performanceMetrics.interactions.responseTimes = [];
+    performanceMetrics.interactions.averageResponseTime = 0;
+    performanceMetrics.menus.infoMenuUsage.clear();
+    performanceMetrics.menus.reactionRoleUsage.clear();
+    performanceMetrics.menus.pageViews.clear();
+    
+    await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
+    setTimeout(() => showPerformanceDashboard(interaction), 1000);
+    return;
+  }
+  
+  // Scheduled Messages Handlers
+  if (interaction.customId === "schedule:refresh") {
+    return showScheduledMessagesDashboard(interaction);
+  }
+  
+  if (interaction.customId === "schedule:new") {
+    return showScheduleNewMessageMenu(interaction);
+  }
+  
+  if (interaction.customId === "schedule:manage") {
+    return showManageSchedulesMenu(interaction);
   }
 
   try {
@@ -5344,6 +5434,25 @@ client.on("interactionCreate", async (interaction) => {
           }
       }
   }
+
+    // Track menu usage and performance
+    if (interaction.customId?.includes("info-page:")) {
+      const menuId = interaction.customId.split(":")[1];
+      trackMenuUsage(menuId, 'info');
+    }
+    
+    // Track page views
+    if (interaction.customId?.includes("info-page:")) {
+      const pageId = interaction.customId.split(":")[2];
+      if (pageId) trackPageView(pageId);
+    }
+    
+    // Track performance at end of interaction
+    try {
+      trackInteractionPerformance(interaction, interactionStartTime, interactionSuccess);
+    } catch (perfError) {
+      console.error("Error tracking performance:", perfError);
+    }
 });
 
 async function handleRoleInteraction(interaction) {
@@ -5576,6 +5685,86 @@ async function promptManageRoles(interaction, menuId, type) {
 }
 
 
+// Performance Dashboard
+async function showPerformanceDashboard(interaction) {
+  try {
+    updateBotHealth();
+    
+    const embed = new EmbedBuilder()
+      .setTitle("🔧 Bot Performance Dashboard")
+      .setColor("#00ff00")
+      .setTimestamp();
+
+    // Bot Health
+    const uptimeHours = Math.floor(performanceMetrics.bot.uptime / (1000 * 60 * 60));
+    const uptimeMinutes = Math.floor((performanceMetrics.bot.uptime % (1000 * 60 * 60)) / (1000 * 60));
+    
+    embed.addFields([
+      {
+        name: "🤖 Bot Health",
+        value: `**Uptime:** ${uptimeHours}h ${uptimeMinutes}m\n**Memory:** ${performanceMetrics.bot.memoryUsage.toFixed(1)}MB\n**Status:** ${performanceMetrics.bot.uptime > 60000 ? '🟢 Healthy' : '🟡 Starting'}`,
+        inline: true
+      },
+      {
+        name: "⚡ Performance",
+        value: `**Total Interactions:** ${performanceMetrics.interactions.total}\n**Success Rate:** ${performanceMetrics.interactions.total > 0 ? ((performanceMetrics.interactions.successful / performanceMetrics.interactions.total) * 100).toFixed(1) : 0}%\n**Avg Response:** ${performanceMetrics.interactions.averageResponseTime.toFixed(0)}ms`,
+        inline: true
+      },
+      {
+        name: "📊 Usage Stats",
+        value: `**Info Menus:** ${performanceMetrics.menus.infoMenuUsage.size} active\n**Reaction Roles:** ${performanceMetrics.menus.reactionRoleUsage.size} active\n**Page Views:** ${Array.from(performanceMetrics.menus.pageViews.values()).reduce((a, b) => a + b, 0)}`,
+        inline: true
+      }
+    ]);
+
+    // Top used menus
+    const topInfoMenus = Array.from(performanceMetrics.menus.infoMenuUsage.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([id, count]) => {
+        const menu = db.getInfoMenu(id);
+        return `${menu?.name || 'Unknown'}: ${count} uses`;
+      });
+
+    if (topInfoMenus.length > 0) {
+      embed.addFields([
+        {
+          name: "🏆 Top Info Menus",
+          value: topInfoMenus.join('\n') || 'No data yet',
+          inline: false
+        }
+      ]);
+    }
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("perf:refresh")
+        .setLabel("Refresh")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🔄"),
+      new ButtonBuilder()
+        .setCustomId("perf:detailed")
+        .setLabel("Detailed Stats")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("📈"),
+      new ButtonBuilder()
+        .setCustomId("perf:clear")
+        .setLabel("Clear Stats")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🗑️"),
+      new ButtonBuilder()
+        .setCustomId("dash:main")
+        .setLabel("Back to Dashboard")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error showing performance dashboard:", error);
+    await interaction.editReply({ content: "❌ Error loading performance dashboard.", flags: MessageFlags.Ephemeral });
+  }
+}
+
 // --- Dashboard Functions ---
 
 /**
@@ -5589,7 +5778,7 @@ async function sendMainDashboard(interaction) {
         .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
         .setColor("#5865F2");
 
-    const row = new ActionRowBuilder().addComponents(
+    const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId("dash:reaction-roles")
             .setLabel("Reaction Roles")
@@ -5599,10 +5788,25 @@ async function sendMainDashboard(interaction) {
             .setCustomId("dash:info-menus")
             .setLabel("Information Menus")
             .setStyle(ButtonStyle.Primary)
-            .setEmoji("📋")
+            .setEmoji("📋"),
+        new ButtonBuilder()
+            .setCustomId("dash:scheduled-messages")
+            .setLabel("Scheduled Messages")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("⏰"),
+        new ButtonBuilder()
+            .setCustomId("dash:performance")
+            .setLabel("Performance")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("📊"),
+        new ButtonBuilder()
+            .setCustomId("dash:dynamic-content")
+            .setLabel("Dynamic Content")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("🔮")
     );
     
-    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [row1], flags: MessageFlags.Ephemeral });
   } catch (error) {
     console.error("Error in sendMainDashboard:", error);
     throw error; // Re-throw to be caught by the caller
@@ -6553,10 +6757,14 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
       return sendEphemeralEmbed(interaction, "❌ No pages found for this menu. Add some pages first!", "#FF0000", "Error", false);
     }
 
-    // Create the main embed
+    // Process dynamic content for menu title and description
+    const processedTitle = processDynamicContent(menu.name, interaction);
+    const processedDescription = processDynamicContent(menu.desc, interaction);
+
+    // Create the main embed with dynamic content
     const embed = new EmbedBuilder()
-      .setTitle(menu.name)
-      .setDescription(menu.desc)
+      .setTitle(processedTitle)
+      .setDescription(processedDescription)
       .setColor(menu.embedColor || "#5865F2");
 
     if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
@@ -6564,7 +6772,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
     
     if (menu.embedAuthorName) {
       embed.setAuthor({
-        name: menu.embedAuthorName,
+        name: processDynamicContent(menu.embedAuthorName, interaction),
         iconURL: menu.embedAuthorIconURL
       });
     }
@@ -6747,6 +6955,115 @@ async function showInfoMenusDashboard(interaction) {
   } catch (error) {
       console.error("Error displaying information menus dashboard:", error);
       await interaction.editReply({ content: "❌ Something went wrong while displaying the information menus dashboard.", flags: MessageFlags.Ephemeral });
+  }
+}
+
+// Publish info menu to specific channel (for scheduled messages)
+async function publishInfoMenuToChannel(menu, channel, mockInteraction) {
+  try {
+    const pages = db.getInfoMenuPages(menu.id);
+    if (!pages || pages.length === 0) {
+      console.error("No pages found for scheduled menu:", menu.id);
+      return;
+    }
+
+    // Process dynamic content for menu title and description
+    const processedTitle = processDynamicContent(menu.name, mockInteraction);
+    const processedDescription = processDynamicContent(menu.desc, mockInteraction);
+
+    // Create the main embed with dynamic content
+    const embed = new EmbedBuilder()
+      .setTitle(processedTitle)
+      .setDescription(processedDescription)
+      .setColor(menu.embedColor || "#5865F2");
+
+    if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
+    if (menu.embedImage) embed.setImage(menu.embedImage);
+    
+    if (menu.embedAuthorName) {
+      embed.setAuthor({
+        name: processDynamicContent(menu.embedAuthorName, mockInteraction),
+        iconURL: menu.embedAuthorIconURL
+      });
+    }
+
+    if (menu.embedFooterText) {
+      embed.setFooter({
+        text: processDynamicContent(menu.embedFooterText, mockInteraction),
+        iconURL: menu.embedFooterIconURL
+      });
+    }
+
+    // Create components (simplified for scheduled messages)
+    const components = [];
+    
+    // Add dropdown if enabled
+    if (Array.isArray(menu.selectionType) && menu.selectionType.includes("dropdown") || menu.selectionType === "dropdown") {
+      const dropdownPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button'];
+        return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
+      });
+      
+      if (dropdownPages.length > 0) {
+        const options = dropdownPages.slice(0, 25).map(page => ({
+          label: page.name,
+          value: `info-page:${menu.id}:${page.id}`,
+          description: page.dropdownDescription || page.desc?.substring(0, 50) || 'No description',
+          emoji: page.emoji || '📋'
+        }));
+        
+        const dropdown = new StringSelectMenuBuilder()
+          .setCustomId(`info-menu:${menu.id}`)
+          .setPlaceholder(menu.dropdownPlaceholder || 'Select an option...')
+          .addOptions(options);
+        
+        components.push(new ActionRowBuilder().addComponents(dropdown));
+      }
+    }
+
+    // Add buttons if enabled
+    if (Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button") {
+      const buttonPages = pages.filter(page => {
+        const displayIn = page.displayIn || ['dropdown', 'button'];
+        return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
+      });
+      
+      if (buttonPages.length > 0) {
+        const buttonRows = [];
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+        
+        buttonPages.forEach(page => {
+          if (buttonsInRow >= 5) {
+            buttonRows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+            buttonsInRow = 0;
+          }
+          
+          const button = new ButtonBuilder()
+            .setCustomId(`info-page:${menu.id}:${page.id}`)
+            .setLabel(page.name)
+            .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary);
+          
+          if (page.emoji) button.setEmoji(page.emoji);
+          
+          currentRow.addComponents(button);
+          buttonsInRow++;
+        });
+        
+        if (buttonsInRow > 0) {
+          buttonRows.push(currentRow);
+        }
+        
+        components.push(...buttonRows);
+      }
+    }
+
+    // Send the message
+    await channel.send({ embeds: [embed], components });
+    
+  } catch (error) {
+    console.error("Error publishing scheduled info menu:", error);
   }
 }
 
