@@ -1637,12 +1637,8 @@ client.on("interactionCreate", async (interaction) => {
   // Defer non-modal-trigger interactions
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // For published menu interactions, defer the reply immediately
-      if (isPublishedMenuInteraction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      } else {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      }
+      // Always defer interactions that need responses
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
@@ -1671,10 +1667,20 @@ client.on("interactionCreate", async (interaction) => {
     // Slash Command Handling
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "dashboard") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", flags: MessageFlags.Ephemeral });
+        try {
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.editReply({ content: "❌ You need Administrator permissions to use the dashboard.", flags: MessageFlags.Ephemeral });
+          }
+          return await sendMainDashboard(interaction);
+        } catch (error) {
+          console.error("Error handling dashboard command:", error);
+          const errorMessage = "❌ Failed to load dashboard. Please try again.";
+          if (interaction.deferred || interaction.replied) {
+            return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+          } else {
+            return interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+          }
         }
-        return sendMainDashboard(interaction);
       }
     }
 
@@ -5577,24 +5583,30 @@ async function promptManageRoles(interaction, menuId, type) {
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  */
 async function sendMainDashboard(interaction) {
-  const embed = new EmbedBuilder()
-      .setTitle("Bot Dashboard")
-      .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
-      .setColor("#5865F2");
+  try {
+    const embed = new EmbedBuilder()
+        .setTitle("Bot Dashboard")
+        .setDescription("Welcome to the bot dashboard! Use the buttons below to manage different features.")
+        .setColor("#5865F2");
 
-  const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-          .setCustomId("dash:reaction-roles")
-          .setLabel("Reaction Roles")
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji("🎭"),
-      new ButtonBuilder()
-          .setCustomId("dash:info-menus")
-          .setLabel("Information Menus")
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji("📋")
-  );
-  await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId("dash:reaction-roles")
+            .setLabel("Reaction Roles")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("🎭"),
+        new ButtonBuilder()
+            .setCustomId("dash:info-menus")
+            .setLabel("Information Menus")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("📋")
+    );
+    
+    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    console.error("Error in sendMainDashboard:", error);
+    throw error; // Re-throw to be caught by the caller
+  }
 }
 
 /**
