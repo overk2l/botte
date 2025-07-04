@@ -7986,11 +7986,9 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            // Clear selections after user interaction
+            // Only update when member counts are enabled
             if (menu.showMemberCounts) {
                 await updatePublishedMessageComponents(interaction, menu, menuId, true);
-            } else {
-                await clearDropdownSelections(interaction, menu, menuId);
             }
             return;
         }
@@ -7999,11 +7997,9 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                // Clear selections after user interaction
+                // Only update when member counts are enabled
                 if (menu.showMemberCounts) {
                     await updatePublishedMessageComponents(interaction, menu, menuId, true);
-                } else {
-                    await clearDropdownSelections(interaction, menu, menuId);
                 }
                 return;
             }
@@ -8035,12 +8031,9 @@ async function handleRoleInteraction(interaction) {
         }
 
         // Update published message components to clear selections and update member counts
+        // Only update when member counts are enabled - when disabled, selections clear automatically
         if (menu.showMemberCounts) {
-            // Update with member counts (will also clear selections)
             await updatePublishedMessageComponents(interaction, menu, menuId, true);
-        } else {
-            // Just clear selections without updating member counts (avoids "edited" mark)
-            await clearDropdownSelections(interaction, menu, menuId);
         }
 
     } catch (error) {
@@ -9300,9 +9293,12 @@ async function clearHybridDropdownSelections(interaction, menu, hybridMenuId) {
                         newComponents.push(row);
                     }
                 } else {
-                    // Keep buttons as-is
+                    // Keep buttons as-is (don't rebuild them)
                     newComponents.push(row);
                 }
+            } else {
+                // Keep empty rows as-is
+                newComponents.push(row);
             }
         }
 
@@ -9396,14 +9392,8 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      // Clear the dropdown selection after showing the info page
-      try {
-        // Info pages don't affect member counts, so just clear the selection
-        await clearHybridDropdownSelections(interaction, menu, hybridMenuId);
-      } catch (error) {
-        console.error("Error updating hybrid menu components after info selection:", error);
-        // Continue with showing the page even if we can't update the components
-      }
+      // Info pages don't need to update the message - dropdown selections clear automatically on Discord's side
+      // No action needed here to avoid "edited" marks
 
       return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
@@ -9485,12 +9475,9 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Update the published message components to clear selections and update member counts
       try {
+        // Only update when member counts are enabled
         if (menu.showMemberCounts) {
-          // Update with member counts (will also clear selections)
           await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
-        } else {
-          // Just clear selections without updating member counts (avoids "edited" mark)
-          await clearHybridDropdownSelections(interaction, menu, hybridMenuId);
         }
       } catch (error) {
         console.error("Error updating hybrid menu components:", error);
