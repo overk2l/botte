@@ -3018,6 +3018,226 @@ client.on("interactionCreate", async (interaction) => {
           await sendEphemeralEmbed(interaction, `✅ Role "${roleName}" removed from ${roleType} successfully!`, "#00FF00", "Success", false);
           return showHybridRolesConfiguration(interaction, hybridMenuId);
         }
+
+        if (action === "move_component") {
+          const hybridMenuId = parts[2];
+          const componentType = parts[3]; // "infoDropdown", "roleDropdown", etc.
+          const direction = parts[4]; // "up" or "down"
+          
+          console.log(`[Hybrid Debug] Moving component ${componentType} ${direction} for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              // Get current component order or use defaults
+              const currentOrder = menu.componentOrder || {
+                infoDropdown: 1,
+                roleDropdown: 2,
+                infoButtons: 3,
+                roleButtons: 4
+              };
+
+              const currentPosition = currentOrder[componentType];
+              let newPosition;
+
+              if (direction === "up") {
+                newPosition = Math.max(1, currentPosition - 1);
+              } else {
+                newPosition = Math.min(4, currentPosition + 1);
+              }
+
+              if (newPosition === currentPosition) {
+                console.log(`[Hybrid Debug] Component ${componentType} already at ${direction === "up" ? "top" : "bottom"}`);
+                return sendEphemeralEmbed(interaction, `❌ Component is already at the ${direction === "up" ? "top" : "bottom"}.`, "#FF0000", "Error", false);
+              }
+
+              // Find the component at the target position and swap
+              const targetComponent = Object.keys(currentOrder).find(key => currentOrder[key] === newPosition);
+              if (targetComponent) {
+                currentOrder[targetComponent] = currentPosition;
+              }
+              currentOrder[componentType] = newPosition;
+
+              // Update the menu in the database
+              await db.updateHybridMenu(hybridMenuId, { componentOrder: currentOrder });
+
+              console.log(`[Hybrid Debug] Component order updated successfully`);
+
+              // Show updated component order UI immediately
+              return showComponentOrderConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error moving component:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error moving component. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "reset_component_order") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Resetting component order for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              // Reset to default order
+              const defaultOrder = {
+                infoDropdown: 1,
+                roleDropdown: 2,
+                infoButtons: 3,
+                roleButtons: 4
+              };
+
+              // Update the menu in the database
+              await db.updateHybridMenu(hybridMenuId, { componentOrder: defaultOrder });
+
+              console.log(`[Hybrid Debug] Component order reset to defaults successfully`);
+
+              // Show updated component order UI immediately
+              return showComponentOrderConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error resetting component order:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error resetting component order. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "customize_dropdown_text") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing dropdown text customization for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:customize_dropdown_text:${hybridMenuId}`)
+            .setTitle("Customize Dropdown Text")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("info_dropdown_placeholder")
+                  .setLabel("Info Pages Dropdown Placeholder")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
+                  .setMaxLength(150)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("role_dropdown_placeholder")
+                  .setLabel("Role Dropdown Placeholder")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+                  .setMaxLength(150)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("info_dropdown_max_text")
+                  .setLabel("Info Dropdown Max Selection Text")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.infoDropdownMaxText || "You can only select one page at a time")
+                  .setMaxLength(150)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("role_dropdown_max_text")
+                  .setLabel("Role Dropdown Max Selection Text")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.roleDropdownMaxText || "Select multiple roles")
+                  .setMaxLength(150)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
+
+        if (action === "webhook_branding") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing webhook branding for menu: ${hybridMenuId}`);
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:webhook_branding:${hybridMenuId}`)
+            .setTitle("Webhook Branding Settings")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("webhook_name")
+                  .setLabel("Webhook Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.webhookName || "")
+                  .setPlaceholder("Custom name for the webhook (leave empty for default)")
+                  .setMaxLength(80)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("webhook_avatar")
+                  .setLabel("Webhook Avatar URL")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue(menu.webhookAvatar || "")
+                  .setPlaceholder("https://example.com/avatar.png (leave empty for default)")
+                  .setMaxLength(2000)
+              )
+            );
+          
+          return interaction.showModal(modal);
+        }
+
+        if (action === "toggle_webhook") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Toggling webhook for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const newWebhookState = !menu.useWebhook;
+              await db.updateHybridMenu(hybridMenuId, { useWebhook: newWebhookState });
+
+              const statusMessage = newWebhookState ? "✅ Webhook enabled successfully!" : "✅ Webhook disabled successfully!";
+              await sendEphemeralEmbed(interaction, statusMessage, "#00FF00", "Success", false);
+              return showHybridMenuConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error(`[Hybrid Debug] Error toggling webhook:`, error);
+              return sendEphemeralEmbed(interaction, "❌ Error toggling webhook. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "back_to_config") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Returning to main config for menu: ${hybridMenuId}`);
+          
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridMenuConfiguration(interaction, hybridMenuId);
+          });
+        }
         } catch (error) {
           console.error(`[Hybrid Debug] Unexpected error in hybrid menu handler:`, error);
           console.error(`[Hybrid Debug] Action: ${action}, CustomId: ${interaction.customId}`);
@@ -7383,6 +7603,62 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to edit information page. Please try again.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "customize_dropdown_text") {
+          try {
+            const hybridMenuId = parts[3];
+            
+            console.log(`[Hybrid Menu] Customizing dropdown text for menu ${hybridMenuId}`);
+            
+            const infoDropdownPlaceholder = interaction.fields.getTextInputValue("info_dropdown_placeholder");
+            const roleDropdownPlaceholder = interaction.fields.getTextInputValue("role_dropdown_placeholder");
+            const infoDropdownMaxText = interaction.fields.getTextInputValue("info_dropdown_max_text");
+            const roleDropdownMaxText = interaction.fields.getTextInputValue("role_dropdown_max_text");
+            
+            // Update the hybrid menu with the new dropdown text settings
+            await db.updateHybridMenu(hybridMenuId, {
+              infoDropdownPlaceholder: infoDropdownPlaceholder || "📚 Select a page to view...",
+              roleDropdownPlaceholder: roleDropdownPlaceholder || "🎭 Select roles to toggle...",
+              infoDropdownMaxText: infoDropdownMaxText || "You can only select one page at a time",
+              roleDropdownMaxText: roleDropdownMaxText || "Select multiple roles"
+            });
+            
+            await sendEphemeralEmbed(interaction, `✅ Dropdown text customized successfully!`, "#00FF00", "Success", false);
+            return showHybridMenuConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error customizing dropdown text:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to customize dropdown text. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "webhook_branding") {
+          try {
+            const hybridMenuId = parts[3];
+            
+            console.log(`[Hybrid Menu] Setting webhook branding for menu ${hybridMenuId}`);
+            
+            const webhookName = interaction.fields.getTextInputValue("webhook_name");
+            const webhookAvatar = interaction.fields.getTextInputValue("webhook_avatar");
+            
+            // Validate webhook avatar URL if provided
+            if (webhookAvatar && !webhookAvatar.startsWith("http")) {
+              return sendEphemeralEmbed(interaction, "❌ Webhook avatar must be a valid URL starting with http:// or https://", "#FF0000", "Invalid URL", false);
+            }
+            
+            // Update the hybrid menu with the new webhook branding settings
+            await db.updateHybridMenu(hybridMenuId, {
+              webhookName: webhookName || "",
+              webhookAvatar: webhookAvatar || "",
+              useWebhook: true // Enable webhook when branding is set
+            });
+            
+            await sendEphemeralEmbed(interaction, `✅ Webhook branding configured successfully!`, "#00FF00", "Success", false);
+            return showHybridMenuConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error setting webhook branding:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure webhook branding. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
     }
 
@@ -9869,6 +10145,20 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
         name: "📊 Status", 
         value: menu.channelId ? `Published in <#${menu.channelId}>` : "Not published", 
         inline: true 
+      },
+      {
+        name: "🌐 Webhook",
+        value: menu.useWebhook ? "✅ Enabled" : "❌ Disabled",
+        inline: true
+      },
+      {
+        name: "🏷️ Branding",
+        value: menu.useWebhook
+          ? (menu.webhookName
+            ? `Name: ${menu.webhookName}\n${menu.webhookAvatar ? "Custom Avatar" : "Default Avatar"}`
+            : "Not configured")
+          : "N/A (Webhook Disabled)",
+        inline: true
       }
     ]);
 
@@ -9897,6 +10187,24 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji("📑"),
     new ButtonBuilder()
+      .setCustomId(`hybrid:customize_dropdown_text:${hybridMenuId}`)
+      .setLabel("Customize Dropdown Text")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("💬"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:webhook_branding:${hybridMenuId}`)
+      .setLabel("Webhook Branding")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🏷️")
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:toggle_webhook:${hybridMenuId}`)
+      .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
+      .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setEmoji("🌐"),
+    new ButtonBuilder()
       .setCustomId(`hybrid:publish:${hybridMenuId}`)
       .setLabel("Publish Menu")
       .setStyle(ButtonStyle.Success)
@@ -9908,7 +10216,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("👀")
   );
 
-  const row3 = new ActionRowBuilder().addComponents(
+  const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("dash:hybrid-menus")
       .setLabel("Back to Dashboard")
@@ -9916,7 +10224,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("⬅️")
   );
 
-  const components = [row1, row2, row3];
+  const components = [row1, row2, row3, row4];
 
   try {
     const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
@@ -10663,7 +10971,7 @@ async function publishHybridMenu(interaction, hybridMenuId) {
       if (infoOptions.length > 0) {
         const infoDropdown = new StringSelectMenuBuilder()
           .setCustomId(`hybrid-info-select:${hybridMenuId}`)
-          .setPlaceholder("📚 Select a page to view...")
+          .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
           .addOptions(infoOptions);
         
         componentParts.push({
@@ -10693,7 +11001,7 @@ async function publishHybridMenu(interaction, hybridMenuId) {
       if (roleOptions.length > 0) {
         const roleDropdown = new StringSelectMenuBuilder()
           .setCustomId(`hybrid-role-select:${hybridMenuId}`)
-          .setPlaceholder("🎭 Select roles to toggle...")
+          .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
           .setMinValues(1)
           .setMaxValues(roleOptions.length)
           .addOptions(roleOptions);
@@ -11005,6 +11313,99 @@ async function previewHybridMenu(interaction, hybridMenuId) {
   } catch (error) {
     console.error("Error previewing hybrid menu:", error);
     await sendEphemeralEmbed(interaction, "❌ Failed to generate preview. Please try again.", "#FF0000", "Error", false);
+  }
+}
+
+// Show Component Order Configuration
+async function showComponentOrderConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📑 Component Order: ${menu.name}`)
+    .setDescription("Configure the order in which components appear in your published hybrid menu.\n\n**Current Order:**")
+    .setColor("#5865F2");
+
+  // Get current component order or use defaults
+  const currentOrder = menu.componentOrder || {
+    infoDropdown: 1,
+    roleDropdown: 2,
+    infoButtons: 3,
+    roleButtons: 4
+  };
+
+  // Create ordered list of components
+  const orderEntries = Object.entries(currentOrder).sort((a, b) => a[1] - b[1]);
+  const orderDisplay = orderEntries.map(([key, order], index) => {
+    const componentNames = {
+      infoDropdown: "📋 Info Pages Dropdown",
+      roleDropdown: "🎭 Role Selection Dropdown", 
+      infoButtons: "📋 Info Pages Buttons",
+      roleButtons: "🎭 Role Selection Buttons"
+    };
+    return `${index + 1}. ${componentNames[key] || key}`;
+  }).join('\n');
+
+  embed.addFields([
+    { name: "Current Component Order", value: orderDisplay, inline: false },
+    { name: "How it works", value: "Components are arranged in the published menu according to this order. Lower numbers appear first.", inline: false }
+  ]);
+
+  const components = [];
+
+  // Add reorder buttons
+  const reorderRow1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:move_component:${hybridMenuId}:infoDropdown:up`)
+      .setLabel("📋↑ Info Dropdown Up")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentOrder.infoDropdown === 1),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:move_component:${hybridMenuId}:infoDropdown:down`)
+      .setLabel("📋↓ Info Dropdown Down")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentOrder.infoDropdown === 4),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:move_component:${hybridMenuId}:roleDropdown:up`)
+      .setLabel("🎭↑ Role Dropdown Up")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentOrder.roleDropdown === 1)
+  );
+
+  const reorderRow2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:move_component:${hybridMenuId}:roleDropdown:down`)
+      .setLabel("🎭↓ Role Dropdown Down")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentOrder.roleDropdown === 4),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:reset_component_order:${hybridMenuId}`)
+      .setLabel("🔄 Reset to Default")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:back_to_config:${hybridMenuId}`)
+      .setLabel("Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  components.push(reorderRow1, reorderRow2);
+
+  try {
+    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(responseData);
+    } else {
+      await interaction.reply(responseData);
+    }
+
+    console.log(`[Hybrid Debug] Successfully showed component order configuration`);
+  } catch (error) {
+    console.error(`[Hybrid Debug] Error showing component order:`, error);
+    return sendEphemeralEmbed(interaction, "❌ Error showing component order configuration. Please try again.", "#FF0000", "Error", false);
   }
 }
 
