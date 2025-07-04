@@ -1531,6 +1531,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId === "info:create") ||
     (interaction.isButton() && interaction.customId === "info:create_from_json") ||
     (interaction.isButton() && interaction.customId.startsWith("info:add_page:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:add_page_custom:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:customize_embed:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:customize_footer:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:save_as_template:")) ||
@@ -1558,7 +1559,8 @@ client.on("interactionCreate", async (interaction) => {
   // Check if it's a configuration interaction that should not be deferred
   const isConfigurationInteraction = (
     (interaction.isButton() && interaction.customId.startsWith("info:configure_display:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:cycle_display:"))
+    (interaction.isButton() && interaction.customId.startsWith("info:cycle_display:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("info:add_page_template:"))
   );
 
   // Defer non-modal-trigger interactions
@@ -2519,21 +2521,67 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "add_page") {
+          // Show page creation options with templates
+          return showPageCreationOptions(interaction, infoMenuId);
+        }
+
+        if (action === "add_page_custom") {
           const modal = new ModalBuilder()
-            .setCustomId(`info:modal:add_page:${infoMenuId}`)
-            .setTitle("Add New Page")
+            .setCustomId(`info:modal:add_page_custom:${infoMenuId}`)
+            .setTitle("Create Custom Page")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
-                  .setCustomId("page_json")
-                  .setLabel("Page Configuration (JSON)")
+                  .setCustomId("page_name")
+                  .setLabel("Page Name")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Rules, FAQ, Guide, etc.")
+                  .setMaxLength(100)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_title")
+                  .setLabel("Page Title (Embed Title)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("Server Rules")
+                  .setMaxLength(256)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_description")
+                  .setLabel("Page Content (Description)")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setPlaceholder('{"id": "page1", "name": "My Page", "content": {...}, "displayIn": [...]}')
+                  .setPlaceholder("Enter the main content for this page...")
                   .setMaxLength(4000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_color")
+                  .setLabel("Page Color (Hex Code)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("#5865F2")
+                  .setMaxLength(7)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("page_emoji")
+                  .setLabel("Page Icon (Emoji)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("📋")
+                  .setMaxLength(10)
               )
             );
           return interaction.showModal(modal);
+        }
+
+        if (action === "add_page_template") {
+          const templateType = parts[3];
+          return createPageFromTemplate(interaction, infoMenuId, templateType);
         }
 
         if (action === "customize_embed") {
@@ -3413,8 +3461,8 @@ client.on("interactionCreate", async (interaction) => {
             embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
           }
           
-          // Handle color with validation
-          const color = page.content.color || menu.embedColor;
+          // Handle color with validation - use custom page color if available, otherwise menu color
+          const color = page.color || page.content.color || menu.embedColor;
           if (color && isValidColor(color)) {
             embed.setColor(color);
           }
@@ -3500,7 +3548,7 @@ client.on("interactionCreate", async (interaction) => {
                     pages.map(page => ({
                       label: page.name.slice(0, 100),
                       value: page.id,
-                      emoji: '📄'
+                      emoji: page.emoji || '📄'
                     }))
                   );
 
@@ -3575,8 +3623,8 @@ client.on("interactionCreate", async (interaction) => {
             embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
           }
           
-          // Handle color with validation
-          const color = page.content.color || menu.embedColor;
+          // Handle color with validation - use custom page color if available, otherwise menu color
+          const color = page.color || page.content.color || menu.embedColor;
           if (color && isValidColor(color)) {
             embed.setColor(color);
           }
@@ -3704,8 +3752,8 @@ client.on("interactionCreate", async (interaction) => {
             embed.setDescription(page.content.description.slice(0, 4096));
           }
           
-          // Handle color with validation
-          const color = page.content.color || menu.embedColor;
+          // Handle color with validation - use custom page color if available, otherwise menu color
+          const color = page.color || page.content.color || menu.embedColor;
           if (color && isValidColor(color)) {
             embed.setColor(color);
           }
@@ -3776,7 +3824,7 @@ client.on("interactionCreate", async (interaction) => {
             }
           }
 
-          await sendEphemeralEmbed(interaction, embed, null, null, false);
+          await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } catch (error) {
           console.error("Error displaying info page from button:", error);
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
@@ -4574,6 +4622,50 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error("Error creating info menu from template:", error);
             return sendEphemeralEmbed(interaction, "❌ Failed to create menu from template. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "add_page_custom") {
+          const infoMenuId = parts[3];
+          const pageName = interaction.fields.getTextInputValue("page_name");
+          const pageTitle = interaction.fields.getTextInputValue("page_title");
+          const pageDescription = interaction.fields.getTextInputValue("page_description");
+          const pageColor = interaction.fields.getTextInputValue("page_color") || "#5865F2";
+          const pageEmoji = interaction.fields.getTextInputValue("page_emoji") || "";
+
+          // Validate color format
+          let validColor = pageColor;
+          if (pageColor && !pageColor.startsWith('#')) {
+            validColor = '#' + pageColor.replace('#', '');
+          }
+          if (!/^#[0-9A-F]{6}$/i.test(validColor)) {
+            validColor = "#5865F2"; // Default color if invalid
+          }
+
+          // Create the new page
+          const pageId = `page_${Date.now()}`;
+          const newPage = {
+            id: pageId,
+            name: pageName.trim(),
+            content: {
+              title: pageTitle.trim(),
+              description: pageDescription.trim(),
+              color: validColor
+            },
+            displayIn: ['dropdown', 'button'], // Default to both
+            emoji: pageEmoji.trim() || null,
+            category: "Custom",
+            order: Date.now(),
+            createdAt: new Date().toISOString()
+          };
+
+          try {
+            await db.saveInfoMenuPage(infoMenuId, newPage);
+            await sendEphemeralEmbed(interaction, `✅ Page "${pageName}" created successfully!`, "#00FF00", "Success", false);
+            return showInfoMenuConfiguration(interaction, infoMenuId);
+          } catch (error) {
+            console.error("Error creating custom page:", error);
+            return sendEphemeralEmbed(interaction, `❌ Failed to create page: ${error.message}`, "#FF0000", "Error", false);
           }
         }
 
@@ -5670,6 +5762,153 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 // ======================= Information Menu Functions =======================
 
 /**
+ * Shows page creation options with templates and custom creation
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu.
+ */
+async function showPageCreationOptions(interaction, infoMenuId) {
+  const menu = db.getInfoMenu(infoMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📝 Create New Page: ${menu.name}`)
+    .setDescription(`Choose how you'd like to create your new page:\n\n🎨 **Templates** - Quick-start with pre-made layouts\n⚙️ **Custom** - Build from scratch with full control`)
+    .setColor("#5865F2");
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_template:${infoMenuId}:rules`)
+      .setLabel("📋 Server Rules")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_template:${infoMenuId}:faq`)
+      .setLabel("❓ FAQ")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_template:${infoMenuId}:guide`)
+      .setLabel("📖 Guide")
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_template:${infoMenuId}:links`)
+      .setLabel("🔗 Important Links")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_template:${infoMenuId}:contact`)
+      .setLabel("📞 Contact Info")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`info:add_page_custom:${infoMenuId}`)
+      .setLabel("⚙️ Custom Page")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`info:back_to_config:${infoMenuId}`)
+      .setLabel("Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⬅️")
+  );
+
+  const responseData = {
+    embeds: [embed],
+    components: [row1, row2, row3],
+    flags: MessageFlags.Ephemeral
+  };
+
+  return interaction.deferred || interaction.replied ? 
+    interaction.editReply(responseData) : 
+    interaction.reply(responseData);
+}
+
+/**
+ * Creates a page from a predefined template
+ * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
+ * @param {string} infoMenuId - The ID of the info menu.
+ * @param {string} templateType - The type of template to use.
+ */
+async function createPageFromTemplate(interaction, infoMenuId, templateType) {
+  const templates = {
+    rules: {
+      name: "Server Rules",
+      title: "📋 Server Rules",
+      description: "**Please follow these rules to maintain a positive environment:**\n\n1️⃣ **Be Respectful** - Treat all members with kindness and respect\n2️⃣ **No Spam** - Keep conversations relevant and avoid excessive posting\n3️⃣ **No NSFW Content** - Keep all content appropriate for all ages\n4️⃣ **Use Appropriate Channels** - Post content in the correct channels\n5️⃣ **Follow Discord ToS** - All Discord Terms of Service apply\n\n*Violations may result in warnings, mutes, or bans depending on severity.*",
+      color: "#FF6B6B",
+      emoji: "📋",
+      category: "Rules & Guidelines"
+    },
+    faq: {
+      name: "Frequently Asked Questions",
+      title: "❓ FAQ",
+      description: "**Common questions and answers:**\n\n**Q: How do I get roles?**\nA: Use the reaction role menus or ask a moderator.\n\n**Q: Can I invite friends?**\nA: Yes! Use our invite link in the info channel.\n\n**Q: Who do I contact for help?**\nA: Ping @Moderators or create a support ticket.\n\n**Q: What are the server rules?**\nA: Check out our rules page for full details.\n\n*Have another question? Ask in #general!*",
+      color: "#4ECDC4",
+      emoji: "❓",
+      category: "Information"
+    },
+    guide: {
+      name: "Server Guide",
+      title: "📖 Getting Started Guide",
+      description: "**Welcome to our server! Here's how to get started:**\n\n🔸 **Step 1:** Read the rules and guidelines\n🔸 **Step 2:** Get your roles using the reaction menus\n🔸 **Step 3:** Introduce yourself in #introductions\n🔸 **Step 4:** Explore the different channels\n🔸 **Step 5:** Join conversations and have fun!\n\n**Need help?** Our moderators are always ready to assist you. Don't hesitate to ask questions!",
+      color: "#45B7D1",
+      emoji: "📖",
+      category: "Getting Started"
+    },
+    links: {
+      name: "Important Links",
+      title: "🔗 Important Links",
+      description: "**Quick access to important resources:**\n\n🌐 **Website:** [Your Website](https://example.com)\n📺 **YouTube:** [Your Channel](https://youtube.com)\n🐦 **Twitter:** [@YourHandle](https://twitter.com)\n💬 **Discord Invite:** [Invite Link](https://discord.gg/invite)\n📧 **Contact Email:** your@email.com\n\n*Bookmark these for easy access!*",
+      color: "#9B59B6",
+      emoji: "🔗",
+      category: "Resources"
+    },
+    contact: {
+      name: "Contact Information",
+      title: "📞 Contact & Support",
+      description: "**Need help or have questions?**\n\n👑 **Server Owner:** @ServerOwner\n🛡️ **Moderators:** @Moderators\n🎫 **Support Tickets:** Use the ticket system\n📧 **Email:** support@yourserver.com\n\n**Response Times:**\n• Discord: Usually within a few hours\n• Email: 24-48 hours\n• Tickets: Priority support\n\n*We're here to help make your experience great!*",
+      color: "#E67E22",
+      emoji: "📞",
+      category: "Support"
+    }
+  };
+
+  const template = templates[templateType];
+  if (!template) {
+    return sendEphemeralEmbed(interaction, "❌ Invalid template type.", "#FF0000", "Error", false);
+  }
+
+  // Create page with template data
+  const pageId = `page_${Date.now()}`;
+  const newPage = {
+    id: pageId,
+    name: template.name,
+    content: {
+      title: template.title,
+      description: template.description,
+      color: template.color
+    },
+    displayIn: ['dropdown', 'button'], // Default to both
+    emoji: template.emoji,
+    category: template.category,
+    order: Date.now(), // Use timestamp for ordering
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    await db.saveInfoMenuPage(infoMenuId, newPage);
+    await sendEphemeralEmbed(interaction, `✅ Created "${template.name}" page successfully!`, "#00FF00", "Success", false);
+    return showInfoMenuConfiguration(interaction, infoMenuId);
+  } catch (error) {
+    console.error("Error creating page from template:", error);
+    return sendEphemeralEmbed(interaction, `❌ Failed to create page: ${error.message}`, "#FF0000", "Error", false);
+  }
+}
+
+/**
  * Displays the information menus dashboard, listing existing menus and providing options to create/configure.
  * @param {import('discord.js').Interaction} interaction - The interaction to reply to.
  */
@@ -5832,26 +6071,29 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
   const pageButtons = pages.slice(0, 20).map(page => { // Limit to 20 pages to fit in 4 rows
     const displayIn = page.displayIn || ['dropdown', 'button'];
     
-    let emoji = "📋🔘";
+    let displayEmoji = "📋🔘";
     let style = ButtonStyle.Primary;
     
     if (Array.isArray(displayIn)) {
       if (displayIn.includes('dropdown') && !displayIn.includes('button')) {
-        emoji = "📋";
+        displayEmoji = "📋";
         style = ButtonStyle.Success;
       } else if (displayIn.includes('button') && !displayIn.includes('dropdown')) {
-        emoji = "🔘";
+        displayEmoji = "🔘";
         style = ButtonStyle.Secondary;
       } else if (displayIn.length === 0) {
-        emoji = "❌";
+        displayEmoji = "❌";
         style = ButtonStyle.Danger;
       }
     }
     
+    // Use page emoji if available, otherwise use display type emoji
+    const buttonEmoji = page.emoji || displayEmoji;
+    
     return new ButtonBuilder()
       .setCustomId(`info:cycle_display:${infoMenuId}:${page.id}`)
       .setLabel(`${page.name}`.substring(0, 80))
-      .setEmoji(emoji)
+      .setEmoji(buttonEmoji)
       .setStyle(style);
   });
 
@@ -5940,7 +6182,8 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         const pageOptions = dropdownPages.slice(0, 25).map(page => ({
           label: page.name.substring(0, 100),
           value: page.id,
-          description: page.content.description ? page.content.description.substring(0, 100) : undefined
+          description: page.content.description ? page.content.description.substring(0, 100) : undefined,
+          emoji: page.emoji || undefined
         }));
 
         const selectMenu = new StringSelectMenuBuilder()
@@ -5975,6 +6218,11 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
             .setCustomId(`info-page:${infoMenuId}:${page.id}`)
             .setLabel(page.name.substring(0, 80))
             .setStyle(ButtonStyle.Secondary);
+
+          // Add emoji if page has one
+          if (page.emoji) {
+            button.setEmoji(page.emoji);
+          }
 
           currentRow.addComponents(button);
           buttonsInRow++;
