@@ -2122,6 +2122,8 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   try {
+    console.log(`[Interaction Debug] Starting interaction processing for type: ${interaction.type}, customId: ${interaction.customId || 'N/A'}`);
+    
     // Show Firebase warning only once per interaction for admin commands
     if (!firebaseEnabled && interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
       const relevantInteraction = (
@@ -2163,9 +2165,12 @@ client.on("interactionCreate", async (interaction) => {
 
     // Button Handling
     if (interaction.isButton()) {
+      console.log(`[Button Debug] Button interaction detected: ${interaction.customId}`);
       const parts = interaction.customId.split(":");
       const ctx = parts[0];
       const action = parts[1];
+
+      console.log(`[Button Debug] Processing button - ctx: ${ctx}, action: ${action}, customId: ${interaction.customId}`);
 
       let menuId;
       let type;
