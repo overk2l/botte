@@ -2075,16 +2075,6 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
     // Hybrid menu modal triggers
     (interaction.isButton() && interaction.customId === "hybrid:create") ||
-    (interaction.isButton() && interaction.customId.startsWith("info:toggle_webhook:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:config_webhook:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:clone_menu:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_template")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:page_action:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:create_from_template:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_description:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_button_color:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
-    (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
@@ -4419,37 +4409,48 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
       } else if (ctx === "hybrid") {
+        console.log(`[Hybrid Debug] Button interaction received - action: ${action}, customId: ${interaction.customId}`);
+        
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          console.log(`[Hybrid Debug] Permission denied for user ${interaction.user.id}`);
           return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
         }
 
         if (action === "create") {
-          const modal = new ModalBuilder()
-            .setCustomId("hybrid:modal:create")
-            .setTitle("New Hybrid Menu")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("name")
-                  .setLabel("Menu Name")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
-                  .setMaxLength(100)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("desc")
-                  .setLabel("Embed Description")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("Describe your hybrid menu here.")
-                  .setMaxLength(4000)
-              )
-            );
-          return interaction.showModal(modal);
+          console.log(`[Hybrid Debug] Creating modal for new hybrid menu`);
+          try {
+            const modal = new ModalBuilder()
+              .setCustomId("hybrid:modal:create")
+              .setTitle("New Hybrid Menu")
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("name")
+                    .setLabel("Menu Name")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setPlaceholder("Enter menu name (e.g., 'Server Rules & Roles')")
+                    .setMaxLength(100)
+                ),
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("desc")
+                    .setLabel("Embed Description")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder("Describe your hybrid menu here.")
+                    .setMaxLength(4000)
+                )
+              );
+            console.log(`[Hybrid Debug] Modal created, showing to user`);
+            return interaction.showModal(modal);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error creating or showing modal:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error creating hybrid menu form. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
+        // Handle other hybrid actions that need menuId
         const hybridMenuId = parts[2];
 
         if (action === "selectmenu") {
