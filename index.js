@@ -1739,7 +1739,8 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info:select_page_for_emoji:")) ||
     (interaction.isButton() && interaction.customId.startsWith("info:customize_dropdown_text:")) ||
     // Scheduled messages modal triggers
-    (interaction.isButton() && interaction.customId === "schedule:new")
+    (interaction.isButton() && interaction.customId === "schedule:new") ||
+    (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
   );
 
   // Check if it's a modal submission - these need deferUpdate
