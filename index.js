@@ -4243,31 +4243,27 @@ client.on("interactionCreate", async (interaction) => {
             selectionTypes = selectionTypes.filter(type => type !== componentType);
             await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
             
-            // Update all existing pages to match the new selection types
+            // Remove this component type from pages that currently use it
             const pages = db.getInfoMenuPages(infoMenuId);
             if (pages && pages.length > 0) {
               for (const page of pages) {
-                const updatedPage = { ...page, displayIn: selectionTypes };
+                const currentDisplayIn = page.displayIn || [];
+                const updatedDisplayIn = currentDisplayIn.filter(type => type !== componentType);
+                const updatedPage = { ...page, displayIn: updatedDisplayIn };
                 await db.saveInfoMenuPage(infoMenuId, updatedPage);
               }
             }
             
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled! All pages updated.`, "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display disabled! Pages using this type have been updated.`, "#00FF00", "Success", false);
           } else {
             // Add the type if it's currently disabled
             selectionTypes.push(componentType);
             await db.updateInfoMenu(infoMenuId, { selectionType: selectionTypes });
             
-            // Update all existing pages to match the new selection types
-            const pages = db.getInfoMenuPages(infoMenuId);
-            if (pages && pages.length > 0) {
-              for (const page of pages) {
-                const updatedPage = { ...page, displayIn: selectionTypes };
-                await db.saveInfoMenuPage(infoMenuId, updatedPage);
-              }
-            }
+            // Don't automatically add this type to existing pages - let users configure each page individually
+            // This preserves the existing page configurations
             
-            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled! All pages updated.`, "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, `✅ ${componentType.charAt(0).toUpperCase() + componentType.slice(1)} display enabled! You can now configure individual pages to use this display type.`, "#00FF00", "Success", false);
           }
           
           return showInfoMenuConfiguration(interaction, infoMenuId);
@@ -6839,11 +6835,16 @@ client.on("interactionCreate", async (interaction) => {
               return sendEphemeralEmbed(interaction, "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!", "#FF0000", "JSON Error", false);
             }
 
+            // Get the current menu to determine where pages should display (if not specified in JSON)
+            const currentMenu = db.getInfoMenu(infoMenuId);
+            const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
+                                  (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
+
             const pageId = await db.saveInfoMenuPage(infoMenuId, {
               id: pageData.id,
               name: pageData.name,
               content: pageData.content,
-              displayIn: pageData.displayIn || ['dropdown', 'button'] // Default to both if not specified
+              displayIn: pageData.displayIn || selectionTypes // Use menu's selection types if not specified
             });
             await sendEphemeralEmbed(interaction, `✅ Page "${pageData.name}" added successfully!`, "#00FF00", "Success", false);
             return showInfoMenuConfiguration(interaction, infoMenuId);
@@ -7132,7 +7133,8 @@ client.on("interactionCreate", async (interaction) => {
           
           // Get the current menu to determine where pages should display
           const currentMenu = db.getInfoMenu(infoMenuId);
-          const selectionTypes = currentMenu?.selectionType || [];
+          const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
+                                (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
           
           const newPage = {
             id: pageId,
@@ -7142,7 +7144,7 @@ client.on("interactionCreate", async (interaction) => {
               description: pageDescription.trim(),
               color: validColor
             },
-            displayIn: selectionTypes, // Use the menu's current selection types
+            displayIn: selectionTypes, // Use the menu's current selection types (already an array)
             emoji: pageEmoji.trim() || null,
             category: "Custom",
             order: Date.now(),
@@ -10288,7 +10290,8 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
   
   // Get the current menu to determine where pages should display
   const currentMenu = db.getInfoMenu(infoMenuId);
-  const selectionTypes = currentMenu?.selectionType || [];
+  const selectionTypes = Array.isArray(currentMenu?.selectionType) ? currentMenu.selectionType : 
+                        (currentMenu?.selectionType ? [currentMenu.selectionType] : []);
   
   const newPage = {
     id: pageId,
@@ -10298,7 +10301,7 @@ async function createPageFromTemplate(interaction, infoMenuId, templateType) {
       description: template.description,
       color: template.color
     },
-    displayIn: selectionTypes, // Use the menu's current selection types
+    displayIn: selectionTypes, // Use the menu's current selection types (already an array)
     emoji: template.emoji,
     category: template.category,
     order: Date.now(), // Use timestamp for ordering
@@ -11118,19 +11121,19 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     if (menu.pages.length > 0) {
       const pages = menu.pages;
       
-      // Count pages by display type
+      // Count pages by display type - match the publishing logic exactly
       const dropdownPages = pages.filter(page => {
-        const displayIn = page.displayIn || ['dropdown', 'button'];
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
         return Array.isArray(displayIn) ? displayIn.includes('dropdown') : displayIn === 'dropdown';
       });
       
       const buttonPages = pages.filter(page => {
-        const displayIn = page.displayIn || ['dropdown', 'button'];
+        const displayIn = page.displayIn || []; // No default - only show where explicitly configured
         return Array.isArray(displayIn) ? displayIn.includes('button') : displayIn === 'button';
       });
 
       const hiddenPages = pages.filter(page => {
-        const displayIn = page.displayIn || ['dropdown', 'button'];
+        const displayIn = page.displayIn || [];
         return Array.isArray(displayIn) ? displayIn.length === 0 : false;
       });
 
@@ -11143,7 +11146,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         { 
           name: "📚 Recent Pages", 
           value: pages.length > 0 ? pages.slice(0, 5).map((page, index) => {
-            const displayIn = page.displayIn || ['dropdown', 'button'];
+            const displayIn = page.displayIn || []; // No default - match publishing logic
             let icon = "📋🔘";
             if (Array.isArray(displayIn)) {
               if (displayIn.includes('dropdown') && !displayIn.includes('button')) icon = "📋";
