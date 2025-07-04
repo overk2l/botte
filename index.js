@@ -1159,7 +1159,11 @@ async loadAllHybridMenus() {
  * @returns {Promise<string>} The ID of the newly created hybrid menu.
  */
 async createHybridMenu(guildId, name, desc) {
+  console.log(`[Database] Creating hybrid menu for guild ${guildId} with name: "${name}"`);
+  
   const id = 'hybrid_' + Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+  console.log(`[Database] Generated hybrid menu ID: ${id}`);
+  
   const newHybridMenu = {
     guildId,
     name,
@@ -1204,20 +1208,30 @@ async createHybridMenu(guildId, name, desc) {
     updatedAt: new Date().toISOString()
   };
 
+  console.log(`[Database] Hybrid menu object created, saving to memory...`);
+  
   // Save to in-memory storage
   if (!this.hybridMenus.has(guildId)) {
     this.hybridMenus.set(guildId, []);
   }
   this.hybridMenus.get(guildId).push(id);
   this.hybridMenuData.set(id, newHybridMenu);
+  
+  console.log(`[Database] Hybrid menu saved to memory. Firebase enabled: ${firebaseEnabled}`);
 
   if (firebaseEnabled) {
     try {
+      console.log(`[Database] Attempting to save hybrid menu to Firestore...`);
       const hybridMenuRef = doc(dbFirestore, `artifacts/${appId}/public/data/hybrid_menus`, id);
       await setDoc(hybridMenuRef, newHybridMenu);
-      console.log(`[Database] Created hybrid menu with ID: ${id}`);
+      console.log(`[Database] Created hybrid menu with ID: ${id} (saved to Firestore)`);
+      // Also save local backup
+      await saveHybridMenusToLocalFile();
     } catch (error) {
       console.error(`[Database] Error creating hybrid menu in Firestore:`, error);
+      console.error(`[Database] Error details:`, error.message);
+      console.error(`[Database] Error code:`, error.code);
+      // Continue with in-memory storage only
     }
   } else {
     console.log(`[Database] Created hybrid menu with ID: ${id} (memory only)`);
@@ -1225,6 +1239,7 @@ async createHybridMenu(guildId, name, desc) {
     await saveHybridMenusToLocalFile();
   }
 
+  console.log(`[Database] Hybrid menu creation completed, returning ID: ${id}`);
   return id;
 },
 
@@ -1374,6 +1389,28 @@ async function saveInfoMenusToLocalFile() {
     console.log('[Local Backup] Info menus saved to local file');
   } catch (error) {
     console.error('[Local Backup] Error saving info menus to local file:', error);
+  }
+}
+
+/**
+ * Saves hybrid menus to local file as backup
+ */
+async function saveHybridMenusToLocalFile() {
+  try {
+    // Ensure data directory exists
+    await fs.mkdir(LOCAL_BACKUP_DIR, { recursive: true });
+    
+    // Convert Maps to objects for JSON serialization
+    const backupData = {
+      hybridMenus: Object.fromEntries(db.hybridMenus),
+      hybridMenuData: Object.fromEntries(db.hybridMenuData),
+      timestamp: new Date().toISOString()
+    };
+    
+    await fs.writeFile(HYBRID_MENUS_BACKUP_FILE, JSON.stringify(backupData, null, 2));
+    console.log('[Local Backup] Hybrid menus saved to local file');
+  } catch (error) {
+    console.error('[Local Backup] Error saving hybrid menus to local file:', error);
   }
 }
 
@@ -6293,11 +6330,21 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (modalType === "create") {
-          const name = interaction.fields.getTextInputValue("name");
-          const desc = interaction.fields.getTextInputValue("desc");
-          const newHybridMenuId = await db.createHybridMenu(interaction.guild.id, name, desc);
-          await sendEphemeralEmbed(interaction, `✅ Hybrid menu "${name}" created successfully!`, "#00FF00", "Success", false);
-          return showHybridMenuConfiguration(interaction, newHybridMenuId);
+          try {
+            console.log(`[Hybrid Menu] Starting creation process for guild ${interaction.guild.id}`);
+            const name = interaction.fields.getTextInputValue("name");
+            const desc = interaction.fields.getTextInputValue("desc");
+            console.log(`[Hybrid Menu] Creating menu with name: "${name}"`);
+            
+            const newHybridMenuId = await db.createHybridMenu(interaction.guild.id, name, desc);
+            console.log(`[Hybrid Menu] Successfully created menu with ID: ${newHybridMenuId}`);
+            
+            await sendEphemeralEmbed(interaction, `✅ Hybrid menu "${name}" created successfully!`, "#00FF00", "Success", false);
+            return showHybridMenuConfiguration(interaction, newHybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error creating hybrid menu:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to create hybrid menu. Please check the logs for details.", "#FF0000", "Error", false);
+          }
         }
       }
     }
