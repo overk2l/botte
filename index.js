@@ -84,6 +84,74 @@ try {
   console.warn("[Firebase] Running without persistence.");
 }
 
+// Performance Metrics System
+const performanceMetrics = {
+  interactions: {
+    total: 0,
+    successful: 0,
+    failed: 0,
+    averageResponseTime: 0,
+    responseTimes: []
+  },
+  menus: {
+    created: 0,
+    published: 0,
+    interactions: 0
+  },
+  health: {
+    uptime: 0,
+    memoryUsage: 0,
+    lastCheck: Date.now()
+  }
+};
+
+// Track interaction performance
+function trackInteractionPerformance(interaction, startTime, success) {
+  const responseTime = Date.now() - startTime;
+  
+  performanceMetrics.interactions.total++;
+  if (success) {
+    performanceMetrics.interactions.successful++;
+  } else {
+    performanceMetrics.interactions.failed++;
+  }
+  
+  performanceMetrics.interactions.responseTimes.push(responseTime);
+  
+  // Keep only last 100 response times to prevent memory issues
+  if (performanceMetrics.interactions.responseTimes.length > 100) {
+    performanceMetrics.interactions.responseTimes.shift();
+  }
+  
+  // Calculate average response time
+  const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
+  performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
+}
+
+// Track menu usage
+function trackMenuUsage(menuId, type) {
+  performanceMetrics.menus.interactions++;
+  console.log(`Menu usage tracked: ${type} menu ${menuId}`);
+}
+
+// Track page views
+function trackPageView(pageId) {
+  console.log(`Page view tracked: ${pageId}`);
+}
+
+// Update bot health metrics
+function updateBotHealth() {
+  const used = process.memoryUsage();
+  performanceMetrics.health.memoryUsage = Math.round(used.heapUsed / 1024 / 1024 * 100) / 100; // MB
+  performanceMetrics.health.uptime = process.uptime();
+  performanceMetrics.health.lastCheck = Date.now();
+}
+
+// Get performance metrics
+function getPerformanceMetrics() {
+  return performanceMetrics;
+}
+
 /**
  * Helper function to get or create a webhook for a given channel.
  * This is used for sending messages with custom branding.
@@ -5906,7 +5974,7 @@ async function showDynamicContentHelp(interaction) {
 // Schedule New Message Menu
 async function showScheduleNewMessageMenu(interaction) {
   try {
-    const infoMenus = db.getAllInfoMenus();
+    const infoMenus = db.getInfoMenus(interaction.guildId);
     
     if (infoMenus.length === 0) {
       await interaction.editReply({ 
@@ -6039,9 +6107,9 @@ const dynamicContentVariables = {
   '{bot.ping}': () => `${client.ws.ping}ms`,
   '{bot.uptime}': () => {
     if (!performanceMetrics) return '0h 0m';
-    const uptime = performanceMetrics.bot.uptime;
-    const hours = Math.floor(uptime / (1000 * 60 * 60));
-    const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+    const uptime = performanceMetrics.health.uptime;
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
     return `${hours}h ${minutes}m`;
   }
 };
@@ -7739,74 +7807,6 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         await interaction.reply(errorMessage);
       }
     }
-}
-
-// Performance Metrics System
-const performanceMetrics = {
-  interactions: {
-    total: 0,
-    successful: 0,
-    failed: 0,
-    averageResponseTime: 0,
-    responseTimes: []
-  },
-  menus: {
-    created: 0,
-    published: 0,
-    interactions: 0
-  },
-  health: {
-    uptime: 0,
-    memoryUsage: 0,
-    lastCheck: Date.now()
-  }
-};
-
-// Track interaction performance
-function trackInteractionPerformance(interaction, startTime, success) {
-  const responseTime = Date.now() - startTime;
-  
-  performanceMetrics.interactions.total++;
-  if (success) {
-    performanceMetrics.interactions.successful++;
-  } else {
-    performanceMetrics.interactions.failed++;
-  }
-  
-  performanceMetrics.interactions.responseTimes.push(responseTime);
-  
-  // Keep only last 100 response times to prevent memory issues
-  if (performanceMetrics.interactions.responseTimes.length > 100) {
-    performanceMetrics.interactions.responseTimes.shift();
-  }
-  
-  // Calculate average response time
-  const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
-  performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
-}
-
-// Track menu usage
-function trackMenuUsage(menuId, type) {
-  performanceMetrics.menus.interactions++;
-  console.log(`Menu usage tracked: ${type} menu ${menuId}`);
-}
-
-// Track page views
-function trackPageView(pageId) {
-  console.log(`Page view tracked: ${pageId}`);
-}
-
-// Update bot health metrics
-function updateBotHealth() {
-  const used = process.memoryUsage();
-  performanceMetrics.health.memoryUsage = Math.round(used.heapUsed / 1024 / 1024 * 100) / 100; // MB
-  performanceMetrics.health.uptime = process.uptime();
-  performanceMetrics.health.lastCheck = Date.now();
-}
-
-// Get performance metrics
-function getPerformanceMetrics() {
-  return performanceMetrics;
 }
 
 // Bot login
