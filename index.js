@@ -1810,8 +1810,9 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * @param {string} menuId - The ID of the menu.
  */
 async function updatePublishedMessageComponents(interaction, menu, menuId, forceUpdate = false) {
-    // Only update components if "Show Counts" is enabled OR if this is a forced update (after role interaction)
-    // This prevents the "edited" indicator unless member counts need to be updated or we're clearing selections
+    // Only update components if member counts are enabled OR if this is a forced update
+    // When member counts are disabled, dropdown selections don't persist visually anyway
+    // This prevents unnecessary "edited" indicators when member counts are disabled
     if (!menu.showMemberCounts && !forceUpdate) {
         console.log(`[updatePublishedMessageComponents] Skipping update for menu ${menuId} - Show Counts disabled and not forced`);
         return;
@@ -7985,7 +7986,10 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            await updatePublishedMessageComponents(interaction, menu, menuId, true);
+            // Only update if member counts are enabled to avoid unnecessary "edited" marks
+            if (menu.showMemberCounts) {
+                await updatePublishedMessageComponents(interaction, menu, menuId, true);
+            }
             return;
         }
 
@@ -7993,7 +7997,10 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                await updatePublishedMessageComponents(interaction, menu, menuId, true);
+                // Only update if member counts are enabled to avoid unnecessary "edited" marks
+                if (menu.showMemberCounts) {
+                    await updatePublishedMessageComponents(interaction, menu, menuId, true);
+                }
                 return;
             }
         }
@@ -8024,7 +8031,10 @@ async function handleRoleInteraction(interaction) {
         }
 
         // Update published message components to clear selections and update member counts
-        await updatePublishedMessageComponents(interaction, menu, menuId, true);
+        // Only update if member counts are enabled, otherwise the selections don't persist anyway
+        if (menu.showMemberCounts) {
+            await updatePublishedMessageComponents(interaction, menu, menuId, true);
+        }
 
     } catch (error) {
         console.error("Error in handleRoleInteraction:", error);
@@ -9027,8 +9037,9 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
  * @param {string} hybridMenuId - The ID of the hybrid menu.
  */
 async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, forceUpdate = false) {
-    // Only update components if "Show Counts" is enabled OR if this is a forced update (e.g., toggling the setting)
-    // This prevents the "edited" indicator unless member counts need to be updated or the setting is being toggled
+    // Only update components if member counts are enabled OR if this is a forced update
+    // When member counts are disabled, dropdown selections don't persist visually anyway
+    // This prevents unnecessary "edited" indicators when member counts are disabled
     if (!menu.showMemberCounts && !forceUpdate) {
         console.log(`[updatePublishedHybridMenuComponents] Skipping update for menu ${hybridMenuId} - Show Counts disabled and not forced`);
         return;
@@ -9169,6 +9180,17 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
+      // Clear the dropdown selection after showing the info page
+      try {
+        // Only update if member counts are enabled to avoid unnecessary "edited" marks
+        if (menu.showMemberCounts) {
+          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+        }
+      } catch (error) {
+        console.error("Error updating hybrid menu components after info selection:", error);
+        // Continue with showing the page even if we can't update the components
+      }
+
       return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
@@ -9249,7 +9271,10 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Update the published message components to clear selections and update member counts
       try {
-        await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+        // Only update if member counts are enabled to avoid unnecessary "edited" marks
+        if (menu.showMemberCounts) {
+          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
+        }
       } catch (error) {
         console.error("Error updating hybrid menu components:", error);
         // Continue with sending the confirmation message even if we can't update the components
