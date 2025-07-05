@@ -5368,145 +5368,195 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "bulk_all_dropdown") {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_all_dropdown for menu: ${hybridMenuId}`);
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              console.log(`[Bulk Debug] Menu found, preparing updates...`);
-              const updates = {
-                defaultInfoDisplayType: 'dropdown',
-                defaultRoleDisplayType: 'dropdown',
-                // Clear individual overrides since we're setting defaults
-                displayTypes: {},
-                roleDisplayTypes: {}
-              };
-
-              console.log(`[Bulk Debug] Updating database...`);
-              await db.updateHybridMenu(hybridMenuId, updates);
-              
-              console.log(`[Bulk Debug] Database updated, sending response...`);
-              // Send a quick success response instead of showing full config page
-              return sendEphemeralEmbed(interaction, "✅ All items set to dropdown display! Use 'Display Types Configuration' to see the changes.", "#00FF00", "Success", false);
-            } catch (error) {
-              console.error("Error in bulk_all_dropdown:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
+          
+          try {
+            // Clear any existing timeout immediately
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            console.log(`[Bulk Debug] Getting menu from database...`);
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              console.log(`[Bulk Debug] Menu not found!`);
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            console.log(`[Bulk Debug] Menu found: ${menu.name}, preparing updates...`);
+            const updates = {
+              defaultInfoDisplayType: 'dropdown',
+              defaultRoleDisplayType: 'dropdown',
+              // Clear individual overrides since we're setting defaults
+              displayTypes: {},
+              roleDisplayTypes: {}
+            };
+
+            console.log(`[Bulk Debug] About to call db.updateHybridMenu...`);
+            const updateResult = await db.updateHybridMenu(hybridMenuId, updates);
+            console.log(`[Bulk Debug] Database update completed. Result:`, updateResult);
+            
+            console.log(`[Bulk Debug] About to send success response...`);
+            const result = await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle("✅ Success")
+                .setDescription("All items set to dropdown display! Use 'Display Types Configuration' to see the changes.")
+                .setColor("#00FF00")],
+              flags: MessageFlags.Ephemeral
+            });
+            console.log(`[Bulk Debug] Success response sent. Result:`, result);
+            
+            return result;
+          } catch (error) {
+            console.error("[Bulk Debug] Error in bulk_all_dropdown:", error);
+            console.error("[Bulk Debug] Error stack:", error.stack);
+            return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "bulk_all_buttons") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              const updates = {
-                defaultInfoDisplayType: 'button',
-                defaultRoleDisplayType: 'button',
-                // Clear individual overrides since we're setting defaults
-                displayTypes: {},
-                roleDisplayTypes: {}
-              };
-
-              await db.updateHybridMenu(hybridMenuId, updates);
-              
-              // Send a quick success response instead of showing full config page
-              return sendEphemeralEmbed(interaction, "✅ All items set to button display! Use 'Display Types Configuration' to see the changes.", "#00FF00", "Success", false);
-            } catch (error) {
-              console.error("Error in bulk_all_buttons:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
+          console.log(`[Bulk Debug] Starting bulk_all_buttons for menu: ${hybridMenuId}`);
+          
+          try {
+            // Clear any existing timeout immediately
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            const updates = {
+              defaultInfoDisplayType: 'button',
+              defaultRoleDisplayType: 'button',
+              // Clear individual overrides since we're setting defaults
+              displayTypes: {},
+              roleDisplayTypes: {}
+            };
+
+            await db.updateHybridMenu(hybridMenuId, updates);
+            
+            // Send a quick success response with direct editReply
+            return await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle("✅ Success")
+                .setDescription("All items set to button display! Use 'Display Types Configuration' to see the changes.")
+                .setColor("#00FF00")],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error in bulk_all_buttons:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "bulk_all_both") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              const updates = {
-                defaultInfoDisplayType: 'both',
-                defaultRoleDisplayType: 'both',
-                // Clear individual overrides since we're setting defaults
-                displayTypes: {},
-                roleDisplayTypes: {}
-              };
-
-              await db.updateHybridMenu(hybridMenuId, updates);
-              
-              // Send a quick success response instead of showing full config page
-              return sendEphemeralEmbed(interaction, "✅ All items set to both dropdown and button display! Use 'Display Types Configuration' to see the changes.", "#00FF00", "Success", false);
-            } catch (error) {
-              console.error("Error in bulk_all_both:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error setting bulk both. Please try again.", "#FF0000", "Error", false);
+          console.log(`[Bulk Debug] Starting bulk_all_both for menu: ${hybridMenuId}`);
+          
+          try {
+            // Clear any existing timeout immediately
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            const updates = {
+              defaultInfoDisplayType: 'both',
+              defaultRoleDisplayType: 'both',
+              // Clear individual overrides since we're setting defaults
+              displayTypes: {},
+              roleDisplayTypes: {}
+            };
+
+            await db.updateHybridMenu(hybridMenuId, updates);
+            
+            // Send a quick success response with direct editReply
+            return await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle("✅ Success")
+                .setDescription("All items set to both dropdown and button display! Use 'Display Types Configuration' to see the changes.")
+                .setColor("#00FF00")],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error in bulk_all_both:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting bulk both. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "bulk_info_dropdown_roles_button") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              const updates = {
-                defaultInfoDisplayType: 'dropdown',
-                defaultRoleDisplayType: 'button',
-                // Clear individual overrides since we're setting defaults
-                displayTypes: {},
-                roleDisplayTypes: {}
-              };
-
-              await db.updateHybridMenu(hybridMenuId, updates);
-              
-              // Send a quick success response instead of showing full config page
-              return sendEphemeralEmbed(interaction, "✅ Info pages set to dropdown, roles set to buttons! Use 'Display Types Configuration' to see the changes.", "#00FF00", "Success", false);
-            } catch (error) {
-              console.error("Error in bulk_info_dropdown_roles_button:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+          console.log(`[Bulk Debug] Starting bulk_info_dropdown_roles_button for menu: ${hybridMenuId}`);
+          
+          try {
+            // Clear any existing timeout immediately
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            const updates = {
+              defaultInfoDisplayType: 'dropdown',
+              defaultRoleDisplayType: 'button',
+              // Clear individual overrides since we're setting defaults
+              displayTypes: {},
+              roleDisplayTypes: {}
+            };
+
+            await db.updateHybridMenu(hybridMenuId, updates);
+            
+            // Send a quick success response with direct editReply
+            return await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle("✅ Success")
+                .setDescription("Info pages set to dropdown, roles set to buttons! Use 'Display Types Configuration' to see the changes.")
+                .setColor("#00FF00")],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error in bulk_info_dropdown_roles_button:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "bulk_info_button_roles_dropdown") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              const updates = {
-                defaultInfoDisplayType: 'button',
-                defaultRoleDisplayType: 'dropdown',
-                // Clear individual overrides since we're setting defaults
-                displayTypes: {},
-                roleDisplayTypes: {}
-              };
-
-              await db.updateHybridMenu(hybridMenuId, updates);
-              
-              // Send a quick success response instead of showing full config page
-              return sendEphemeralEmbed(interaction, "✅ Info pages set to buttons, roles set to dropdown! Use 'Display Types Configuration' to see the changes.", "#00FF00", "Success", false);
-            } catch (error) {
-              console.error("Error in bulk_info_button_roles_dropdown:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+          console.log(`[Bulk Debug] Starting bulk_info_button_roles_dropdown for menu: ${hybridMenuId}`);
+          
+          try {
+            // Clear any existing timeout immediately
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            const updates = {
+              defaultInfoDisplayType: 'button',
+              defaultRoleDisplayType: 'dropdown',
+              // Clear individual overrides since we're setting defaults
+              displayTypes: {},
+              roleDisplayTypes: {}
+            };
+
+            await db.updateHybridMenu(hybridMenuId, updates);
+            
+            // Send a quick success response with direct editReply
+            return await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle("✅ Success")
+                .setDescription("Info pages set to buttons, roles set to dropdown! Use 'Display Types Configuration' to see the changes.")
+                .setColor("#00FF00")],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error in bulk_info_button_roles_dropdown:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "toggle_page_display") {
