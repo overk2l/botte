@@ -3211,8 +3211,12 @@ client.on("interactionCreate", async (interaction) => {
           
           console.log(`[Hybrid Debug] Edit role button clicked for menu: ${hybridMenuId}, role: ${roleId}, type: ${roleType}`);
           
-          // For now, show a placeholder message indicating this feature is coming soon
-          return sendEphemeralEmbed(interaction, "🚧 Role editing features coming soon! This will allow you to customize role descriptions, emojis, and button colors.", "#FFA500", "Coming Soon", false);
+          try {
+            return await showRoleEditModal(interaction, hybridMenuId, roleType, roleId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in edit_role: ${error.message}`);
+            return sendEphemeralEmbed(interaction, "❌ Error opening role editor.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "remove_role") {
@@ -9234,6 +9238,11 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to configure member count settings. Please try again.", "#FF0000", "Error", false);
           }
         }
+      }
+
+      // Handle hybrid role edit modal submission
+      if (interaction.customId.startsWith("hybrid-role-edit-modal:")) {
+        return handleRoleEditModalSubmission(interaction);
       }
     }
 
