@@ -2164,10 +2164,8 @@ client.on("interactionCreate", async (interaction) => {
   // Defer non-modal-trigger interactions, but handle dropdown interactions differently
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // Use deferUpdate for published dropdown interactions to prevent "edited" marks
-      if (isPublishedDropdownInteraction) {
-        await interaction.deferUpdate();
-      } else {
+      // Don't defer dropdown interactions - we'll handle them with update() to reset the dropdown
+      if (!isPublishedDropdownInteraction) {
         // Always defer interactions that need responses
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       }
@@ -6510,21 +6508,45 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           try {
-            // Since published dropdown interactions use deferUpdate, use followUp
-            await interaction.followUp({ embeds: [embed], ephemeral: true });
+            // Reset the dropdown by updating the message with fresh components
+            const pages = db.getInfoMenuPages(infoMenuId);
+            if (pages && pages.length > 0) {
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`info-menu-select:${infoMenuId}`)
+                .setPlaceholder(menu.dropdownPlaceholder || '📚 Select a page to view...')
+                .addOptions(
+                  pages.map(page => ({
+                    label: page.name.slice(0, 100),
+                    value: page.id,
+                    description: page.dropdownDescription || (page.content.description ? page.content.description.slice(0, 100) : undefined),
+                    emoji: page.emoji || '📄'
+                  }))
+                );
+
+              const row = new ActionRowBuilder().addComponents(selectMenu);
+              
+              // Update the message to reset the dropdown
+              await interaction.update({ components: [row] });
+              
+              // Send the page content as a follow-up
+              await interaction.followUp({ embeds: [embed], ephemeral: true });
+            } else {
+              // No pages found, fallback to reply
+              await interaction.reply({ embeds: [embed], ephemeral: true });
+            }
 
             // Don't update the original message components - this prevents "edited" marks
             // The dropdown will naturally appear unselected after the interaction
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
             console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
-            return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
+            return interaction.reply({ content: "❌ Error displaying page content.", ephemeral: true });
           }
         } catch (error) {
           console.error("Error displaying info page from dropdown:", error);
           console.error("Page data:", JSON.stringify(page, null, 2));
           console.error("Menu data:", JSON.stringify(menu, null, 2));
-          return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
+          return interaction.reply({ content: "❌ Error displaying page content.", ephemeral: true });
         }
       } else if (interaction.customId.startsWith("info-page:")) {
         // Handle user selecting a page from published info menu button
@@ -8630,8 +8652,8 @@ async function handleRoleInteraction(interaction) {
         if (isOnRoleInteractionCooldown(interaction.user.id)) {
             const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
             if (interaction.isStringSelectMenu()) {
-                // For dropdown interactions, send a follow-up message
-                return interaction.followUp({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
+                // For dropdown interactions, reply directly
+                return interaction.reply({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
             }
@@ -8645,7 +8667,7 @@ async function handleRoleInteraction(interaction) {
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
+                return interaction.reply({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
             }
@@ -8656,7 +8678,7 @@ async function handleRoleInteraction(interaction) {
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
+                return interaction.reply({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
             }
@@ -8669,7 +8691,7 @@ async function handleRoleInteraction(interaction) {
         if (!interaction.guild || !interaction.member) {
             console.error(`[Error] Invalid guild or member for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
+                return interaction.reply({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
             }
@@ -8679,7 +8701,7 @@ async function handleRoleInteraction(interaction) {
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
+                return interaction.reply({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
             }
@@ -8708,7 +8730,7 @@ async function handleRoleInteraction(interaction) {
             
             if (validSelectedValues.length === 0) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.followUp({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
+                    return interaction.reply({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
                 } else {
                     return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
                 }
@@ -8745,7 +8767,7 @@ async function handleRoleInteraction(interaction) {
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
+                return interaction.reply({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
             }
@@ -8781,7 +8803,7 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+                return interaction.reply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
             } else {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
             }
@@ -8792,7 +8814,7 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.followUp({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                    return interaction.reply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
                 } else {
                     await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
                 }
@@ -8821,22 +8843,159 @@ async function handleRoleInteraction(interaction) {
         // Send rich embed notification for role changes
         if (validRolesToAdd.length > 0 || validRolesToRemove.length > 0) {
             if (interaction.isStringSelectMenu()) {
-                await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                // For dropdown interactions, update the message to reset dropdown and send follow-up
+                try {
+                    // Rebuild the components to reset the dropdown
+                    const components = [];
+
+                    // Rebuild Dropdown Select Menu
+                    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
+                        const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+                            ? menu.dropdownRoleOrder
+                            : menu.dropdownRoles
+                        ).map(roleId => {
+                            const role = interaction.guild.roles.cache.get(roleId);
+                            if (!role) return null;
+                            
+                            // Get member count if enabled for dropdowns
+                            const memberCountOptions = menu.memberCountOptions || {};
+                            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+                            const memberCount = showCountsInDropdowns ? role.members.size : null;
+                            const labelText = memberCount !== null 
+                                ? `${role.name} (${memberCount})` 
+                                : role.name;
+                            
+                            return {
+                                label: labelText.substring(0, 100),
+                                value: role.id,
+                                emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+                                description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+                                default: false // Always set default to false so roles are not pre-selected
+                            };
+                        }).filter(Boolean);
+
+                        if (dropdownOptions.length > 0) {
+                            const selectMenu = new StringSelectMenuBuilder()
+                                .setCustomId(`rr-role-select:${menuId}`)
+                                .setPlaceholder("Select roles to toggle...")
+                                .setMinValues(1)
+                                .setMaxValues(dropdownOptions.length)
+                                .addOptions(dropdownOptions);
+                            components.push(new ActionRowBuilder().addComponents(selectMenu));
+                        }
+                    }
+
+                    // Rebuild Buttons if they exist
+                    if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
+                        const buttonRows = [];
+                        let currentRow = new ActionRowBuilder();
+                        const orderedButtonRoles = menu.buttonRoleOrder.length > 0
+                            ? menu.buttonRoleOrder
+                            : menu.buttonRoles;
+
+                        for (const roleId of orderedButtonRoles) {
+                            const role = interaction.guild.roles.cache.get(roleId);
+                            if (!role) continue;
+
+                            // Get member count if enabled for buttons
+                            const memberCountOptions = menu.memberCountOptions || {};
+                            const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
+                            const memberCount = showCountsInButtons ? role.members.size : null;
+                            const labelText = memberCount !== null 
+                                ? `${role.name} (${memberCount})` 
+                                : role.name;
+
+                            // Get custom button color or default to secondary
+                            const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
+                            const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
+
+                            const button = new ButtonBuilder()
+                                .setCustomId(`rr-role-button:${menuId}:${role.id}`)
+                                .setLabel(labelText.substring(0, 80))
+                                .setStyle(buttonStyle);
+
+                            // Only set emoji if parseEmoji returns a valid object
+                            const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
+                            if (parsedEmoji) {
+                                button.setEmoji(parsedEmoji);
+                            }
+
+                            if (currentRow.components.length < 5) {
+                                currentRow.addComponents(button);
+                            } else {
+                                buttonRows.push(currentRow);
+                                currentRow = new ActionRowBuilder().addComponents(button);
+                                if (buttonRows.length >= 4) break; // Discord limit
+                            }
+                        }
+                        if (currentRow.components.length > 0 && buttonRows.length < 4) {
+                            buttonRows.push(currentRow);
+                        }
+                        components.push(...buttonRows);
+                    }
+
+                    // Update the message to reset the dropdown
+                    await interaction.update({ components });
+                    
+                    // Send the role change notification as a follow-up
+                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                } catch (error) {
+                    console.error("Error updating role menu dropdown:", error);
+                    // Fallback to follow-up notification
+                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                }
             } else {
                 await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
             }
         } else {
             if (interaction.isStringSelectMenu()) {
-                await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                try {
+                    // Still reset the dropdown even if no changes were made
+                    const components = [];
+                    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
+                        const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+                            ? menu.dropdownRoleOrder
+                            : menu.dropdownRoles
+                        ).map(roleId => {
+                            const role = interaction.guild.roles.cache.get(roleId);
+                            if (!role) return null;
+                            
+                            const memberCountOptions = menu.memberCountOptions || {};
+                            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+                            const memberCount = showCountsInDropdowns ? role.members.size : null;
+                            const labelText = memberCount !== null 
+                                ? `${role.name} (${memberCount})` 
+                                : role.name;
+                            
+                            return {
+                                label: labelText.substring(0, 100),
+                                value: role.id,
+                                emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+                                description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+                                default: false
+                            };
+                        }).filter(Boolean);
+
+                        if (dropdownOptions.length > 0) {
+                            const selectMenu = new StringSelectMenuBuilder()
+                                .setCustomId(`rr-role-select:${menuId}`)
+                                .setPlaceholder("Select roles to toggle...")
+                                .setMinValues(1)
+                                .setMaxValues(dropdownOptions.length)
+                                .addOptions(dropdownOptions);
+                            components.push(new ActionRowBuilder().addComponents(selectMenu));
+                        }
+                    }
+                    
+                    await interaction.update({ components });
+                    await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                } catch (error) {
+                    console.error("Error updating role menu dropdown:", error);
+                    await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                }
             } else {
                 await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
             }
-        }
-
-        // Update published message components only if member counts are enabled
-        // This prevents "edited" marks while still allowing role functionality
-        if (menu.showMemberCounts) {
-            await updatePublishedMessageComponents(interaction, menu, menuId, false);
         }
 
     } catch (error) {
@@ -8853,7 +9012,7 @@ async function handleRoleInteraction(interaction) {
         }
         
         if (interaction.isStringSelectMenu()) {
-            await interaction.followUp({ content: errorMessage, ephemeral: true });
+            await interaction.reply({ content: errorMessage, ephemeral: true });
         } else {
             await sendEphemeralEmbed(interaction, errorMessage, "#FF0000", "Error");
         }
@@ -10168,7 +10327,7 @@ async function handleHybridMenuInteraction(interaction) {
       const page = menu.pages?.find(p => p.id === selectedPageId);
       
       if (!page) {
-        return interaction.followUp({ content: "❌ Page not found.", ephemeral: true });
+        return interaction.reply({ content: "❌ Page not found.", ephemeral: true });
       }
 
       const embed = new EmbedBuilder()
@@ -10196,11 +10355,20 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      // Clear the dropdown selection after showing the info page
-      // For dropdown interactions, don't update the message to prevent "edited" marks
-      // The dropdown selection will naturally reset since we used deferUpdate()
+      // Reset the dropdown by updating the message with fresh components
+      try {
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        await interaction.update({ components: updatedComponents });
+        
+        // Send the page content as a follow-up message
+        await interaction.followUp({ embeds: [embed], ephemeral: true });
+      } catch (error) {
+        console.error("Error updating hybrid menu dropdown:", error);
+        // Fallback to just replying with the page content
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
 
-      return interaction.followUp({ embeds: [embed], ephemeral: true });
+      return;
     }
 
     if (type === "hybrid-info-page") {
@@ -10244,12 +10412,12 @@ async function handleHybridMenuInteraction(interaction) {
       const selectedRoleIds = interaction.values;
       
       if (!interaction.guild || !interaction.member) {
-        return interaction.followUp({ content: "❌ Unable to process role interaction.", ephemeral: true });
+        return interaction.reply({ content: "❌ Unable to process role interaction.", ephemeral: true });
       }
 
       const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
       if (!member) {
-        return interaction.followUp({ content: "❌ Unable to fetch member information.", ephemeral: true });
+        return interaction.reply({ content: "❌ Unable to fetch member information.", ephemeral: true });
       }
 
       const currentRoles = new Set(member.roles.cache.map(r => r.id));
@@ -10278,10 +10446,6 @@ async function handleHybridMenuInteraction(interaction) {
         await member.roles.remove(rolesToRemove);
       }
 
-      // Update the published message components to clear selections and update member counts
-      // For dropdown interactions, don't update the message to prevent "edited" marks
-      // The dropdown selection will naturally reset since we used deferUpdate()
-
       // Send confirmation
       let message = "✅ Roles updated successfully!";
       if (rolesToAdd.length > 0) {
@@ -10293,16 +10457,20 @@ async function handleHybridMenuInteraction(interaction) {
         message += `\n**Removed:** ${removedRoles}`;
       }
 
-      // Update member counts only if enabled
-      if (menu.showMemberCounts) {
-        try {
-          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, false);
-        } catch (error) {
-          console.error("Error updating hybrid menu components:", error);
-        }
+      // Reset the dropdown by updating the message with fresh components
+      try {
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        await interaction.update({ components: updatedComponents });
+        
+        // Send the confirmation as a follow-up message
+        await interaction.followUp({ content: message, ephemeral: true });
+      } catch (error) {
+        console.error("Error updating hybrid menu dropdown:", error);
+        // Fallback to just replying with the confirmation
+        return interaction.reply({ content: message, ephemeral: true });
       }
 
-      return interaction.followUp({ content: message, ephemeral: true });
+      return;
     }
 
     if (type === "hybrid-role-button") {
