@@ -3180,6 +3180,7 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
     const timestamp = Date.now();
     
     // Build info pages dropdown if configured
+    console.log(`[Webhook Debug] Info condition check: pages=${menu.pages?.length}, includes=${menu.infoSelectionType?.includes("dropdown")}, not=${!menu.infoSelectionType}, empty=${menu.infoSelectionType === ""}`);
     if (menu.pages && menu.pages.length > 0 && 
         (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType || menu.infoSelectionType === "")) {
       
@@ -3201,9 +3202,12 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
         components.push(new ActionRowBuilder().addComponents(infoSelect));
         console.log(`[Webhook Debug] Added info pages dropdown`);
       }
+    } else {
+      console.log(`[Webhook Debug] Skipping info pages dropdown - condition not met`);
     }
 
     // Build roles dropdown if configured
+    console.log(`[Webhook Debug] Role condition check: roles=${menu.dropdownRoles?.length}, includes=${menu.roleSelectionType?.includes("dropdown")}, not=${!menu.roleSelectionType}, empty=${menu.roleSelectionType === ""}`);
     if ((menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
         (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType || menu.roleSelectionType === "")) {
       
