@@ -1812,13 +1812,8 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
  * @param {string} menuId - The ID of the menu.
  */
 async function updatePublishedMessageComponents(interaction, menu, menuId, forceUpdate = false) {
-    // Only update components if member counts are enabled OR if this is a forced update
-    // When member counts are disabled, dropdown selections don't persist visually anyway
-    // This prevents unnecessary "edited" indicators when member counts are disabled
-    if (!menu.showMemberCounts && !forceUpdate) {
-        console.log(`[updatePublishedMessageComponents] Skipping update for menu ${menuId} - Show Counts disabled and not forced`);
-        return;
-    }
+    // Always rebuild components to reset dropdown selections for better UX
+    // But only actually update the message if there are meaningful changes to show
     
     if (!menu || !menu.channelId || !menu.messageId) {
         console.warn(`[updatePublishedMessageComponents] Invalid menu or missing channel/message ID for menu ${menuId}`);
@@ -1847,6 +1842,10 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             return;
         }
 
+        // Check if we need to show member counts, which would require a message update
+        const shouldShowMemberCounts = menu.showMemberCounts;
+        
+        // Always rebuild components to reset dropdown selections
         const components = [];
 
         // Rebuild Dropdown Select Menu
@@ -1941,24 +1940,31 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             components.push(...buttonRows);
         }
 
-        const publishedEmbed = await createReactionRoleEmbed(guild, menu);
+        // Only update the message if we're showing member counts or if explicitly forced
+        // This prevents unnecessary "edited" marks while still resetting dropdown selections
+        if (shouldShowMemberCounts || forceUpdate) {
+            const publishedEmbed = await createReactionRoleEmbed(guild, menu);
 
-        // Edit the message
-        if (menu.useWebhook) {
-            try {
-                const webhookName = menu.webhookName || "Reaction Role Webhook";
-                const webhook = await getOrCreateWebhook(originalChannel, webhookName);
-                await webhook.editMessage(originalMessage.id, {
-                    embeds: [publishedEmbed],
-                    components,
-                });
-            } catch (webhookError) {
-                console.error("Error updating via webhook:", webhookError);
-                // Fallback to regular bot message edit
+            // Edit the message
+            if (menu.useWebhook) {
+                try {
+                    const webhookName = menu.webhookName || "Reaction Role Webhook";
+                    const webhook = await getOrCreateWebhook(originalChannel, webhookName);
+                    await webhook.editMessage(originalMessage.id, {
+                        embeds: [publishedEmbed],
+                        components,
+                    });
+                } catch (webhookError) {
+                    console.error("Error updating via webhook:", webhookError);
+                    // Fallback to regular bot message edit
+                    await originalMessage.edit({ embeds: [publishedEmbed], components });
+                }
+            } else {
                 await originalMessage.edit({ embeds: [publishedEmbed], components });
             }
         } else {
-            await originalMessage.edit({ embeds: [publishedEmbed], components });
+            // Just update the components to reset dropdown selections without changing the embed
+            await originalMessage.edit({ components });
         }
 
     } catch (error) {
@@ -8759,10 +8765,8 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            // Only update if member counts are enabled to avoid unnecessary "edited" marks
-            if (menu.showMemberCounts) {
-                await updatePublishedMessageComponents(interaction, menu, menuId, true);
-            }
+            // Always update to reset dropdown selections
+            await updatePublishedMessageComponents(interaction, menu, menuId, false);
             return;
         }
 
@@ -8770,10 +8774,8 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                // Only update if member counts are enabled to avoid unnecessary "edited" marks
-                if (menu.showMemberCounts) {
-                    await updatePublishedMessageComponents(interaction, menu, menuId, true);
-                }
+                // Always update to reset dropdown selections
+                await updatePublishedMessageComponents(interaction, menu, menuId, false);
                 return;
             }
         }
@@ -8804,10 +8806,8 @@ async function handleRoleInteraction(interaction) {
         }
 
         // Update published message components to clear selections and update member counts
-        // Only update if member counts are enabled to avoid unnecessary "edited" marks
-        if (menu.showMemberCounts) {
-            await updatePublishedMessageComponents(interaction, menu, menuId, true);
-        }
+        // Always update to reset dropdown selections (components only if member counts disabled)
+        await updatePublishedMessageComponents(interaction, menu, menuId, false);
 
     } catch (error) {
         console.error("Error in handleRoleInteraction:", error);
@@ -9836,13 +9836,8 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
  * @param {string} hybridMenuId - The ID of the hybrid menu.
  */
 async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, forceUpdate = false) {
-    // Only update components if member counts are enabled OR if this is a forced update
-    // When member counts are disabled, dropdown selections don't persist visually anyway
-    // This prevents unnecessary "edited" indicators when member counts are disabled
-    if (!menu.showMemberCounts && !forceUpdate) {
-        console.log(`[updatePublishedHybridMenuComponents] Skipping update for menu ${hybridMenuId} - Show Counts disabled and not forced`);
-        return;
-    }
+    // Always rebuild components to reset dropdown selections for better UX
+    // But only actually update the message if there are meaningful changes to show
     
     if (!menu || !menu.channelId || !menu.messageId) {
         console.warn(`[updatePublishedHybridMenuComponents] Invalid menu or missing channel/message ID for menu ${hybridMenuId}`);
@@ -9854,51 +9849,60 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
         return;
     }
 
-    const guild = interaction.guild;
-
     try {
-        const originalChannel = await guild.channels.fetch(menu.channelId).catch(() => null);
+        const originalChannel = await interaction.guild.channels.fetch(menu.channelId).catch(() => null);
         if (!originalChannel || !originalChannel.isTextBased()) {
-            console.error(`Channel ${menu.channelId} not found or not text-based for hybrid menu ${hybridMenuId}`);
-            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            console.error(`Channel ${menu.channelId} not found or not text-based for menu ${hybridMenuId}`);
+            await db.clearHybridMessageId(hybridMenuId);
             return;
         }
 
         const originalMessage = await originalChannel.messages.fetch(menu.messageId).catch(() => null);
         if (!originalMessage) {
-            console.error(`Message ${menu.messageId} not found for hybrid menu ${hybridMenuId}`);
-            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            console.error(`Message ${menu.messageId} not found for menu ${hybridMenuId}`);
+            await db.clearHybridMessageId(hybridMenuId);
             return;
         }
 
-        // Rebuild the hybrid menu components with updated member counts
-        const embed = await createHybridMenuEmbed(interaction.guild, menu);
+        // Check if we need to show member counts, which would require a message update
+        const shouldShowMemberCounts = menu.showMemberCounts;
+        
+        // Always rebuild components to reset dropdown selections
         const components = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
 
-        // Update the message
-        if (menu.useWebhook) {
-            try {
-                const webhookName = menu.webhookName || "Hybrid Menu Webhook";
-                const webhook = await getOrCreateWebhook(originalChannel, webhookName);
-                await webhook.editMessage(originalMessage.id, {
-                    embeds: [embed],
-                    components,
-                });
-            } catch (webhookError) {
-                console.error("Error updating hybrid menu via webhook:", webhookError);
-                // Fallback to regular bot message edit
-                await originalMessage.edit({ embeds: [embed], components });
+        // Only update the message if we're showing member counts or if explicitly forced
+        // This prevents unnecessary "edited" marks while still resetting dropdown selections
+        if (shouldShowMemberCounts || forceUpdate) {
+            const publishedEmbed = await createHybridMenuEmbed(interaction.guild, menu);
+
+            // Edit the message
+            if (menu.useWebhook) {
+                try {
+                    const webhookName = menu.webhookName || "Hybrid Menu Webhook";
+                    const webhook = await getOrCreateWebhook(originalChannel, webhookName);
+                    await webhook.editMessage(originalMessage.id, {
+                        embeds: [publishedEmbed],
+                        components,
+                    });
+                } catch (webhookError) {
+                    console.error("Error updating hybrid menu via webhook:", webhookError);
+                    // Fallback to regular bot message edit
+                    await originalMessage.edit({ embeds: [publishedEmbed], components });
+                }
+            } else {
+                await originalMessage.edit({ embeds: [publishedEmbed], components });
             }
         } else {
-            await originalMessage.edit({ embeds: [embed], components });
+            // Just update the components to reset dropdown selections without changing the embed
+            await originalMessage.edit({ components });
         }
 
     } catch (error) {
         console.error("Error updating published hybrid menu components:", error);
         // If the message or channel is gone, clear the message ID from the menu
         if (error.code === 10003 || error.code === 50001 || error.code === 10008) { // Unknown Channel, Missing Access, or Unknown Message
-            console.log(`Clearing message ID for hybrid menu ${hybridMenuId} due to channel/message access error.`);
-            await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
+            console.log(`Clearing hybrid message ID for menu ${hybridMenuId} due to channel/message access error.`);
+            await db.clearHybridMessageId(hybridMenuId);
         }
     }
 }
@@ -10153,15 +10157,12 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Clear the dropdown selection after showing the info page
       try {
-        // Always reset dropdown selections for UX, but only if member counts are enabled
-        // to avoid unnecessary "edited" marks on the message
-        if (menu.showMemberCounts) {
-          const originalMessage = await interaction.message.fetch();
-          const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-          
-          // Update the original message to reset dropdown selections
-          await originalMessage.edit({ components: updatedComponents });
-        }
+        // Always reset dropdown selections for better UX
+        const originalMessage = await interaction.message.fetch();
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        
+        // Update the original message to reset dropdown selections
+        await originalMessage.edit({ components: updatedComponents });
       } catch (error) {
         console.error("Error resetting hybrid menu dropdown selection:", error);
         // Continue with showing the page even if we can't reset the dropdown
@@ -10247,10 +10248,8 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Update the published message components to clear selections and update member counts
       try {
-        // Only update if member counts are enabled to avoid unnecessary "edited" marks
-        if (menu.showMemberCounts) {
-          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
-        }
+        // Always update to reset dropdown selections (components only if member counts disabled)
+        await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, false);
       } catch (error) {
         console.error("Error updating hybrid menu components:", error);
         // Continue with sending the confirmation message even if we can't update the components
