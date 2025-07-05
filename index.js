@@ -753,7 +753,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
       // No changes case - send ephemeral followUp
-      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
     }
     
     console.log("✅ Professional dropdown reset completed with component refresh");
@@ -765,7 +765,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate();
       }
-      await interaction.followUp({ content: "❌ An error occurred processing your selection.", flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
     } catch (fallbackError) {
       console.error("❌ Fallback error handling failed:", fallbackError);
     }
@@ -1024,38 +1024,19 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
     embed.setDescription(description);
     embed.setColor(color);
 
-    // Send followUp with auto-delete - this gives us the best of both worlds
+    // Send followUp with ephemeral flag - this ensures privacy
     try {
-        const message = await interaction.followUp({ embeds: [embed] });
-        console.log("✅ Sent role change notification with auto-delete (TRUE Sapphire style)");
+        const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
+        console.log("✅ Sent role change notification as ephemeral message");
         
-        // Auto-delete the message after 6 seconds like before
-        if (message) {
-            setTimeout(async () => {
-                try {
-                    await message.delete();
-                    console.log("✅ Auto-deleted role change notification");
-                } catch (deleteError) {
-                    console.log("❌ Could not auto-delete message (already deleted)");
-                }
-            }, 6000);
-        }
+        // Note: Ephemeral messages auto-delete after 15 minutes, no need for manual deletion
     } catch (error) {
         console.error("❌ Error sending role notification:", error);
         // Fallback to simple text message
         try {
-            const fallbackMessage = await interaction.followUp({ content: "✅ Your roles have been updated!" });
+            const fallbackMessage = await interaction.followUp({ content: "✅ Your roles have been updated!", ephemeral: true });
             
-            // Auto-delete fallback message too
-            if (fallbackMessage) {
-                setTimeout(async () => {
-                    try {
-                        await fallbackMessage.delete();
-                    } catch (deleteError) {
-                        console.log("❌ Could not auto-delete fallback message");
-                    }
-                }, 6000);
-            }
+            // Note: Ephemeral messages auto-delete after 15 minutes, no need for manual deletion
         } catch (fallbackError) {
             console.error("❌ Fallback followUp failed:", fallbackError);
         }
@@ -2697,52 +2678,23 @@ async function sendEphemeralEmbed(interaction, description, color = "#5865F2", t
     try {
         // Check if interaction has already been replied/deferred
         if (interaction.replied || interaction.deferred) {
-            message = await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral, components: [] });
+            message = await interaction.editReply({ embeds: [embed], ephemeral: true, components: [] });
         } else {
-            message = await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            message = await interaction.reply({ embeds: [embed], ephemeral: true });
         }
     } catch (error) {
         console.error("Error sending ephemeral embed:", error);
         // Try followUp as last resort
         try {
-            message = await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            message = await interaction.followUp({ embeds: [embed], ephemeral: true });
         } catch (followUpError) {
             console.error("Error sending follow-up:", followUpError);
-            return; // Cannot send message, so nothing to delete
+            return;
         }
     }
 
-    // Auto-delete the ephemeral message after 6 seconds if autoDelete is true
-    if (message && autoDelete) {
-        const timeoutId = setTimeout(async () => {
-            try {
-                // If it was an initial reply, use deleteReply() on the interaction
-                if (interaction.replied || interaction.deferred) {
-                    // For ephemeral messages, we can't fetch them, so just try to delete
-                    await interaction.deleteReply().catch(() => {
-                        // Silently fail if already deleted
-                    });
-                } else {
-                    // If it was a followUp, delete the message directly
-                    await message.delete().catch(() => {
-                        // Silently fail if already deleted
-                    });
-                }
-            } catch (deleteError) {
-                // Ignore "Unknown Message" error (10008) if the user already dismissed it
-                if (deleteError.code !== 10008) {
-                    console.error("Error auto-deleting ephemeral message:", deleteError);
-                }
-            } finally {
-                // Clean up timeout reference
-                ephemeralTimeouts.delete(message.id);
-            }
-        }, 6000); // 6000 milliseconds = 6 seconds
-        
-        // Store timeout reference for potential cleanup
-        ephemeralTimeouts.set(message.id, timeoutId);
-    }
-
+    // Note: Ephemeral messages auto-delete after 15 minutes, no need for manual deletion
+    // The autoDelete parameter is kept for backwards compatibility but not used
     return message;
 }
 
