@@ -337,12 +337,21 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  * @param {Array} originalComponents - The original components to restore (optional - will use interaction.message.components if not provided)
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
-async function resetDropdownSelection(interaction, originalComponents = null) {
+/**
+ * Resets dropdown selection and sends notification (Sapphire-style)
+ * @param {import('discord.js').Interaction} interaction - The interaction to reset
+ * @param {Array} originalComponents - Original components from the message
+ * @param {Array} addedRoles - Roles that were added (for notification)
+ * @param {Array} removedRoles - Roles that were removed (for notification)
+ * @param {import('discord.js').GuildMember} member - The member whose roles changed
+ * @returns {Promise<boolean>} Whether the reset was successful
+ */
+async function resetDropdownSelection(interaction, originalComponents = null, addedRoles = [], removedRoles = [], member = null) {
   try {
     // Get components from the interaction message if not provided
     const components = originalComponents || (interaction.message?.components);
     
-    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components (no deferUpdate to avoid "edited" mark)
+    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
     if (components && components.length > 0) {
       try {
         console.log(`[Dropdown Reset] Starting with ${components.length} original component rows`);
@@ -446,11 +455,60 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
             });
             
             console.log("✅ Sapphire-style dropdown reset completed: All selections cleared (no edit mark)");
+            
+            // Send notification if role changes were provided
+            if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+              try {
+                await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
+              } catch (notificationError) {
+                console.error("Error sending notification after reset:", notificationError);
+              }
+            } else if (member && addedRoles.length === 0 && removedRoles.length === 0) {
+              // Handle "no changes" case
+              try {
+                await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+              } catch (noChangeError) {
+                console.error("Error sending no-change notification:", noChangeError);
+              }
+            }
+            
             return true;
           } else {
             // Fallback if interaction already handled
-            console.log("⚠️ Interaction already replied/deferred, skipping reset to avoid double response");
-            return true;
+            console.log("⚠️ Interaction already replied/deferred, using fallback approach");
+            
+            // Try to edit the reply if already deferred
+            if (interaction.deferred) {
+              try {
+                await interaction.editReply({
+                  components: freshComponents
+                });
+                console.log("✅ Fallback: Updated components via editReply");
+                
+                // Send notification if role changes were provided
+                if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+                  try {
+                    await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
+                  } catch (notificationError) {
+                    console.error("Error sending notification after fallback reset:", notificationError);
+                  }
+                } else if (member && addedRoles.length === 0 && removedRoles.length === 0) {
+                  // Handle "no changes" case
+                  try {
+                    await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                  } catch (noChangeError) {
+                    console.error("Error sending no-change notification after fallback:", noChangeError);
+                  }
+                }
+                
+                return true;
+              } catch (editError) {
+                console.error("Error in fallback editReply:", editError);
+                return false;
+              }
+            }
+            
+            return false;
           }
         } else {
           console.log("⚠️ No valid components to update, skipping refresh");
@@ -9471,12 +9529,9 @@ async function handleRoleInteraction(interaction) {
                     
                     // Process the selection like a button - just acknowledge and send feedback
                     try {
-                        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
+                        const resetSuccess = await resetDropdownSelection(interaction, originalComponents, validRolesToAdd, validRolesToRemove, member);
                         
-                        if (resetSuccess) {
-                            // Send notification as ephemeral follow-up (like buttons do)
-                            await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
-                        } else {
+                        if (!resetSuccess) {
                             // Fallback to notification if acknowledgment fails
                             await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
                         }
@@ -9499,19 +9554,18 @@ async function handleRoleInteraction(interaction) {
                     // Still reset the dropdown even if no changes were made - use original components
                     const originalComponents = interaction.message?.components || [];
                     
-                    // Process like a button - acknowledge and give feedback
-                    const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
+                    // Process like a button - acknowledge and give feedback (no role changes)
+                    const resetSuccess = await resetDropdownSelection(interaction, originalComponents, [], [], member);
                     
-                    if (resetSuccess) {
-                        await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
-                    } else {
-                        // If acknowledgment failed, try to reply properly
+                    if (!resetSuccess) {
+                        // If reset failed, send a manual notification
                         if (!interaction.replied && !interaction.deferred) {
                             await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
                         } else {
                             await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
                         }
                     }
+                    // Note: If resetSuccess is true, the reset function will handle the "no changes" notification
                 } catch (error) {
                     console.error("Error updating role menu dropdown:", error);
                     // Fallback: handle interaction state properly
