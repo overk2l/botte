@@ -5395,8 +5395,8 @@ client.on("interactionCreate", async (interaction) => {
 
               await db.updateHybridMenu(hybridMenuId, updates);
               
-              await sendEphemeralEmbed(interaction, "✅ All items set to dropdown display!", "#00FF00", "Success", false);
-              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+              // Show the updated configuration page with success message
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId, "✅ All items set to dropdown display!");
             } catch (error) {
               console.error("Error in bulk_all_dropdown:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
@@ -5434,8 +5434,8 @@ client.on("interactionCreate", async (interaction) => {
 
               await db.updateHybridMenu(hybridMenuId, updates);
               
-              await sendEphemeralEmbed(interaction, "✅ All items set to button display!", "#00FF00", "Success", false);
-              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+              // Show the updated configuration page with success message
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId, "✅ All items set to button display!");
             } catch (error) {
               console.error("Error in bulk_all_buttons:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
@@ -5473,8 +5473,8 @@ client.on("interactionCreate", async (interaction) => {
 
               await db.updateHybridMenu(hybridMenuId, updates);
               
-              await sendEphemeralEmbed(interaction, "✅ All items set to both dropdown and button display!", "#00FF00", "Success", false);
-              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+              // Show the updated configuration page with success message
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId, "✅ All items set to both dropdown and button display!");
             } catch (error) {
               console.error("Error in bulk_all_both:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk both. Please try again.", "#FF0000", "Error", false);
@@ -5513,8 +5513,8 @@ client.on("interactionCreate", async (interaction) => {
 
               await db.updateHybridMenu(hybridMenuId, updates);
               
-              await sendEphemeralEmbed(interaction, "✅ Info pages set to dropdown, roles set to buttons!", "#00FF00", "Success", false);
-              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+              // Show the updated configuration page with success message
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId, "✅ Info pages set to dropdown, roles set to buttons!");
             } catch (error) {
               console.error("Error in bulk_info_dropdown_roles_button:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
@@ -5553,8 +5553,8 @@ client.on("interactionCreate", async (interaction) => {
 
               await db.updateHybridMenu(hybridMenuId, updates);
               
-              await sendEphemeralEmbed(interaction, "✅ Info pages set to buttons, roles set to dropdown!", "#00FF00", "Success", false);
-              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+              // Show the updated configuration page with success message
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId, "✅ Info pages set to buttons, roles set to dropdown!");
             } catch (error) {
               console.error("Error in bulk_info_button_roles_dropdown:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
@@ -9890,7 +9890,7 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
 }
 
 // Show comprehensive display types configuration for hybrid menus
-async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
+async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId, successMessage = null) {
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
     return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -9905,6 +9905,12 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
       `**❌ Hidden** - Item exists but won't be shown\n\n` +
       `**Menu-wide defaults apply to all items unless overridden individually.**`)
     .setColor("#5865F2");
+
+  // Add success message if provided
+  if (successMessage) {
+    embed.setFooter({ text: successMessage });
+    embed.setColor("#00FF00");
+  }
 
   const components = [];
 
