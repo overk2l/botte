@@ -270,130 +270,148 @@ function validateMenu(menuId, type = 'menu') {
  * @param {string} menuId - The menu ID
  * @returns {Promise<Array>} Array of rebuilt ActionRowBuilder components
  */
-async function rebuildDropdownComponents(originalMessage, menu = null, menuId = null) {
-  console.log(`[Debug] Building fresh dropdown components${menuId ? ` for menu ${menuId}` : ''}`);
+async function rebuildDropdownComponents(originalMessage, menu, menuId) {
+  console.log(`[Debug] Rebuilding dropdown components for menu ${menuId}`);
   
   try {
+    const newComponents = [];
     const baseTimestamp = Date.now();
-    let counter = 0;
-    const rebuilt = [];
-
+    let componentCounter = 0; // Counter to ensure unique IDs
+    
     // Defensive check for components
-    if (!originalMessage?.components || !Array.isArray(originalMessage.components)) {
-      console.warn(`[Warning] No valid components found in message`);
+    if (!originalMessage || !originalMessage.components || !Array.isArray(originalMessage.components)) {
+      console.warn(`[Warning] Invalid or missing components in message for menu ${menuId}`);
       return [];
     }
-
-    for (const row of originalMessage.components) {
-      if (!row?.components || !Array.isArray(row.components)) {
+    
+    // Process each component row from the original message
+    for (const originalRow of originalMessage.components) {
+      // Defensive check for row components
+      if (!originalRow || !originalRow.components || !Array.isArray(originalRow.components)) {
+        console.warn(`[Warning] Invalid or missing components in row for menu ${menuId}`);
         continue;
       }
-
+      
       const newRow = new ActionRowBuilder();
-
-      for (const component of row.components) {
-        counter++;
-        
+      
+      for (const component of originalRow.components) {
+        componentCounter++; // Increment counter for each component
+        const uniqueTimestamp = baseTimestamp + componentCounter;
         if (component.type === ComponentType.StringSelect) {
-          // Clear all selections and rebuild with fresh ID
-          const options = component.options.map(opt => ({
-            label: opt.label,
-            value: opt.value,
-            description: opt.description,
-            emoji: opt.emoji,
-            default: false // Clear any previous selection
+          // Rebuild dropdown with fresh timestamp and cleared selections
+          const options = component.options.map(option => ({
+            label: option.label,
+            value: option.value,
+            description: option.description || undefined,
+            emoji: option.emoji || undefined,
+            default: false // Explicitly clear all selections
           }));
-
-          // Create completely fresh custom ID
+          
+          // Create new custom ID with unique timestamp to force Discord to treat it as a new component
           const baseParts = component.customId.split(':');
-          const newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseTimestamp + counter}`;
-
+          const newCustomId = baseParts.length >= 3 
+            ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+            : `${component.customId}:${uniqueTimestamp}`;
+          
           const newSelect = new StringSelectMenuBuilder()
             .setCustomId(newCustomId)
             .setPlaceholder(component.placeholder || "Select an option...")
+            .setMinValues(component.minValues || 1)
+            .setMaxValues(component.maxValues || 1)
+            .setDisabled(component.disabled || false)
             .addOptions(options);
-
-          // Preserve min/max values if they exist
-          if (component.minValues) newSelect.setMinValues(component.minValues);
-          if (component.maxValues) newSelect.setMaxValues(component.maxValues);
-
-          newRow.addComponents(newSelect);
-          console.log(`[Debug] Created fresh dropdown with ID: ${newCustomId}`);
           
+          newRow.addComponents(newSelect);
+          console.log(`[Debug] Rebuilt dropdown with ID: ${newCustomId}`);
         } else if (component.type === ComponentType.Button) {
-          // Keep buttons but with fresh IDs
-          const baseParts = component.customId.split(':');
-          const newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2] || 'btn'}:${baseTimestamp + counter}`;
-
+          // Rebuild buttons with fresh unique timestamp
+          const baseParts = component.customId?.split(':') || [];
+          let newCustomId;
+          
+          // Special handling for role buttons to preserve role ID
+          if (component.customId?.includes('role-button:')) {
+            // Format: prefix-role-button:menuId:roleId or prefix-role-button:menuId:roleId:oldTimestamp
+            if (baseParts.length === 3) {
+              // Format: prefix-role-button:menuId:roleId
+              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
+            } else if (baseParts.length === 4) {
+              // Format: prefix-role-button:menuId:roleId:oldTimestamp
+              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
+            } else {
+              // Fallback for unexpected format
+              newCustomId = component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
+            }
+          } else {
+            // Regular button handling
+            newCustomId = baseParts.length >= 3 
+              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+              : component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
+          }
+          
           const newButton = new ButtonBuilder()
             .setCustomId(newCustomId)
-            .setLabel(component.label)
-            .setStyle(component.style);
+            .setLabel(component.label || "Button")
+            .setStyle(component.style || ButtonStyle.Secondary)
+            .setDisabled(component.disabled || false);
           
           if (component.emoji) {
             newButton.setEmoji(component.emoji);
           }
           
           newRow.addComponents(newButton);
-          console.log(`[Debug] Created fresh button with ID: ${newCustomId}`);
+          console.log(`[Debug] Rebuilt button with ID: ${newCustomId}`);
+        } else {
+          // For other component types, try to ensure unique IDs if they have custom IDs
+          if (component.customId) {
+            const baseParts = component.customId.split(':');
+            const newCustomId = baseParts.length >= 3 
+              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+              : `${component.customId}:${uniqueTimestamp}`;
+            
+            // Create a copy of the component with new custom ID
+            const newComponent = { ...component, customId: newCustomId };
+            newRow.addComponents(newComponent);
+            console.log(`[Debug] Rebuilt component with ID: ${newCustomId}`);
+          } else {
+            // Component has no custom ID, safe to copy as-is
+            newRow.addComponents(component);
+          }
         }
       }
-
+      
+      // Only add rows that have components
       if (newRow.components.length > 0) {
-        rebuilt.push(newRow);
+        newComponents.push(newRow);
       }
     }
-
-    console.log(`[Debug] Successfully rebuilt ${rebuilt.length} component rows with fresh IDs`);
-    return rebuilt;
     
+    console.log(`[Debug] Successfully rebuilt ${newComponents.length} component rows`);
+    
+    // Debug: Log all custom IDs to check for duplicates
+    const allCustomIds = [];
+    for (const row of newComponents) {
+      for (const component of row.components) {
+        if (component.data && component.data.custom_id) {
+          allCustomIds.push(component.data.custom_id);
+        }
+      }
+    }
+    
+    console.log(`[Debug] All custom IDs in rebuilt components:`, allCustomIds);
+    
+    // Check for duplicates
+    const duplicates = allCustomIds.filter((id, index) => allCustomIds.indexOf(id) !== index);
+    if (duplicates.length > 0) {
+      console.error(`[Error] Found duplicate custom IDs:`, duplicates);
+    }
+    
+    return newComponents;
   } catch (error) {
     console.error(`[Error] Failed to rebuild dropdown components:`, error);
+    
+    // Fallback: return empty array to prevent crashes
+    console.warn(`[Warning] Returning empty components array as fallback for menu ${menuId}`);
     return [];
-  }
-
-/**
- * Handles dropdown selection with clean reset logic
- * @param {import('discord.js').Interaction} interaction - The dropdown interaction  
- * @param {Array} addedRoles - Roles that were added
- * @param {Array} removedRoles - Roles that were removed  
- * @param {import('discord.js').GuildMember} member - The member whose roles changed
- * @returns {Promise<void>}
- */
-async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
-  try {
-    console.log("🔄 Clean dropdown reset approach...");
-    
-    // Get the original message and rebuild components with fresh custom IDs
-    const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage);
-    
-    // ✅ Update the message with fresh components (resets dropdown visually)
-    await interaction.update({
-      components: updatedComponents
-    });
-    
-    // Send role change feedback as ephemeral followUp
-    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
-    } else if (member) {
-      // No changes case - send ephemeral followUp
-      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
-    }
-    
-    console.log("✅ Clean dropdown reset completed");
-  } catch (error) {
-    console.error("❌ Error in dropdown handling:", error);
-    
-    // Fallback error handling
-    try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
-      }
-      await interaction.followUp({ content: "❌ An error occurred processing your selection.", flags: MessageFlags.Ephemeral });
-    } catch (fallbackError) {
-      console.error("❌ Fallback error handling failed:", fallbackError);
-    }
   }
 }
 
@@ -13687,16 +13705,30 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Clean info dropdown reset approach...");
+    console.log("🔄 Starting professional info dropdown handling with reset...");
+    
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
+    
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Info dropdown interaction deferred without showing 'edited' mark");
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
     const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
     
-    // ✅ Update the message with fresh components (resets dropdown visually)
-    await interaction.update({
-      components: updatedComponents
-    });
+    // Edit the message separately to refresh components (this won't show "edited" mark)
+    if (updatedComponents && updatedComponents.length > 0) {
+      try {
+        await originalMessage.edit({
+          components: updatedComponents
+        });
+        console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit info dropdown components:", editError);
+      }
+    }
     
     // Create and send the page content as ephemeral followUp
     const embed = new EmbedBuilder();
