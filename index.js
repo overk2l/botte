@@ -9508,7 +9508,7 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
   );
 
   // Info Pages section
-  const infoPages = db.getInfoMenuPages(menu.infoMenuId);
+  const infoPages = menu.pages || [];
   if (infoPages.length > 0) {
     embed.addFields([
       { name: "📋 Info Pages", value: `**Default: ${infoDefault}**`, inline: false }
@@ -9538,8 +9538,8 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
   }
 
   // Roles section
-  const roles = db.getMenuRoles(menu.roleMenuId);
-  if (roles.length > 0) {
+  const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+  if (allRoles.length > 0) {
     embed.addFields([
       { name: "🎭 Reaction Roles", value: `**Default: ${roleDefault}**`, inline: false }
     ]);
@@ -9547,8 +9547,11 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
     let rolesFieldValue = "";
     const roleOverrides = menu.roleDisplayTypes || {};
     
-    for (const role of roles.slice(0, 10)) { // Limit to 10 for display
-      const override = roleOverrides[role.id];
+    for (const roleId of allRoles.slice(0, 10)) { // Limit to 10 for display
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (!role) continue;
+      
+      const override = roleOverrides[roleId];
       const displayType = override || roleDefault;
       const displayEmoji = {
         'dropdown': '📋',
@@ -9625,7 +9628,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   const roleDefault = menu.defaultRoleDisplayType || 'dropdown';
 
   // Info Pages
-  const infoPages = db.getInfoMenuPages(menu.infoMenuId);
+  const infoPages = menu.pages || [];
   if (infoPages.length > 0) {
     embed.addFields([
       { name: "📋 Info Pages", value: "Click to configure each page:", inline: false }
@@ -9671,8 +9674,8 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   }
 
   // Roles
-  const roles = db.getMenuRoles(menu.roleMenuId);
-  if (roles.length > 0) {
+  const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+  if (allRoles.length > 0) {
     embed.addFields([
       { name: "🎭 Reaction Roles", value: "Click to configure each role:", inline: false }
     ]);
@@ -9681,14 +9684,17 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     let currentRow = new ActionRowBuilder();
     let buttonsInRow = 0;
 
-    for (const role of roles.slice(0, 20)) { // Limit to 20 items
+    for (const roleId of allRoles.slice(0, 20)) { // Limit to 20 items
       if (buttonsInRow >= 5) {
         roleRows.push(currentRow);
         currentRow = new ActionRowBuilder();
         buttonsInRow = 0;
       }
 
-      const override = roleOverrides[role.id];
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (!role) continue;
+
+      const override = roleOverrides[roleId];
       const displayType = override || roleDefault;
       const isOverridden = !!override;
       
@@ -9700,7 +9706,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
       }[displayType] || '📋';
 
       const button = new ButtonBuilder()
-        .setCustomId(`hybrid:toggle_role_display:${hybridMenuId}:${role.id}`)
+        .setCustomId(`hybrid:toggle_role_display:${hybridMenuId}:${roleId}`)
         .setLabel(`${role.name.substring(0, 20)}`)
         .setEmoji(displayEmoji)
         .setStyle(isOverridden ? ButtonStyle.Primary : ButtonStyle.Secondary);
