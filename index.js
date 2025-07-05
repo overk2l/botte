@@ -338,8 +338,7 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 /**
- * Simple dropdown handler - just process the selection and send feedback
- * No component updates needed - Discord handles the visual state naturally
+ * Sapphire-style dropdown handler - defers immediately then sends follow-up
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
  * @param {Array} addedRoles - Roles that were added
  * @param {Array} removedRoles - Roles that were removed  
@@ -348,25 +347,50 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    // Simply send notification - no component updates needed
+    console.log("🔄 Starting Sapphire-style dropdown reset...");
+    
+    // Step 1: Rebuild the message components to clear the selection
+    const originalMessage = interaction.message;
+    if (originalMessage && originalMessage.components) {
+      // Get the menu ID from the custom ID
+      const parts = interaction.customId.split(":");
+      const menuId = parts[1];
+      const menu = db.getMenu(menuId) || db.getHybridMenu(menuId);
+      
+      if (menu) {
+        try {
+          // Rebuild the components with a new timestamp to force clearing
+          const newComponents = await rebuildDropdownComponents(originalMessage, menu, menuId);
+          
+          // Update the message with fresh components (this should clear the selection)
+          await interaction.editReply({ components: newComponents });
+          console.log("✅ Dropdown components refreshed with new timestamp");
+        } catch (rebuildError) {
+          console.error("❌ Error rebuilding dropdown components:", rebuildError);
+          // Continue with notification anyway
+        }
+      }
+    }
+    
+    // Step 2: Send role change notification as follow-up (since message was already edited)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
-      // No changes case
-      await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
-    } else {
-      // Fallback acknowledgment
-      await interaction.reply({ content: "✅ Selection processed!", ephemeral: true });
+      // No changes case - send as follow-up
+      await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
     }
     
-    console.log("✅ Dropdown selection processed - no component updates needed");
+    console.log("✅ Sapphire-style dropdown selection processed with reset + follow-up");
   } catch (error) {
-    console.error("❌ Error handling dropdown selection:", error);
+    console.error("❌ Error in Sapphire-style dropdown handling:", error);
     
     // Fallback error handling
     try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      if (!interaction.replied) {
+        await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      } else {
+        // If we already replied, we can't send another follow-up
+        console.log("❌ Cannot send error message - interaction already replied");
       }
     } catch (fallbackError) {
       console.error("❌ Fallback error handling failed:", fallbackError);
@@ -6844,7 +6868,7 @@ client.on("interactionCreate", async (interaction) => {
       } else if (interaction.customId.startsWith("info-menu-select:")) {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
-        const infoMenuId = parts[1];
+        const infoMenuId = parts[1]; // Extract menu ID regardless of timestamp
         const selectedPageId = interaction.values[0];
 
         if (!infoMenuId || !selectedPageId) {
@@ -6862,146 +6886,11 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         try {
-          // Create embed for the page content
-          const embed = new EmbedBuilder();
-          
-          // Helper function to validate URLs
-          const isValidUrl = (url) => {
-            if (!url || typeof url !== 'string' || url.trim() === '') return false;
-            try {
-              new URL(url);
-              return true;
-            } catch {
-              return false;
-            }
-          };
-
-          // Helper function to validate color
-          const isValidColor = (color) => {
-            if (!color || typeof color !== 'string') return false;
-            return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
-          };
-          
-          if (page.content.title && page.content.title.trim()) {
-            embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
-          }
-          
-          if (page.content.description && page.content.description.trim()) {
-            embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
-          }
-          
-          // Handle color with validation - use custom page color if available, otherwise menu color
-          const color = page.color || page.content.color || menu.embedColor;
-          if (color && isValidColor(color)) {
-            embed.setColor(color);
-          }
-          
-          // Handle thumbnail with URL validation
-          const thumbnail = page.content.thumbnail || menu.embedThumbnail;
-          if (thumbnail && isValidUrl(thumbnail)) {
-            embed.setThumbnail(thumbnail);
-          }
-          
-          // Handle image with URL validation
-          const image = page.content.image || menu.embedImage;
-          if (image && isValidUrl(image)) {
-            embed.setImage(image);
-          }
-          
-          // Handle author with validation
-          if (page.content.author && page.content.author.name) {
-            const authorData = {
-              name: page.content.author.name.slice(0, 256) // Discord author name limit
-            };
-            if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
-              authorData.iconURL = page.content.author.iconURL;
-            }
-            embed.setAuthor(authorData);
-          } else if (menu.embedAuthorName) {
-            const authorData = {
-              name: menu.embedAuthorName.slice(0, 256)
-            };
-            if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
-              authorData.iconURL = menu.embedAuthorIconURL;
-            }
-            embed.setAuthor(authorData);
-          }
-
-          // Handle footer with validation
-          if (page.content.footer && page.content.footer.text) {
-            const footerData = {
-              text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
-            };
-            if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
-              footerData.iconURL = page.content.footer.iconURL;
-            }
-            embed.setFooter(footerData);
-          } else if (menu.embedFooterText) {
-            const footerData = {
-              text: menu.embedFooterText.slice(0, 2048)
-            };
-            if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
-              footerData.iconURL = menu.embedFooterIconURL;
-            }
-            embed.setFooter(footerData);
-          }
-
-          // Handle fields with validation
-          if (page.content.fields && Array.isArray(page.content.fields)) {
-            const validFields = page.content.fields
-              .filter(field => field && field.name && field.value)
-              .slice(0, 25) // Discord field limit
-              .map(field => ({
-                name: field.name.slice(0, 256), // Discord field name limit
-                value: field.value.slice(0, 1024), // Discord field value limit
-                inline: Boolean(field.inline)
-              }));
-            
-            if (validFields.length > 0) {
-              embed.addFields(validFields);
-            }
-          }
-
-          try {
-            // Reset the dropdown by updating the message with fresh components via webhook
-            const pages = db.getInfoMenuPages(infoMenuId);
-            if (pages && pages.length > 0) {
-              const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`info-menu-select:${infoMenuId}`)
-                .setPlaceholder(menu.dropdownPlaceholder || '📚 Select a page to view...')
-                .addOptions(
-                  pages.map(page => ({
-                    label: page.name.slice(0, 100),
-                    value: page.id,
-                    description: page.dropdownDescription || (page.content.description ? page.content.description.slice(0, 100) : undefined),
-                    emoji: page.emoji || '📄'
-                  }))
-                );
-
-              // Send the page content directly as reply
-              try {
-                await interaction.reply({ embeds: [embed], ephemeral: true });
-              } catch (error) {
-                console.error("Error sending page content:", error);
-              }
-            } else {
-              // No pages found, fallback to reply
-              if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({ embeds: [embed], ephemeral: true });
-              } else {
-                await interaction.followUp({ embeds: [embed], ephemeral: true });
-              }
-            }
-          } catch (replyError) {
-            console.error("Error sending embed reply:", replyError);
-            console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
-            return interaction.reply({ content: "❌ Error displaying page content.", ephemeral: true });
-          }
+          // Apply Sapphire-style dropdown reset
+          await handleInfoDropdownSelection(interaction, menu, page, infoMenuId);
         } catch (error) {
-          console.error("Error displaying info page from dropdown:", error);
-          console.error("Page data:", JSON.stringify(page, null, 2));
-          console.error("Menu data:", JSON.stringify(menu, null, 2));
-          return interaction.reply({ content: "❌ Error displaying page content.", ephemeral: true });
+          console.error("Error handling info dropdown selection:", error);
+          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       } else if (interaction.customId.startsWith("info-page:")) {
         // Handle user selecting a page from published info menu button
@@ -8597,7 +8486,7 @@ client.on("interactionCreate", async (interaction) => {
               }));
 
               const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`info-menu-select:${infoMenuId}`)
+                .setCustomId(`info-menu-select:${infoMenuId}:${Date.now()}`)
                 .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
                 .addOptions(pageOptions);
 
@@ -9137,8 +9026,8 @@ async function handleRoleInteraction(interaction) {
         if (isOnRoleInteractionCooldown(interaction.user.id)) {
             const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
             if (interaction.isStringSelectMenu()) {
-                // For dropdown interactions, reply directly
-                return interaction.reply({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
+                // For dropdown interactions, use followUp since they are already deferred
+                return interaction.followUp({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
             }
@@ -9152,18 +9041,24 @@ async function handleRoleInteraction(interaction) {
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
+                return interaction.followUp({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
             }
         }
         
-        const menu = db.getMenu(menuId);
+        // Try to get the menu from either regular or hybrid menu store
+        let menu = db.getMenu(menuId);
+        const isHybridMenu = !menu;
+        
+        if (isHybridMenu) {
+            menu = db.getHybridMenu(menuId);
+        }
         
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
+                return interaction.followUp({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
             }
@@ -9176,7 +9071,7 @@ async function handleRoleInteraction(interaction) {
         if (!interaction.guild || !interaction.member) {
             console.error(`[Error] Invalid guild or member for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
+                return interaction.followUp({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
             }
@@ -9186,7 +9081,7 @@ async function handleRoleInteraction(interaction) {
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
+                return interaction.followUp({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
             }
@@ -9215,7 +9110,7 @@ async function handleRoleInteraction(interaction) {
             
             if (validSelectedValues.length === 0) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.reply({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
+                    return interaction.followUp({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
                 } else {
                     return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
                 }
@@ -9252,7 +9147,7 @@ async function handleRoleInteraction(interaction) {
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
+                return interaction.followUp({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
             }
@@ -9281,14 +9176,25 @@ async function handleRoleInteraction(interaction) {
 
         console.log(`[DEBUG] Final new roles after exclusions:`, Array.from(newRoles));
 
-        const allMenuRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        // Extract all menu roles based on menu type
+        let allMenuRoles = [];
+        if (isHybridMenu) {
+            // For hybrid menus, collect all role IDs from roleButtons
+            if (menu.roleButtons && Array.isArray(menu.roleButtons)) {
+                allMenuRoles = menu.roleButtons.map(btn => btn.roleId);
+            }
+        } else {
+            // For regular menus, use dropdownRoles and buttonRoles
+            allMenuRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        }
+        
         const newMenuRoles = Array.from(newRoles).filter(id => allMenuRoles.includes(id));
 
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             if (interaction.isStringSelectMenu()) {
-                return interaction.reply({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+                return interaction.followUp({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
             } else {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
             }
@@ -9299,7 +9205,7 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.reply({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                    return interaction.followUp({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
                 } else {
                     await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
                 }
@@ -9335,7 +9241,9 @@ async function handleRoleInteraction(interaction) {
                     console.error("Error handling dropdown interaction:", dropdownError);
                     // Fallback to notification
                     try {
-                        if (!interaction.replied && !interaction.deferred) {
+                        if (interaction.deferred) {
+                            await interaction.followUp({ content: "✅ Role updated successfully!", ephemeral: true });
+                        } else if (!interaction.replied) {
                             await interaction.reply({ content: "✅ Role updated successfully!", ephemeral: true });
                         }
                     } catch (fallbackError) {
@@ -9354,7 +9262,9 @@ async function handleRoleInteraction(interaction) {
                     console.error("Error handling no-change dropdown:", error);
                     // Fallback
                     try {
-                        if (!interaction.replied && !interaction.deferred) {
+                        if (interaction.deferred) {
+                            await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                        } else if (!interaction.replied) {
                             await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
                         }
                     } catch (fallbackError) {
@@ -9380,7 +9290,15 @@ async function handleRoleInteraction(interaction) {
         }
         
         if (interaction.isStringSelectMenu()) {
-            await interaction.reply({ content: errorMessage, ephemeral: true });
+            try {
+                if (interaction.deferred) {
+                    await interaction.followUp({ content: errorMessage, ephemeral: true });
+                } else if (!interaction.replied) {
+                    await interaction.reply({ content: errorMessage, ephemeral: true });
+                }
+            } catch (replyError) {
+                console.error("Error sending error message:", replyError);
+            }
         } else {
             await sendEphemeralEmbed(interaction, errorMessage, "#FF0000", "Error");
         }
@@ -10234,7 +10152,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
         }));
 
         const infoDropdown = new StringSelectMenuBuilder()
-            .setCustomId(`hybrid-info-select:${hybridMenuId}`)
+            .setCustomId(`hybrid-info-select:${hybridMenuId}:${Date.now()}`)
             .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
             .addOptions(infoOptions);
         
@@ -10270,7 +10188,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
         if (roleOptions.length > 0) {
             const roleDropdown = new StringSelectMenuBuilder()
-                .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+                .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
                 .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
                 .setMinValues(1)
                 .setMaxValues(1)
@@ -10695,39 +10613,15 @@ async function handleHybridMenuInteraction(interaction) {
       const page = menu.pages?.find(p => p.id === selectedPageId);
       
       if (!page) {
-        return interaction.reply({ content: "❌ Page not found.", ephemeral: true });
+        return interaction.followUp({ content: "❌ Page not found.", ephemeral: true });
       }
 
-      const embed = new EmbedBuilder()
-        .setTitle(page.name)
-        .setDescription(page.content)
-        .setColor(page.embedData?.color || menu.embedColor || "#5865F2");
-
-      if (page.embedData) {
-        if (page.embedData.thumbnail?.url) embed.setThumbnail(page.embedData.thumbnail.url);
-        if (page.embedData.image?.url) embed.setImage(page.embedData.image.url);
-        if (page.embedData.author?.name) {
-          embed.setAuthor({
-            name: page.embedData.author.name,
-            iconURL: page.embedData.author.icon_url
-          });
-        }
-        if (page.embedData.footer?.text) {
-          embed.setFooter({
-            text: page.embedData.footer.text,
-            iconURL: page.embedData.footer.icon_url
-          });
-        }
-        if (page.embedData.fields) {
-          embed.addFields(page.embedData.fields);
-        }
-      }
-
-      // Send the page content directly as reply
       try {
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        // Apply Sapphire-style dropdown reset
+        await handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId);
       } catch (error) {
-        console.error("Error sending page content:", error);
+        console.error("Error handling hybrid info dropdown selection:", error);
+        return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
       }
 
       return;
@@ -10771,59 +10665,8 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle role interactions
     if (type === "hybrid-role-select") {
-      const selectedRoleIds = interaction.values;
-      
-      if (!interaction.guild || !interaction.member) {
-        return interaction.reply({ content: "❌ Unable to process role interaction.", ephemeral: true });
-      }
-
-      const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-      if (!member) {
-        return interaction.reply({ content: "❌ Unable to fetch member information.", ephemeral: true });
-      }
-
-      const currentRoles = new Set(member.roles.cache.map(r => r.id));
-      let newRoles = new Set(currentRoles);
-
-      // Toggle each selected role
-      for (const roleId of selectedRoleIds) {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (!role) continue;
-
-        if (newRoles.has(roleId)) {
-          newRoles.delete(roleId);
-        } else {
-          newRoles.add(roleId);
-        }
-      }
-
-      const rolesToAdd = Array.from(newRoles).filter(id => !currentRoles.has(id));
-      const rolesToRemove = Array.from(currentRoles).filter(id => !newRoles.has(id));
-
-      // Apply role changes
-      if (rolesToAdd.length > 0) {
-        await member.roles.add(rolesToAdd);
-      }
-      if (rolesToRemove.length > 0) {
-        await member.roles.remove(rolesToRemove);
-      }
-
-      // Process the role selection and send feedback
-      try {
-        await handleDropdownSelection(interaction, rolesToAdd, rolesToRemove, member);
-      } catch (error) {
-        console.error("Error processing hybrid menu dropdown:", error);
-        // Fallback to notification
-        try {
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: "✅ Role updated successfully!", ephemeral: true });
-          }
-        } catch (fallbackError) {
-          console.error("Fallback error handling failed:", fallbackError);
-        }
-      }
-
-      return;
+      // Use the same role interaction handler for consistency
+      return handleRoleInteraction(interaction, hybridMenuId);
     }
 
     if (type === "hybrid-role-button") {
@@ -11928,7 +11771,7 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         }));
 
         const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId(`info-menu-select:${infoMenuId}`)
+          .setCustomId(`info-menu-select:${infoMenuId}:${Date.now()}`)
           .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
           .addOptions(pageOptions);
 
