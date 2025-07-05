@@ -2414,7 +2414,7 @@ client.on("interactionCreate", async (interaction) => {
           const isModalTrigger = (
             action === "create" ||
             action === "create_from_json" ||
-            action.startsWith("add_info_page") ||
+            action === "add_info_page_json" ||
             action.startsWith("edit_info_page") ||
             action === "customize_dropdown_text" ||
             action === "webhook_branding" ||
