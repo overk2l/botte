@@ -331,25 +331,81 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
 }
 
 /**
- * Resets dropdown selections using advanced Discord API techniques to minimize "edited" marks.
- * This implements multiple strategies including webhook recreation and deferred responses.
+ * FINAL ATTEMPT: Force dropdown visual reset by completely rebuilding components
+ * This approach tries to trick Discord by creating entirely new dropdowns with different IDs
  * @param {import('discord.js').Interaction} interaction - The interaction to process
  * @param {Array} originalComponents - The original components to restore (optional)
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // Make dropdowns behave like buttons: just acknowledge the interaction
-    // without changing the message at all. This prevents the "edited" label.
+    // First, acknowledge the interaction
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
     }
     
-    // Don't update components - let the dropdown keep its selection
-    // The user gets feedback via ephemeral follow-up, just like buttons
+    // FINAL ATTEMPT: Try to force visual reset by rebuilding the entire message
+    // This completely reconstructs all components with new IDs and fresh state
+    if (originalComponents && originalComponents.length > 0) {
+      try {
+        const timestamp = Date.now();
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        
+        // Rebuild all components with completely new IDs and reset state
+        const freshComponents = originalComponents.map(row => {
+          const newRow = new ActionRowBuilder();
+          
+          row.components.forEach(component => {
+            if (component.type === ComponentType.StringSelect) {
+              // Create a completely new dropdown with fresh ID
+              const newDropdown = new StringSelectMenuBuilder()
+                .setCustomId(`${component.customId}_reset_${timestamp}_${randomSuffix}`)
+                .setPlaceholder(component.placeholder || 'Select an option...')
+                .setMinValues(component.minValues || 1)
+                .setMaxValues(component.maxValues || 1)
+                .addOptions(component.options.map(opt => ({
+                  label: opt.label,
+                  value: opt.value,
+                  description: opt.description,
+                  emoji: opt.emoji
+                })));
+              
+              newRow.addComponents(newDropdown);
+            } else if (component.type === ComponentType.Button) {
+              // Rebuild buttons with fresh IDs
+              const newButton = new ButtonBuilder()
+                .setCustomId(`${component.customId}_reset_${timestamp}_${randomSuffix}`)
+                .setLabel(component.label)
+                .setStyle(component.style);
+              
+              if (component.emoji) {
+                newButton.setEmoji(component.emoji);
+              }
+              
+              newRow.addComponents(newButton);
+            }
+          });
+          
+          return newRow;
+        });
+        
+        // Update the message with completely fresh components
+        await interaction.editReply({
+          components: freshComponents
+        });
+        
+        console.log("Final attempt: Rebuilt components with fresh IDs");
+        return true;
+      } catch (rebuildError) {
+        console.error("Error rebuilding components:", rebuildError);
+        // Fall back to no update
+      }
+    }
+    
+    // If all else fails, just acknowledge without changing anything
     return true;
   } catch (error) {
-    console.error("Error acknowledging dropdown interaction:", error);
+    console.error("Error in final dropdown reset attempt:", error);
     // Fallback: at minimum, acknowledge the interaction if needed
     try {
       if (!interaction.replied && !interaction.deferred) {
@@ -760,6 +816,12 @@ const db = {
     }
 
     Object.assign(menu, data); // Update in-memory map
+    
+    console.log(`[Database] Updated menu ${menuId} with data:`, JSON.stringify(data, null, 2));
+    console.log(`[Database] Menu after update:`, JSON.stringify({
+      memberCountOptions: menu.memberCountOptions,
+      showMemberCounts: menu.showMemberCounts
+    }, null, 2));
 
     if (firebaseEnabled) {
       try {
@@ -8995,11 +9057,17 @@ client.on("interactionCreate", async (interaction) => {
             const showInDropdowns = interaction.fields.getTextInputValue("show_in_dropdowns").toLowerCase().trim();
             const showInButtons = interaction.fields.getTextInputValue("show_in_buttons").toLowerCase().trim();
             
+            console.log(`[Member Counts] Raw input values - dropdowns: "${showInDropdowns}", buttons: "${showInButtons}"`);
+            
             const dropdownsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInDropdowns);
             const buttonsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInButtons);
             
+            console.log(`[Member Counts] Parsed values - dropdowns: ${dropdownsEnabled}, buttons: ${buttonsEnabled}`);
+            
             if (ctx === "hybrid") {
               const hybridMenuId = parts[3];
+              
+              console.log(`[Member Counts] Updating hybrid menu: ${hybridMenuId}`);
               
               // Update hybrid menu settings
               await db.updateHybridMenu(hybridMenuId, {
@@ -9009,6 +9077,8 @@ client.on("interactionCreate", async (interaction) => {
                   showInButtons: buttonsEnabled
                 }
               });
+              
+              console.log(`[Member Counts] Hybrid menu updated successfully`);
               
               // Force update the published message if it exists
               const menu = db.getHybridMenu(hybridMenuId);
@@ -9024,6 +9094,8 @@ client.on("interactionCreate", async (interaction) => {
             } else if (ctx === "rr") {
               const menuId = parts[3];
               
+              console.log(`[Member Counts] Updating reaction role menu: ${menuId}`);
+              
               // Update reaction role menu settings
               await db.updateMenu(menuId, {
                 showMemberCounts: dropdownsEnabled || buttonsEnabled,
@@ -9032,6 +9104,8 @@ client.on("interactionCreate", async (interaction) => {
                   showInButtons: buttonsEnabled
                 }
               });
+              
+              console.log(`[Member Counts] Reaction role menu updated successfully`);
               
               // Force update the published message if it exists
               const menu = db.getMenu(menuId);
@@ -9042,7 +9116,7 @@ client.on("interactionCreate", async (interaction) => {
               }
               
               await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
-              return showReactionRoleMenuConfiguration(interaction, menuId);
+              return showMenuConfiguration(interaction, menuId);
             }
           } catch (error) {
             console.error(`[${ctx}] Error configuring member counts:`, error);
@@ -9402,7 +9476,7 @@ async function handleRoleInteraction(interaction) {
 
                     // Process the selection like a button - just acknowledge and send feedback
                     try {
-                        const resetSuccess = await resetDropdownSelection(interaction);
+                        const resetSuccess = await resetDropdownSelection(interaction, components);
                         
                         if (resetSuccess) {
                             // Send notification as ephemeral follow-up (like buttons do)
@@ -9465,7 +9539,7 @@ async function handleRoleInteraction(interaction) {
                     }
                     
                     // Process like a button - acknowledge and give feedback
-                    const resetSuccess = await resetDropdownSelection(interaction);
+                    const resetSuccess = await resetDropdownSelection(interaction, components);
                     
                     if (resetSuccess) {
                         await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
@@ -10952,7 +11026,9 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Process like a button - acknowledge and send feedback
       try {
-        const resetSuccess = await resetDropdownSelection(interaction);
+        // Get the original components from the message to rebuild
+        const originalComponents = interaction.message?.components || [];
+        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
         
         if (resetSuccess) {
           // Send notification as ephemeral follow-up (like buttons do)
