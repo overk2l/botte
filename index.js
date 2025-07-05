@@ -2804,6 +2804,113 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        if (action === "configure_individual") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            return showIndividualItemConfiguration(interaction, hybridMenuId);
+          });
+        }
+
+        if (action === "bulk_setup") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const embed = new EmbedBuilder()
+                .setTitle("🪄 Bulk Setup Wizard")
+                .setDescription("Choose how to configure all items at once:")
+                .setColor("#5865F2");
+
+              const components = [
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:bulk_all_dropdown:${hybridMenuId}`)
+                    .setLabel("All Dropdown")
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji("📋"),
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:bulk_all_buttons:${hybridMenuId}`)
+                    .setLabel("All Buttons")
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji("🔘"),
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:bulk_all_both:${hybridMenuId}`)
+                    .setLabel("All Both")
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji("📋🔘")
+                ),
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:bulk_info_dropdown_roles_button:${hybridMenuId}`)
+                    .setLabel("Info: Dropdown, Roles: Buttons")
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji("📋🔘"),
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:bulk_info_button_roles_dropdown:${hybridMenuId}`)
+                    .setLabel("Info: Buttons, Roles: Dropdown")
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji("🔘📋")
+                ),
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
+                    .setLabel("← Back")
+                    .setStyle(ButtonStyle.Secondary)
+                )
+              ];
+
+              await interaction.editReply({
+                embeds: [embed],
+                components,
+                flags: MessageFlags.Ephemeral
+              });
+            } catch (error) {
+              console.error("Error showing bulk setup:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error showing bulk setup. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "clear_all_overrides") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              await db.updateHybridMenu(hybridMenuId, {
+                displayTypes: {},
+                roleDisplayTypes: {}
+              });
+              
+              await sendEphemeralEmbed(interaction, "✅ All per-item overrides have been cleared!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error clearing all overrides:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error clearing overrides. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "clear_all_defaults") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              await db.updateHybridMenu(hybridMenuId, {
+                defaultInfoDisplayType: 'dropdown',
+                defaultRoleDisplayType: 'dropdown'
+              });
+              
+              await sendEphemeralEmbed(interaction, "✅ All menu-wide defaults have been reset to 'dropdown'!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error clearing all defaults:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error clearing defaults. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
         if (action === "override_info_page") {
           const hybridMenuId = parts[2];
           return await clearTimeoutAndProcess(async () => {
@@ -5256,6 +5363,212 @@ client.on("interactionCreate", async (interaction) => {
             );
           return interaction.showModal(modal);
         }
+
+        // Bulk setup handlers
+        if (action === "bulk_all_dropdown") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const updates = {
+                defaultInfoDisplayType: 'dropdown',
+                defaultRoleDisplayType: 'dropdown',
+                displayTypes: {},
+                roleDisplayTypes: {}
+              };
+
+              // Set all individual items to dropdown
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  updates.displayTypes[page.id] = 'dropdown';
+                });
+              }
+
+              const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+              allRoles.forEach(roleId => {
+                updates.roleDisplayTypes[roleId] = 'dropdown';
+              });
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ All items set to dropdown display!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error in bulk_all_dropdown:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "bulk_all_buttons") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const updates = {
+                defaultInfoDisplayType: 'button',
+                defaultRoleDisplayType: 'button',
+                displayTypes: {},
+                roleDisplayTypes: {}
+              };
+
+              // Set all individual items to button
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  updates.displayTypes[page.id] = 'button';
+                });
+              }
+
+              const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+              allRoles.forEach(roleId => {
+                updates.roleDisplayTypes[roleId] = 'button';
+              });
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ All items set to button display!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error in bulk_all_buttons:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "bulk_all_both") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const updates = {
+                defaultInfoDisplayType: 'both',
+                defaultRoleDisplayType: 'both',
+                displayTypes: {},
+                roleDisplayTypes: {}
+              };
+
+              // Set all individual items to both
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  updates.displayTypes[page.id] = 'both';
+                });
+              }
+
+              const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+              allRoles.forEach(roleId => {
+                updates.roleDisplayTypes[roleId] = 'both';
+              });
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ All items set to both dropdown and button display!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error in bulk_all_both:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error setting bulk both. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "bulk_info_dropdown_roles_button") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const updates = {
+                defaultInfoDisplayType: 'dropdown',
+                defaultRoleDisplayType: 'button',
+                displayTypes: {},
+                roleDisplayTypes: {}
+              };
+
+              // Set all info pages to dropdown
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  updates.displayTypes[page.id] = 'dropdown';
+                });
+              }
+
+              // Set all roles to button
+              const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+              allRoles.forEach(roleId => {
+                updates.roleDisplayTypes[roleId] = 'button';
+              });
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ Info pages set to dropdown, roles set to buttons!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error in bulk_info_dropdown_roles_button:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "bulk_info_button_roles_dropdown") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const updates = {
+                defaultInfoDisplayType: 'button',
+                defaultRoleDisplayType: 'dropdown',
+                displayTypes: {},
+                roleDisplayTypes: {}
+              };
+
+              // Set all info pages to button
+              if (menu.pages) {
+                menu.pages.forEach(page => {
+                  updates.displayTypes[page.id] = 'button';
+                });
+              }
+
+              // Set all roles to dropdown
+              const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+              allRoles.forEach(roleId => {
+                updates.roleDisplayTypes[roleId] = 'dropdown';
+              });
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+              
+              await sendEphemeralEmbed(interaction, "✅ Info pages set to buttons, roles set to dropdown!", "#00FF00", "Success", false);
+              return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error in bulk_info_button_roles_dropdown:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "back_to_display_types") {
+          const hybridMenuId = parts[2];
+          return await clearTimeoutAndProcess(async () => {
+            return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+          });
+        }
+
       } else if (ctx === "info") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
           return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure information menus.", "#FF0000", "Permission Denied", false);
