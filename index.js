@@ -3181,7 +3181,7 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
     
     // Build info pages dropdown if configured
     if (menu.pages && menu.pages.length > 0 && 
-        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType || menu.infoSelectionType === "")) {
       
       console.log(`[Webhook Debug] Building info pages dropdown with ${menu.pages.length} pages`);
       
@@ -3205,7 +3205,7 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
 
     // Build roles dropdown if configured
     if ((menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
-        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType || menu.roleSelectionType === "")) {
       
       console.log(`[Webhook Debug] Building roles dropdown with ${menu.dropdownRoles.length} roles`);
       
@@ -14612,7 +14612,7 @@ async function previewHybridMenu(interaction, hybridMenuId) {
     const components = [];
 
     // Add disabled info pages dropdown if configured
-    if (hasInfoPages && (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+    if (hasInfoPages && (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType || menu.infoSelectionType === "")) {
       const infoOptions = menu.pages.slice(0, 25).map(page => ({
         label: page.name.substring(0, 100),
         value: `preview-info-${page.id}`,
@@ -14631,7 +14631,7 @@ async function previewHybridMenu(interaction, hybridMenuId) {
     }
 
     // Add disabled roles dropdown if configured
-    if (hasRoles && (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+    if (hasRoles && (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType || menu.roleSelectionType === "")) {
       const roleOptions = (menu.dropdownRoles || []).map(roleId => {
         const role = interaction.guild.roles.cache.get(roleId);
         if (!role) return null;
