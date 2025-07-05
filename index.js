@@ -339,15 +339,10 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // First, acknowledge the interaction to prevent timeout
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.deferUpdate();
-    }
-    
     // Get components from the interaction message if not provided
     const components = originalComponents || (interaction.message?.components);
     
-    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
+    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components (no deferUpdate to avoid "edited" mark)
     if (components && components.length > 0) {
       try {
         console.log(`[Dropdown Reset] Starting with ${components.length} original component rows`);
@@ -444,13 +439,19 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
         
         // Only update if we have valid components
         if (freshComponents.length > 0) {
-          // IMMEDIATE UPDATE: This makes the dropdown reset instantly like Sapphire
-          await interaction.editReply({
-            components: freshComponents
-          });
-          
-          console.log("✅ Sapphire-style dropdown reset completed: All selections cleared");
-          return true;
+          // SAPPHIRE-STYLE UPDATE: Direct update without deferUpdate to avoid "edited" indicator
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.update({
+              components: freshComponents
+            });
+            
+            console.log("✅ Sapphire-style dropdown reset completed: All selections cleared (no edit mark)");
+            return true;
+          } else {
+            // Fallback if interaction already handled
+            console.log("⚠️ Interaction already replied/deferred, skipping reset to avoid double response");
+            return true;
+          }
         } else {
           console.log("⚠️ No valid components to update, skipping refresh");
           return true;
@@ -459,11 +460,21 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
         console.error("❌ Error in Sapphire-style component rebuild:", rebuildError);
         console.error("Component structure debug:", JSON.stringify(components, null, 2));
         // Fall back to simple acknowledgment
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.deferUpdate();
+          }
+        } catch (fallbackError) {
+          console.error("❌ Error in fallback acknowledgment:", fallbackError);
+        }
       }
     }
     
     // Fallback: Just acknowledge if no components provided
     console.log("⚠️ No components provided for reset, using fallback acknowledgment");
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.deferUpdate();
+    }
     return true;
   } catch (error) {
     console.error("❌ Error in Sapphire-style dropdown reset:", error);
