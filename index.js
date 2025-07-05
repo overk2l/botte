@@ -270,335 +270,130 @@ function validateMenu(menuId, type = 'menu') {
  * @param {string} menuId - The menu ID
  * @returns {Promise<Array>} Array of rebuilt ActionRowBuilder components
  */
-/**
- * Creates role button rows for menus (Sapphire-style)
- * @param {string} menuId - The menu ID
- * @param {Array} roles - Array of role objects
- * @returns {Array<ActionRowBuilder>} Array of button rows
- */
-function createRoleButtonRows(menuId, roles) {
-  const rows = [];
-  let currentRow = new ActionRowBuilder();
-  let buttonsInRow = 0;
-  
-  for (const role of roles) {
-    if (buttonsInRow >= 5) {
-      rows.push(currentRow);
-      currentRow = new ActionRowBuilder();
-      buttonsInRow = 0;
-    }
-    
-    const button = new ButtonBuilder()
-      .setCustomId(`rr-role-button:${menuId}:${role.id}`) // Stable format
-      .setLabel(role.name)
-      .setStyle(role.buttonStyle || ButtonStyle.Secondary);
-    
-    if (role.emoji) {
-      button.setEmoji(role.emoji);
-    }
-    
-    currentRow.addComponents(button);
-    buttonsInRow++;
-  }
-  
-  if (buttonsInRow > 0) {
-    rows.push(currentRow);
-  }
-  
-  return rows;
-}
-
-/**
- * Builds role selection dropdown with clean reset (Sapphire-style)
- * @param {string} menuId - The menu ID
- * @param {Array} roles - Array of role objects
- * @param {Array} selectedValues - Currently selected values (for maintaining state)
- * @returns {ActionRowBuilder} The dropdown component
- */
-function buildRoleSelectMenu(menuId, roles = [], selectedValues = []) {
-  // Filter and validate roles to prevent Discord.js validation errors
-  const validRoles = roles.filter(role => {
-    if (!role || typeof role !== 'object') {
-      console.warn('[buildRoleSelectMenu] Invalid role object:', role);
-      return false;
-    }
-    
-    if (!role.id || typeof role.id !== 'string') {
-      console.warn('[buildRoleSelectMenu] Role missing valid ID:', role);
-      return false;
-    }
-    
-    if (!role.name || typeof role.name !== 'string') {
-      console.warn('[buildRoleSelectMenu] Role missing valid name:', role);
-      return false;
-    }
-    
-    return true;
-  });
-  
-  if (validRoles.length === 0) {
-    console.warn('[buildRoleSelectMenu] No valid roles found for menu:', menuId);
-    // Return a placeholder dropdown
-    return new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId(`rr-role-select:${menuId}`)
-        .setPlaceholder("No roles available")
-        .setDisabled(true)
-        .addOptions([{
-          label: "No roles configured",
-          value: "none",
-          description: "This menu has no valid roles configured"
-        }])
-    );
-  }
-  
-  const options = validRoles.map(role => ({
-    label: role.name.substring(0, 100), // Discord limit is 100 characters
-    value: role.id,
-    description: role.description ? role.description.substring(0, 100) : undefined,
-    emoji: role.emoji || undefined,
-    default: false // Always reset visual selection (Sapphire way)
-  }));
-
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(`rr-role-select:${menuId}`) // Stable custom ID
-      .setPlaceholder("Select roles...")
-      .setMinValues(0)
-      .setMaxValues(Math.min(options.length, 25))
-      .addOptions(options)
-  );
-}
-
-/**
- * Builds info dropdown with clean reset (Sapphire-style)
- * @param {string} menuId - The menu ID
- * @param {Array} pages - Array of page objects
- * @returns {ActionRowBuilder} The dropdown component
- */
-function buildInfoSelectMenu(menuId, pages = []) {
-  // Filter and validate pages to prevent Discord.js validation errors
-  const validPages = pages.filter(page => {
-    if (!page || typeof page !== 'object') {
-      console.warn('[buildInfoSelectMenu] Invalid page object:', page);
-      return false;
-    }
-    
-    if (!page.id || typeof page.id !== 'string') {
-      console.warn('[buildInfoSelectMenu] Page missing valid ID:', page);
-      return false;
-    }
-    
-    if (!page.title || typeof page.title !== 'string') {
-      console.warn('[buildInfoSelectMenu] Page missing valid title:', page);
-      return false;
-    }
-    
-    return true;
-  });
-  
-  if (validPages.length === 0) {
-    console.warn('[buildInfoSelectMenu] No valid pages found for menu:', menuId);
-    // Return a placeholder dropdown
-    return new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId(`info-menu-select:${menuId}`)
-        .setPlaceholder("No information available")
-        .setDisabled(true)
-        .addOptions([{
-          label: "No pages configured",
-          value: "none",
-          description: "This menu has no valid pages configured"
-        }])
-    );
-  }
-  
-  const options = validPages.map(page => ({
-    label: page.title.substring(0, 100), // Discord limit is 100 characters
-    value: page.id,
-    description: page.description ? page.description.substring(0, 100) : undefined,
-    emoji: page.emoji || undefined,
-    default: false // Always reset visual selection (Sapphire way)
-  }));
-
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(`info-menu-select:${menuId}`) // Stable custom ID
-      .setPlaceholder("Select information...")
-      .addOptions(options)
-  );
-}
-
-/**
- * Builds hybrid menu components with clean reset (Sapphire-style)
- * @param {string} hybridMenuId - The hybrid menu ID
- * @param {Object} menu - The hybrid menu object
- * @returns {Array<ActionRowBuilder>} Array of component rows
- */
-function buildHybridMenuComponents(hybridMenuId, menu) {
-  const components = [];
-  
-  // Info dropdown (if has info pages)
-  if (menu.infoPages && menu.infoPages.length > 0) {
-    components.push(buildInfoSelectMenu(hybridMenuId, menu.infoPages));
-  }
-  
-  // Role dropdown (if has roles)
-  if (menu.dropdownRoles && menu.dropdownRoles.length > 0) {
-    components.push(buildRoleSelectMenu(hybridMenuId, menu.dropdownRoles));
-  }
-  
-  // Role buttons (if any)
-  if (menu.buttonRoles && menu.buttonRoles.length > 0) {
-    const buttonRows = createRoleButtonRows(hybridMenuId, menu.buttonRoles);
-    components.push(...buttonRows);
-  }
-  
-  return components;
-}
-
-async function rebuildDropdownComponents(originalMessage, menu, menuId) {
-  console.log(`[Debug] Rebuilding dropdown components for menu ${menuId}`);
+async function rebuildDropdownComponents(originalMessage, menu = null, menuId = null) {
+  console.log(`[Debug] Building fresh dropdown components${menuId ? ` for menu ${menuId}` : ''}`);
   
   try {
-    const newComponents = [];
     const baseTimestamp = Date.now();
-    let componentCounter = 0; // Counter to ensure unique IDs
-    
+    let counter = 0;
+    const rebuilt = [];
+
     // Defensive check for components
-    if (!originalMessage || !originalMessage.components || !Array.isArray(originalMessage.components)) {
-      console.warn(`[Warning] Invalid or missing components in message for menu ${menuId}`);
+    if (!originalMessage?.components || !Array.isArray(originalMessage.components)) {
+      console.warn(`[Warning] No valid components found in message`);
       return [];
     }
-    
-    // Process each component row from the original message
-    for (const originalRow of originalMessage.components) {
-      // Defensive check for row components
-      if (!originalRow || !originalRow.components || !Array.isArray(originalRow.components)) {
-        console.warn(`[Warning] Invalid or missing components in row for menu ${menuId}`);
+
+    for (const row of originalMessage.components) {
+      if (!row?.components || !Array.isArray(row.components)) {
         continue;
       }
-      
+
       const newRow = new ActionRowBuilder();
-      
-      for (const component of originalRow.components) {
-        componentCounter++; // Increment counter for each component
-        const uniqueTimestamp = baseTimestamp + componentCounter;
+
+      for (const component of row.components) {
+        counter++;
+        
         if (component.type === ComponentType.StringSelect) {
-          // Rebuild dropdown with fresh timestamp and cleared selections
-          const options = component.options.map(option => ({
-            label: option.label,
-            value: option.value,
-            description: option.description || undefined,
-            emoji: option.emoji || undefined,
-            default: false // Explicitly clear all selections
+          // Clear all selections and rebuild with fresh ID
+          const options = component.options.map(opt => ({
+            label: opt.label,
+            value: opt.value,
+            description: opt.description,
+            emoji: opt.emoji,
+            default: false // Clear any previous selection
           }));
-          
-          // Create new custom ID with unique timestamp to force Discord to treat it as a new component
+
+          // Create completely fresh custom ID
           const baseParts = component.customId.split(':');
-          const newCustomId = baseParts.length >= 3 
-            ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
-            : `${component.customId}:${uniqueTimestamp}`;
-          
+          const newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseTimestamp + counter}`;
+
           const newSelect = new StringSelectMenuBuilder()
             .setCustomId(newCustomId)
             .setPlaceholder(component.placeholder || "Select an option...")
-            .setMinValues(component.minValues || 1)
-            .setMaxValues(component.maxValues || 1)
-            .setDisabled(component.disabled || false)
             .addOptions(options);
-          
+
+          // Preserve min/max values if they exist
+          if (component.minValues) newSelect.setMinValues(component.minValues);
+          if (component.maxValues) newSelect.setMaxValues(component.maxValues);
+
           newRow.addComponents(newSelect);
-          console.log(`[Debug] Rebuilt dropdown with ID: ${newCustomId}`);
+          console.log(`[Debug] Created fresh dropdown with ID: ${newCustomId}`);
+          
         } else if (component.type === ComponentType.Button) {
-          // Rebuild buttons with fresh unique timestamp
-          const baseParts = component.customId?.split(':') || [];
-          let newCustomId;
-          
-          // Special handling for role buttons to preserve role ID
-          if (component.customId?.includes('role-button:')) {
-            // Format: prefix-role-button:menuId:roleId or prefix-role-button:menuId:roleId:oldTimestamp
-            if (baseParts.length === 3) {
-              // Format: prefix-role-button:menuId:roleId
-              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
-            } else if (baseParts.length === 4) {
-              // Format: prefix-role-button:menuId:roleId:oldTimestamp
-              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
-            } else {
-              // Fallback for unexpected format
-              newCustomId = component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
-            }
-          } else {
-            // Regular button handling
-            newCustomId = baseParts.length >= 3 
-              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
-              : component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
-          }
-          
+          // Keep buttons but with fresh IDs
+          const baseParts = component.customId.split(':');
+          const newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2] || 'btn'}:${baseTimestamp + counter}`;
+
           const newButton = new ButtonBuilder()
             .setCustomId(newCustomId)
-            .setLabel(component.label || "Button")
-            .setStyle(component.style || ButtonStyle.Secondary)
-            .setDisabled(component.disabled || false);
+            .setLabel(component.label)
+            .setStyle(component.style);
           
           if (component.emoji) {
             newButton.setEmoji(component.emoji);
           }
           
           newRow.addComponents(newButton);
-          console.log(`[Debug] Rebuilt button with ID: ${newCustomId}`);
-        } else {
-          // For other component types, try to ensure unique IDs if they have custom IDs
-          if (component.customId) {
-            const baseParts = component.customId.split(':');
-            const newCustomId = baseParts.length >= 3 
-              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
-              : `${component.customId}:${uniqueTimestamp}`;
-            
-            // Create a copy of the component with new custom ID
-            const newComponent = { ...component, customId: newCustomId };
-            newRow.addComponents(newComponent);
-            console.log(`[Debug] Rebuilt component with ID: ${newCustomId}`);
-          } else {
-            // Component has no custom ID, safe to copy as-is
-            newRow.addComponents(component);
-          }
+          console.log(`[Debug] Created fresh button with ID: ${newCustomId}`);
         }
       }
-      
-      // Only add rows that have components
+
       if (newRow.components.length > 0) {
-        newComponents.push(newRow);
+        rebuilt.push(newRow);
       }
     }
+
+    console.log(`[Debug] Successfully rebuilt ${rebuilt.length} component rows with fresh IDs`);
+    return rebuilt;
     
-    console.log(`[Debug] Successfully rebuilt ${newComponents.length} component rows`);
-    
-    // Debug: Log all custom IDs to check for duplicates
-    const allCustomIds = [];
-    for (const row of newComponents) {
-      for (const component of row.components) {
-        if (component.data && component.data.custom_id) {
-          allCustomIds.push(component.data.custom_id);
-        }
-      }
-    }
-    
-    console.log(`[Debug] All custom IDs in rebuilt components:`, allCustomIds);
-    
-    // Check for duplicates
-    const duplicates = allCustomIds.filter((id, index) => allCustomIds.indexOf(id) !== index);
-    if (duplicates.length > 0) {
-      console.error(`[Error] Found duplicate custom IDs:`, duplicates);
-    }
-    
-    return newComponents;
   } catch (error) {
     console.error(`[Error] Failed to rebuild dropdown components:`, error);
-    
-    // Fallback: return empty array to prevent crashes
-    console.warn(`[Warning] Returning empty components array as fallback for menu ${menuId}`);
     return [];
+  }
+
+/**
+ * Handles dropdown selection with clean reset logic
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction  
+ * @param {Array} addedRoles - Roles that were added
+ * @param {Array} removedRoles - Roles that were removed  
+ * @param {import('discord.js').GuildMember} member - The member whose roles changed
+ * @returns {Promise<void>}
+ */
+async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
+  try {
+    console.log("🔄 Clean dropdown reset approach...");
+    
+    // Get the original message and rebuild components with fresh custom IDs
+    const originalMessage = interaction.message;
+    const updatedComponents = await rebuildDropdownComponents(originalMessage);
+    
+    // ✅ Update the message with fresh components (resets dropdown visually)
+    await interaction.update({
+      components: updatedComponents
+    });
+    
+    // Send role change feedback as ephemeral followUp
+    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+    } else if (member) {
+      // No changes case - send ephemeral followUp
+      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+    }
+    
+    console.log("✅ Clean dropdown reset completed");
+  } catch (error) {
+    console.error("❌ Error in dropdown handling:", error);
+    
+    // Fallback error handling
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+      }
+      await interaction.followUp({ content: "❌ An error occurred processing your selection.", flags: MessageFlags.Ephemeral });
+    } catch (fallbackError) {
+      console.error("❌ Fallback error handling failed:", fallbackError);
+    }
   }
 }
 
@@ -609,29 +404,52 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  * @param {Object} page - The selected page data
  * @param {string} hybridMenuId - The hybrid menu ID
  */
-/**
- * Simple dropdown reset for hybrid menus - using your test approach
- * @param {import('discord.js').Interaction} interaction - The dropdown interaction
- * @param {Object} menu - The hybrid menu configuration
- * @param {Object} page - The selected page data
- * @param {string} hybridMenuId - The hybrid menu ID
- */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Testing simple hybrid dropdown reset approach...");
+    console.log("🔄 Starting professional hybrid info dropdown handling with reset...");
     
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
+    
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Hybrid info dropdown interaction deferred without showing 'edited' mark");
+    
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-
-    // 🔁 Rebuild components with a fresh ID and reset selections
-    const updatedComponents = rebuildDropdownComponents(originalMessage);
-
-    // ✅ Seamlessly update the message with new components
-    await interaction.update({
-      components: updatedComponents
-    });
-
-    // Build page embed
+    const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
+    
+    // Edit the message separately to refresh components (this won't show "edited" mark)
+    if (updatedComponents && updatedComponents.length > 0) {
+      try {
+        await originalMessage.edit({
+          components: updatedComponents
+        });
+        console.log("✅ Hybrid info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit hybrid info dropdown components:", editError);
+      }
+    }
+    
+    // Create and send the page content as ephemeral followUp
     const embed = new EmbedBuilder();
+    
+    // Helper function to validate URLs
+    const isValidUrl = (url) => {
+      if (!url || typeof url !== 'string' || url.trim() === '') return false;
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Helper function to validate color
+    const isValidColor = (color) => {
+      if (!color || typeof color !== 'string') return false;
+      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+    };
     
     // Build embed from page data
     if (page.name && page.name.trim()) {
@@ -644,16 +462,60 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
     
     // Handle color with validation
     const color = page.color || menu.embedColor || "#5865F2";
-    if (color) {
+    if (isValidColor(color)) {
       embed.setColor(color);
     }
+    
+    // Handle thumbnail with URL validation
+    if (page.thumbnail && isValidUrl(page.thumbnail)) {
+      embed.setThumbnail(page.thumbnail);
+    }
+    
+    // Handle image with URL validation
+    if (page.image && isValidUrl(page.image)) {
+      embed.setImage(page.image);
+    }
+    
+    // Handle author
+    if (page.author && page.author.name) {
+      const author = { name: page.author.name.slice(0, 256) };
+      if (page.author.iconURL && isValidUrl(page.author.iconURL)) {
+        author.iconURL = page.author.iconURL;
+      }
+      if (page.author.url && isValidUrl(page.author.url)) {
+        author.url = page.author.url;
+      }
+      embed.setAuthor(author);
+    }
+    
+    // Handle footer
+    if (page.footer && page.footer.text) {
+      const footer = { text: page.footer.text.slice(0, 2048) };
+      if (page.footer.iconURL && isValidUrl(page.footer.iconURL)) {
+        footer.iconURL = page.footer.iconURL;
+      }
+      embed.setFooter(footer);
+    }
+    
+    // Handle fields
+    if (page.fields && Array.isArray(page.fields)) {
+      const validFields = page.fields.slice(0, 25).map(field => ({
+        name: (field.name || 'Field').slice(0, 256),
+        value: (field.value || 'Value').slice(0, 1024),
+        inline: Boolean(field.inline)
+      }));
+      
+      if (validFields.length > 0) {
+        embed.addFields(validFields);
+      }
+    }
 
-    // ✉️ Send page content as ephemeral followUp
+    // Send the page content as ephemeral followUp  
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    console.log("✅ Simple hybrid dropdown reset completed");
+    console.log("✅ Professional hybrid info dropdown selection processed with component reset and ephemeral followUp");
   } catch (error) {
-    console.error('Hybrid dropdown error:', error);
+    console.error("❌ Error in professional hybrid info dropdown handling:", error);
     
     // Fallback error handling
     try {
@@ -834,174 +696,7 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 /**
- * Sapphire-style ephemeral dropdown reposting and management utilities
- * Ensures dropdowns reset visually, no "edited" mark, and user can select again immediately.
- */
-const ephemeralMenuTracker = new Map(); // userId -> messageId
-
-async function buildEphemeralDropdown({
-  interaction,
-  feedback,
-  error,
-  disableOldMenus = true,
-}) {
-  // Build the dropdown component
-  let components;
-  try {
-    const parts = interaction.customId.split(':');
-    const menuId = parts[1];
-    
-    let menu = db.getMenu(menuId);
-    const isHybridMenu = !menu;
-    if (isHybridMenu) {
-      menu = db.getHybridMenu(menuId);
-    }
-    
-    if (!menu) {
-      return interaction.followUp({
-        content: `❌ Menu not found. Please try again later.`,
-        ephemeral: true,
-      });
-    }
-    
-    if (isHybridMenu) {
-      components = buildHybridMenuComponents(menuId, menu);
-    } else {
-      components = [buildRoleSelectMenu(menuId, menu.dropdownRoles || [])];
-      if (menu.buttonRoles && menu.buttonRoles.length > 0) {
-        const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
-        components.push(...buttonRows);
-      }
-    }
-  } catch (err) {
-    console.error(`[Dropdown Build Error]`, err);
-    return interaction.followUp({
-      content: `❌ There was an error building the menu. Please try again later.`,
-      ephemeral: true,
-    });
-  }
-
-  // Optionally disable old ephemeral menus for this user
-  if (disableOldMenus && ephemeralMenuTracker.has(interaction.user.id)) {
-    const oldMsgId = ephemeralMenuTracker.get(interaction.user.id);
-    interaction.channel.messages.fetch(oldMsgId).then(msg => {
-      msg.edit({ components: [] }).catch(() => {});
-    }).catch(() => {});
-  }
-
-  // Send new ephemeral dropdown
-  return interaction.followUp({
-    content: feedback || (error ? `❌ ${error}` : '✅ Selection saved! Select again if you wish.'),
-    components,
-    ephemeral: true,
-  }).then(sentMsg => {
-    ephemeralMenuTracker.set(interaction.user.id, sentMsg.id);
-    return sentMsg;
-  });
-}
-
-// 🧱 TRUE Sapphire approach - avoid "edited" mark completely
-function rebuildDropdownComponents(originalMessage) {
-  const baseTimestamp = Date.now();
-  let counter = 0;
-  const rebuilt = [];
-
-  for (const row of originalMessage.components) {
-    const newRow = new ActionRowBuilder();
-
-    for (const component of row.components) {
-      counter++;
-      if (component.type === ComponentType.StringSelect) {
-        const options = component.options.map(opt => ({
-          label: opt.label,
-          value: opt.value,
-          description: opt.description,
-          emoji: opt.emoji,
-          default: false, // Clear any previous selection
-        }));
-
-        const newSelect = new StringSelectMenuBuilder()
-          .setCustomId(`${component.customId.split(':')[0]}:${baseTimestamp + counter}`)
-          .setPlaceholder(component.placeholder || "Select an option...")
-          .addOptions(options);
-
-        newRow.addComponents(newSelect);
-      } else if (component.type === ComponentType.Button) {
-        // Handle buttons too
-        const newButton = new ButtonBuilder()
-          .setCustomId(`${component.customId.split(':')[0]}:${baseTimestamp + counter}`)
-          .setLabel(component.label)
-          .setStyle(component.style);
-        
-        if (component.emoji) {
-          newButton.setEmoji(component.emoji);
-        }
-        
-        newRow.addComponents(newButton);
-      }
-    }
-
-    if (newRow.components.length > 0) {
-      rebuilt.push(newRow);
-    }
-  }
-
-  return rebuilt;
-}
-
-async function handleDropdown(interaction) {
-  try {
-    // ✅ Defer the interaction without updating anything
-    await interaction.deferUpdate();
-    
-    // Get the original message content and components
-    const originalMessage = interaction.message;
-    const freshComponents = rebuildDropdownComponents(originalMessage);
-    
-    // ✅ Delete the original message and send a fresh one
-    // This completely avoids the "edited" mark
-    await originalMessage.delete();
-    
-    // Send a completely fresh message with the same content
-    await interaction.channel.send({
-      content: originalMessage.content,
-      embeds: originalMessage.embeds,
-      components: freshComponents
-    });
-
-    // ✉️ Send role confirmation as ephemeral
-    await interaction.followUp({
-      content: `✅ Role toggled: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
-      ephemeral: true
-    });
-
-  } catch (err) {
-    console.error("TRUE Sapphire Dropdown Handler Error:", err);
-    
-    // Fallback - just send ephemeral message
-    try {
-      await interaction.followUp({
-        content: "❌ An error occurred processing your selection.",
-        ephemeral: true
-      });
-    } catch (fallbackError) {
-      console.error("Fallback error:", fallbackError);
-    }
-  }
-}
-
-    // 🔁 Rebuild components with a fresh ID and reset selections
-    const updatedComponents = rebuildDropdownComponents(originalMessage);
-
-    // ✅ Seamlessly update the message with new components
-    await interaction.update({
-      components: updatedComponents
-    });
-
-}
-
-/**
- * TRUE Sapphire-style dropdown reset - delete original, send fresh message (no "edited" mark)
+ * Sapphire-style dropdown handler - defers immediately then sends follow-up
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
  * @param {Array} addedRoles - Roles that were added
  * @param {Array} removedRoles - Roles that were removed  
@@ -1010,75 +705,49 @@ async function handleDropdown(interaction) {
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Sapphire-style dropdown reset approach...");
+    console.log("🔄 Starting professional dropdown reset handling...");
     
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
+    
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Interaction deferred without showing 'edited' mark");
+    
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    const updatedComponents = rebuildDropdownComponents(originalMessage);
-
-    // ✅ Update the message with fresh components (resets dropdown visually)
-    await interaction.update({
-      components: updatedComponents
-    });
-
-    // Send role change feedback as ephemeral followUp
-    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
-    } else {
-      // ✉️ Send ephemeral confirmation
-      await interaction.followUp({
-        content: `✅ You selected: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
-        ephemeral: true
-      });
+    const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
+    
+    // Edit the message separately to refresh components (this won't show "edited" mark)
+    if (updatedComponents && updatedComponents.length > 0) {
+      try {
+        await originalMessage.edit({
+          components: updatedComponents
+        });
+        console.log("✅ Message components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit message components:", editError);
+      }
     }
     
-    console.log("✅ Sapphire-style dropdown reset completed");
+    // Send role change notification as ephemeral followUp
+    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+    } else if (member) {
+      // No changes case - send ephemeral followUp
+      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+    }
+    
+    console.log("✅ Professional dropdown reset completed with component refresh");
   } catch (error) {
-    console.error('Dropdown error:', error);
+    console.error("❌ Error in professional dropdown handling:", error);
     
     // Fallback error handling
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate();
       }
-      await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
-    } catch (fallbackError) {
-      console.error("❌ Fallback error handling failed:", fallbackError);
-    }
-  }
-}
-    console.log("🔄 Testing simple dropdown reset approach...");
-    
-    const originalMessage = interaction.message;
-
-    // � Rebuild components with a fresh ID and reset selections
-    const updatedComponents = rebuildDropdownComponents(originalMessage);
-
-    // ✅ Seamlessly update the message with new components
-    await interaction.update({
-      components: updatedComponents
-    });
-
-    // Send role change feedback as ephemeral followUp
-    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
-    } else {
-      // ✉️ Send ephemeral confirmation
-      await interaction.followUp({
-        content: `✅ You selected: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
-        ephemeral: true
-      });
-    }
-    
-    console.log("✅ Simple dropdown reset completed");
-  } catch (error) {
-    console.error('Dropdown error:', error);
-    
-    // Fallback error handling
-    try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
-      }
-      await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      await interaction.followUp({ content: "❌ An error occurred processing your selection.", flags: MessageFlags.Ephemeral });
     } catch (fallbackError) {
       console.error("❌ Fallback error handling failed:", fallbackError);
     }
@@ -14016,50 +13685,125 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  * @param {Object} page - The selected page data
  * @param {string} infoMenuId - The info menu ID
  */
-/**
- * Simple dropdown reset for info menus - using your test approach
- * @param {import('discord.js').Interaction} interaction - The dropdown interaction
- * @param {Object} menu - The info menu configuration
- * @param {Object} page - The selected page data
- * @param {string} infoMenuId - The info menu ID
- */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Testing simple info dropdown reset approach...");
+    console.log("🔄 Clean info dropdown reset approach...");
     
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-
-    // 🔁 Rebuild components with a fresh ID and reset selections
-    const updatedComponents = rebuildDropdownComponents(originalMessage);
-
-    // ✅ Seamlessly update the message with new components
+    const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
+    
+    // ✅ Update the message with fresh components (resets dropdown visually)
     await interaction.update({
       components: updatedComponents
     });
-
-    // Build page embed
+    
+    // Create and send the page content as ephemeral followUp
     const embed = new EmbedBuilder();
     
+    // Helper function to validate URLs
+    const isValidUrl = (url) => {
+      if (!url || typeof url !== 'string' || url.trim() === '') return false;
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Helper function to validate color
+    const isValidColor = (color) => {
+      if (!color || typeof color !== 'string') return false;
+      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+    };
+    
     if (page.content.title && page.content.title.trim()) {
-      embed.setTitle(page.content.title.slice(0, 256));
+      embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
     }
     
     if (page.content.description && page.content.description.trim()) {
-      embed.setDescription(page.content.description.slice(0, 4096));
+      embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
     }
     
-    // Handle color with validation
+    // Handle color with validation - use custom page color if available, otherwise menu color
     const color = page.color || page.content.color || menu.embedColor;
-    if (color) {
+    if (color && isValidColor(color)) {
       embed.setColor(color);
     }
+    
+    // Handle thumbnail with URL validation
+    const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+    if (thumbnail && isValidUrl(thumbnail)) {
+      embed.setThumbnail(thumbnail);
+    }
+    
+    // Handle image with URL validation
+    const image = page.content.image || menu.embedImage;
+    if (image && isValidUrl(image)) {
+      embed.setImage(image);
+    }
+    
+    // Handle author with validation
+    if (page.content.author && page.content.author.name) {
+      const authorData = {
+        name: page.content.author.name.slice(0, 256) // Discord author name limit
+      };
+      if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+        authorData.iconURL = page.content.author.iconURL;
+      }
+      embed.setAuthor(authorData);
+    } else if (menu.embedAuthorName) {
+      const authorData = {
+        name: menu.embedAuthorName.slice(0, 256)
+      };
+      if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+        authorData.iconURL = menu.embedAuthorIconURL;
+      }
+      embed.setAuthor(authorData);
+    }
 
-    // ✉️ Send page content as ephemeral followUp
+    // Handle footer with validation
+    if (page.content.footer && page.content.footer.text) {
+      const footerData = {
+        text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+      };
+      if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+        footerData.iconURL = page.content.footer.iconURL;
+      }
+      embed.setFooter(footerData);
+    } else if (menu.embedFooterText) {
+      const footerData = {
+        text: menu.embedFooterText.slice(0, 2048)
+      };
+      if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+        footerData.iconURL = menu.embedFooterIconURL;
+      }
+      embed.setFooter(footerData);
+    }
+
+    // Handle fields with validation
+    if (page.content.fields && Array.isArray(page.content.fields)) {
+      const validFields = page.content.fields
+        .filter(field => field && field.name && field.value)
+        .slice(0, 25) // Discord field limit
+        .map(field => ({
+          name: field.name.slice(0, 256), // Discord field name limit
+          value: field.value.slice(0, 1024), // Discord field value limit
+          inline: Boolean(field.inline)
+        }));
+      
+      if (validFields.length > 0) {
+        embed.addFields(validFields);
+      }
+    }
+
+    // Send the page content as ephemeral followUp
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    console.log("✅ Simple info dropdown reset completed");
+    console.log("✅ Professional info dropdown selection processed with component reset and ephemeral followUp");
   } catch (error) {
-    console.error('Info dropdown error:', error);
+    console.error("❌ Error in professional info dropdown handling:", error);
     
     // Fallback error handling
     try {
