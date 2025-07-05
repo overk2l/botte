@@ -339,10 +339,48 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // For single-selection dropdowns, we can use the simpler deferUpdate approach
-    // This resets the dropdown without showing the "edited" label
+    // For single-selection dropdowns, we need to rebuild the components with no default selection
+    // This will reset the dropdown visually while avoiding the "edited" label
+    
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
+    }
+
+    // If we have original components, rebuild them to reset the selection
+    if (originalComponents) {
+      const freshComponents = originalComponents.map(row => {
+        const newRow = new ActionRowBuilder();
+        
+        row.components.forEach(component => {
+          if (component.type === ComponentType.StringSelect) {
+            const options = component.options.map(option => ({
+              label: option.label,
+              value: option.value,
+              description: option.description || undefined,
+              emoji: option.emoji || undefined,
+              default: false // Ensure no option is selected by default
+            }));
+            
+            const newSelect = new StringSelectMenuBuilder()
+              .setCustomId(component.customId)
+              .setPlaceholder(component.placeholder || "Select an option...")
+              .setMinValues(component.minValues || 1)
+              .setMaxValues(component.maxValues || 1)
+              .setDisabled(component.disabled || false)
+              .addOptions(options);
+            
+            newRow.addComponents(newSelect);
+          } else {
+            // Keep other components (buttons, etc.) as-is
+            newRow.addComponents(component);
+          }
+        });
+        
+        return newRow;
+      });
+
+      // Update the interaction with fresh components (this resets the dropdown)
+      await interaction.editReply({ components: freshComponents });
       return true;
     }
     
@@ -9399,21 +9437,21 @@ async function handleRoleInteraction(interaction) {
                         components.push(...buttonRows);
                     }
 
-                    // Process the selection invisibly - defer update to avoid visual changes
+                    // Process the selection invisibly - reset dropdown with fresh components
                     try {
-                        const resetSuccess = await resetDropdownSelection(interaction);
+                        const resetSuccess = await resetDropdownSelection(interaction, components);
                         
                         if (resetSuccess) {
-                            // Send notification as follow-up after successful invisible processing
+                            // Send notification as follow-up after successful reset
                             setTimeout(async () => {
                                 try {
                                     await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
                                 } catch (followUpError) {
                                     console.error("Error sending follow-up:", followUpError);
                                 }
-                            }, 300); // Increased delay to let webhook message reset fully
+                            }, 300); // Increased delay to let reset complete
                         } else {
-                            // Fallback to notification follow-up if defer fails
+                            // Fallback to notification if reset fails
                             await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
                         }
                     } catch (error) {
@@ -9470,7 +9508,7 @@ async function handleRoleInteraction(interaction) {
                     }
                     
                     // Process the selection invisibly even if no changes were made
-                    const resetSuccess = await resetDropdownSelection(interaction);
+                    const resetSuccess = await resetDropdownSelection(interaction, components);
                     
                     if (resetSuccess) {
                         await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
