@@ -1252,8 +1252,16 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
       }
     }
 
-    // Send the page content as ephemeral followUp  
-    await interaction.followUp({ embeds: [embed], ephemeral: true });
+    // Send the page content as ephemeral followUp with optional custom message
+    const customMessage = menu.customSuccessMessages?.infoPageView?.replace('{pageName}', page.name || 'Information');
+    const followUpOptions = { embeds: [embed], ephemeral: true };
+    
+    // Add custom message if configured
+    if (customMessage && customMessage !== "📋 Viewing: {pageName}") {
+      followUpOptions.content = customMessage;
+    }
+    
+    await interaction.followUp(followUpOptions);
     
     console.log("✅ Professional hybrid info dropdown selection processed with component reset and ephemeral followUp");
   } catch (error) {
@@ -1548,7 +1556,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     
     // Send role change notification as ephemeral followUp
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member, null);
     } else if (member) {
       // No changes case - send ephemeral followUp
       await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
@@ -1778,10 +1786,16 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
  * @param {import('discord.js').GuildMember} member - The member whose roles changed
  * @returns {Promise<void>}
  */
-async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member) {
+async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member, menu = null) {
     if (!interaction || (!addedRoles.length && !removedRoles.length)) {
         return;
     }
+
+    // Use custom messages if available from menu configuration
+    const customMessages = menu?.customSuccessMessages || {
+        roleAdd: "✅ You now have the role <@&{roleId}>!",
+        roleRemove: "✅ You removed the role <@&{roleId}>!"
+    };
 
     const embed = new EmbedBuilder()
         .setTitle("🎭 Role Update")
@@ -1792,28 +1806,41 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
             iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
         });
 
-    // Build description based on role changes
+    // Build description based on role changes with custom messages
     let description = "";
     let color = "#5865F2"; // Default Discord blurple
 
     if (addedRoles.length > 0) {
-        const addedRoleNames = addedRoles.map(roleId => {
-            const role = interaction.guild.roles.cache.get(roleId);
-            return role ? `<@&${roleId}>` : 'Unknown Role';
-        });
-        
-        description += `**✅ Roles Added:**\n${addedRoleNames.join('\n')}`;
+        if (addedRoles.length === 1) {
+            // Single role - use custom message template
+            const roleId = addedRoles[0];
+            description += customMessages.roleAdd.replace('{roleId}', roleId);
+        } else {
+            // Multiple roles - use list format
+            const addedRoleNames = addedRoles.map(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                return role ? `<@&${roleId}>` : 'Unknown Role';
+            });
+            description += `**✅ Roles Added:**\n${addedRoleNames.join('\n')}`;
+        }
         color = "#00FF00"; // Green for additions
     }
 
     if (removedRoles.length > 0) {
-        const removedRoleNames = removedRoles.map(roleId => {
-            const role = interaction.guild.roles.cache.get(roleId);
-            return role ? `<@&${roleId}>` : 'Unknown Role';
-        });
-        
-        if (description) description += "\n\n";
-        description += `**❌ Roles Removed:**\n${removedRoleNames.join('\n')}`;
+        if (removedRoles.length === 1 && addedRoles.length === 0) {
+            // Single role removal - use custom message template
+            const roleId = removedRoles[0];
+            description = customMessages.roleRemove.replace('{roleId}', roleId);
+        } else {
+            // Multiple roles or mixed changes - use list format
+            const removedRoleNames = removedRoles.map(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                return role ? `<@&${roleId}>` : 'Unknown Role';
+            });
+            
+            if (description) description += "\n\n";
+            description += `**❌ Roles Removed:**\n${removedRoleNames.join('\n')}`;
+        }
         
         // If both added and removed, use orange. If only removed, use red
         color = addedRoles.length > 0 ? "#FFA500" : "#FF0000";
@@ -2859,6 +2886,26 @@ async createHybridMenu(guildId, name, desc) {
     dropdownRoleOrder: [],
     buttonRoleOrder: [],
     dropdownRoleDescriptions: {},
+    // Enhanced customization features
+    infoDropdownPlaceholder: "📋 Select information page...",
+    roleDropdownPlaceholder: "🎭 Select your roles...",
+    customSuccessMessages: {
+      roleAdd: "✅ You now have the role <@&{roleId}>!",
+      roleRemove: "✅ You removed the role <@&{roleId}>!",
+      infoPageView: "📋 Viewing: {pageName}"
+    },
+    advancedRoleSettings: {
+      enableRegionalLimits: false,
+      enableRoleExclusions: false,
+      enableMaxRoleLimit: false,
+      maxRolesLimit: null
+    },
+    visualEnhancements: {
+      useCustomEmojis: true,
+      showRoleColors: false,
+      compactLayout: false,
+      animatedComponents: false
+    },
     // Common properties
     channelId: null,
     messageId: null,
@@ -3224,10 +3271,23 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
             const role = guild.roles.cache.get(roleId);
             if (!role) return null;
             
+            // Build label with optional member count
+            let label = role.name.slice(0, 100);
+            if (menu.showMemberCounts && menu.memberCountOptions?.showInDropdowns) {
+              const memberCount = role.members.size;
+              label = `${role.name} (${memberCount})`.slice(0, 100);
+            }
+            
+            // Build description with custom or default text
+            let description = menu.dropdownRoleDescriptions?.[roleId];
+            if (!description && menu.visualEnhancements?.showRoleColors && role.color !== 0) {
+              description = `Role color: #${role.color.toString(16).padStart(6, '0')}`;
+            }
+            
             return {
-              label: role.name.slice(0, 100),
+              label,
               value: `hybrid-role:${hybridMenuId}:${roleId}`,
-              description: menu.dropdownRoleDescriptions?.[roleId]?.slice(0, 100) || undefined,
+              description: description?.slice(0, 100) || undefined,
               emoji: menu.dropdownEmojis?.[roleId] || undefined
             };
           })
@@ -10561,8 +10621,9 @@ client.on("interactionCreate", async (interaction) => {
  * @param {Array} addedRoles - Array of role IDs that were added
  * @param {Array} removedRoles - Array of role IDs that were removed
  * @param {import('discord.js').GuildMember} member - The guild member
+ * @param {Object} menu - The menu configuration object
  */
-async function handleButtonSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
+async function handleButtonSelection(interaction, addedRoles = [], removedRoles = [], member = null, menu = null) {
   try {
     console.log("🔄 Starting professional button handling...");
     
@@ -10571,7 +10632,7 @@ async function handleButtonSelection(interaction, addedRoles = [], removedRoles 
     
     // Send role change notification as ephemeral followUp
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member, menu);
     } else if (member) {
       // No changes case - send ephemeral followUp
       await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
@@ -11786,21 +11847,46 @@ async function createHybridMenuEmbed(guild, menu) {
         .setDescription(menu.desc)
         .setColor(menu.embedColor || "#5865F2");
 
+    // Enhanced embed customization from reaction role system
     if (menu.embedThumbnail) embed.setThumbnail(menu.embedThumbnail);
     if (menu.embedImage) embed.setImage(menu.embedImage);
     
     if (menu.embedAuthorName) {
         embed.setAuthor({
             name: menu.embedAuthorName,
-            iconURL: menu.embedAuthorIconURL
+            iconURL: menu.embedAuthorIconURL || undefined
         });
     }
 
     if (menu.embedFooterText) {
         embed.setFooter({
             text: menu.embedFooterText,
-            iconURL: menu.embedFooterIconURL
+            iconURL: menu.embedFooterIconURL || undefined
         });
+    }
+
+    // Add dynamic timestamp if enabled
+    if (menu.visualEnhancements?.showTimestamp) {
+        embed.setTimestamp();
+    }
+
+    // Add member count information if enabled
+    if (menu.showMemberCounts && menu.dropdownRoles?.length > 0) {
+        let memberCountText = "";
+        for (const roleId of menu.dropdownRoles.slice(0, 5)) { // Limit to 5 roles to avoid embed length issues
+            const role = guild.roles.cache.get(roleId);
+            if (role) {
+                const count = role.members.size;
+                memberCountText += `${role.name}: ${count} members\n`;
+            }
+        }
+        if (memberCountText) {
+            embed.addFields({
+                name: "📊 Role Statistics",
+                value: memberCountText.trim(),
+                inline: true
+            });
+        }
     }
 
     return embed;
