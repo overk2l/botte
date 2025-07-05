@@ -640,7 +640,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     // ✅ SAPPHIRE APPROACH: Never edit the original message!
     // Instead, only send ephemeral replies to preserve the dropdown's natural state
     
-    // Send role change notification as ephemeral followUp (since interaction is deferred)
+    // Send role change notification as ephemeral followUp (since interaction is deferred with update)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
@@ -917,17 +917,40 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
     embed.setDescription(description);
     embed.setColor(color);
 
-    // Send ephemeral followUp - this is the TRUE Sapphire approach
+    // Send followUp with auto-delete - this gives us the best of both worlds
     try {
-        await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
-        console.log("✅ Sent ephemeral role change notification (TRUE Sapphire style)");
+        const message = await interaction.followUp({ embeds: [embed] });
+        console.log("✅ Sent role change notification with auto-delete (TRUE Sapphire style)");
+        
+        // Auto-delete the message after 6 seconds like before
+        if (message) {
+            setTimeout(async () => {
+                try {
+                    await message.delete();
+                    console.log("✅ Auto-deleted role change notification");
+                } catch (deleteError) {
+                    console.log("❌ Could not auto-delete message (already deleted)");
+                }
+            }, 6000);
+        }
     } catch (error) {
-        console.error("❌ Error sending ephemeral role notification:", error);
-        // Fallback to simple text ephemeral followUp
+        console.error("❌ Error sending role notification:", error);
+        // Fallback to simple text message
         try {
-            await interaction.followUp({ content: "✅ Your roles have been updated!", flags: MessageFlags.Ephemeral });
+            const fallbackMessage = await interaction.followUp({ content: "✅ Your roles have been updated!" });
+            
+            // Auto-delete fallback message too
+            if (fallbackMessage) {
+                setTimeout(async () => {
+                    try {
+                        await fallbackMessage.delete();
+                    } catch (deleteError) {
+                        console.log("❌ Could not auto-delete fallback message");
+                    }
+                }, 6000);
+            }
         } catch (fallbackError) {
-            console.error("❌ Fallback ephemeral followUp failed:", fallbackError);
+            console.error("❌ Fallback followUp failed:", fallbackError);
         }
     }
 }
@@ -2980,10 +3003,16 @@ client.on("interactionCreate", async (interaction) => {
   // Defer non-modal-trigger interactions using TRUE Sapphire approach
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // ✅ TRUE SAPPHIRE APPROACH: Always use deferReply for dropdown interactions
-      // This allows us to send ephemeral replies without editing the original message
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      console.log("✅ Deferred interaction with ephemeral reply (TRUE Sapphire style)");
+      if (isPublishedDropdownInteraction) {
+        // ✅ TRUE SAPPHIRE APPROACH: Use deferUpdate for dropdowns to clear selection
+        // Then send follow-up ephemeral messages separately
+        await interaction.deferUpdate();
+        console.log("✅ Deferred dropdown with update (TRUE Sapphire style)");
+      } else {
+        // For non-dropdown interactions, use deferReply
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        console.log("✅ Deferred interaction with ephemeral reply");
+      }
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
@@ -9603,9 +9632,9 @@ async function handleRoleInteraction(interaction) {
                     // Fallback
                     try {
                         if (interaction.deferred) {
-                            await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                            await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
                         } else if (!interaction.replied) {
-                            await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                            await interaction.reply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
                         }
                     } catch (fallbackError) {
                         console.error("Fallback error handling failed:", fallbackError);
@@ -9632,9 +9661,9 @@ async function handleRoleInteraction(interaction) {
         if (interaction.isStringSelectMenu()) {
             try {
                 if (interaction.deferred) {
-                    await interaction.followUp({ content: errorMessage, ephemeral: true });
+                    await interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral });
                 } else if (!interaction.replied) {
-                    await interaction.reply({ content: errorMessage, ephemeral: true });
+                    await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
                 }
             } catch (replyError) {
                 console.error("Error sending error message:", replyError);
