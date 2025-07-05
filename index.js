@@ -4496,6 +4496,12 @@ client.on("interactionCreate", async (interaction) => {
             action === "configure_max_roles" ||
             action === "edit_role_add_message" ||
             action === "edit_role_remove_message" ||
+            action === "edit_info_page_message" ||
+            action === "edit_role" ||
+            action === "regional_limits" ||
+            action === "max_role_limit" ||
+            action === "edit_role_added_message" ||
+            action === "edit_role_removed_message" ||
             action === "edit_info_page_message"
           );
 
