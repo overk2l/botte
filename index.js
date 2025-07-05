@@ -338,213 +338,39 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 /**
- * Resets dropdown selection and sends notification (Sapphire-style)
- * @param {import('discord.js').Interaction} interaction - The interaction to reset
- * @param {Array} originalComponents - Original components from the message
- * @param {Array} addedRoles - Roles that were added (for notification)
- * @param {Array} removedRoles - Roles that were removed (for notification)
+ * Simple dropdown handler - just process the selection and send feedback
+ * No component updates needed - Discord handles the visual state naturally
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {Array} addedRoles - Roles that were added
+ * @param {Array} removedRoles - Roles that were removed  
  * @param {import('discord.js').GuildMember} member - The member whose roles changed
- * @returns {Promise<boolean>} Whether the reset was successful
+ * @returns {Promise<void>}
  */
-async function resetDropdownSelection(interaction, originalComponents = null, addedRoles = [], removedRoles = [], member = null) {
+async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    // Get components from the interaction message if not provided
-    const components = originalComponents || (interaction.message?.components);
-    
-    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
-    if (components && components.length > 0) {
-      try {
-        console.log(`[Dropdown Reset] Starting with ${components.length} original component rows`);
-        
-        // Rebuild components with completely fresh state and no selections
-        const freshComponents = components.map((row, index) => {
-          const newRow = new ActionRowBuilder();
-          
-          // Get components from the row - handle both Discord.js ActionRow and raw API data
-          const rowComponents = row.components || [];
-          console.log(`[Dropdown Reset] Processing row ${index} with ${rowComponents.length} components`);
-          
-          rowComponents.forEach((component, compIndex) => {
-            // Extract component data - handle both Discord.js Component objects and raw API data
-            let componentData;
-            
-            if (component.data) {
-              // Discord.js Component object
-              componentData = component.data;
-            } else if (component.toJSON) {
-              // Discord.js Component object with toJSON method
-              componentData = component.toJSON();
-            } else {
-              // Raw API data
-              componentData = component;
-            }
-            
-            // Get the component type
-            const componentType = componentData.type;
-            
-            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${componentType}`, {
-              customId: componentData.custom_id || componentData.customId,
-              placeholder: componentData.placeholder,
-              options: componentData.options?.length,
-              label: componentData.label
-            });
-            
-            // Handle StringSelectMenu (type 3)
-            if (componentType === 3) {
-              const customId = componentData.custom_id || componentData.customId;
-              const placeholder = componentData.placeholder || 'Select an option...';
-              const minValues = componentData.min_values || componentData.minValues || 1;
-              const maxValues = componentData.max_values || componentData.maxValues || 1;
-              const options = componentData.options || [];
-              
-              if (customId && options.length > 0) {
-                const newDropdown = new StringSelectMenuBuilder()
-                  .setCustomId(customId)
-                  .setPlaceholder(placeholder)
-                  .setMinValues(minValues)
-                  .setMaxValues(maxValues)
-                  .addOptions(options.map(opt => ({
-                    label: opt.label,
-                    value: opt.value,
-                    description: opt.description,
-                    emoji: opt.emoji,
-                    default: false // CRITICAL: Always false to clear selections
-                  })));
-                
-                newRow.addComponents(newDropdown);
-                console.log(`[Dropdown Reset] Rebuilt dropdown "${customId}" with ${options.length} options (all defaults=false)`);
-              }
-            } 
-            // Handle Button (type 2)
-            else if (componentType === 2) {
-              const customId = componentData.custom_id || componentData.customId;
-              const label = componentData.label;
-              const style = componentData.style;
-              
-              if (customId && label && style) {
-                const newButton = new ButtonBuilder()
-                  .setCustomId(customId)
-                  .setLabel(label)
-                  .setStyle(style);
-                
-                if (componentData.emoji) {
-                  newButton.setEmoji(componentData.emoji);
-                }
-                if (componentData.disabled !== undefined) {
-                  newButton.setDisabled(componentData.disabled);
-                }
-                
-                newRow.addComponents(newButton);
-                console.log(`[Dropdown Reset] Rebuilt button "${customId}"`);
-              }
-            }
-          });
-          
-          console.log(`[Dropdown Reset] Row ${index} rebuilt with ${newRow.components.length} components`);
-          return newRow;
-        }).filter(row => row.components.length > 0); // Remove empty rows
-        
-        console.log(`[Dropdown Reset] Final: ${freshComponents.length} rows with components`);
-        
-        // Only update if we have valid components
-        if (freshComponents.length > 0) {
-          // SAPPHIRE-STYLE UPDATE: Direct update without deferUpdate to avoid "edited" indicator
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.update({
-              components: freshComponents
-            });
-            
-            console.log("✅ Sapphire-style dropdown reset completed: All selections cleared (no edit mark)");
-            
-            // Send notification if role changes were provided
-            if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-              try {
-                await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
-              } catch (notificationError) {
-                console.error("Error sending notification after reset:", notificationError);
-              }
-            } else if (member && addedRoles.length === 0 && removedRoles.length === 0) {
-              // Handle "no changes" case
-              try {
-                await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
-              } catch (noChangeError) {
-                console.error("Error sending no-change notification:", noChangeError);
-              }
-            }
-            
-            return true;
-          } else {
-            // Fallback if interaction already handled
-            console.log("⚠️ Interaction already replied/deferred, using fallback approach");
-            
-            // Try to edit the reply if already deferred
-            if (interaction.deferred) {
-              try {
-                await interaction.editReply({
-                  components: freshComponents
-                });
-                console.log("✅ Fallback: Updated components via editReply");
-                
-                // Send notification if role changes were provided
-                if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-                  try {
-                    await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
-                  } catch (notificationError) {
-                    console.error("Error sending notification after fallback reset:", notificationError);
-                  }
-                } else if (member && addedRoles.length === 0 && removedRoles.length === 0) {
-                  // Handle "no changes" case
-                  try {
-                    await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
-                  } catch (noChangeError) {
-                    console.error("Error sending no-change notification after fallback:", noChangeError);
-                  }
-                }
-                
-                return true;
-              } catch (editError) {
-                console.error("Error in fallback editReply:", editError);
-                return false;
-              }
-            }
-            
-            return false;
-          }
-        } else {
-          console.log("⚠️ No valid components to update, skipping refresh");
-          return true;
-        }
-      } catch (rebuildError) {
-        console.error("❌ Error in Sapphire-style component rebuild:", rebuildError);
-        console.error("Component structure debug:", JSON.stringify(components, null, 2));
-        // Fall back to simple acknowledgment
-        try {
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.deferUpdate();
-          }
-        } catch (fallbackError) {
-          console.error("❌ Error in fallback acknowledgment:", fallbackError);
-        }
-      }
+    // Simply send notification - no component updates needed
+    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
+    } else if (member) {
+      // No changes case
+      await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+    } else {
+      // Fallback acknowledgment
+      await interaction.reply({ content: "✅ Selection processed!", ephemeral: true });
     }
     
-    // Fallback: Just acknowledge if no components provided
-    console.log("⚠️ No components provided for reset, using fallback acknowledgment");
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.deferUpdate();
-    }
-    return true;
+    console.log("✅ Dropdown selection processed - no component updates needed");
   } catch (error) {
-    console.error("❌ Error in Sapphire-style dropdown reset:", error);
-    // Ultimate fallback: at minimum, acknowledge the interaction
+    console.error("❌ Error handling dropdown selection:", error);
+    
+    // Fallback error handling
     try {
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+        await interaction.reply({ content: "❌ An error occurred processing your selection.", ephemeral: true });
       }
     } catch (fallbackError) {
-      console.error("❌ Error in fallback acknowledgment:", fallbackError);
+      console.error("❌ Fallback error handling failed:", fallbackError);
     }
-    return false;
   }
 }
 
@@ -7150,36 +6976,11 @@ client.on("interactionCreate", async (interaction) => {
                   }))
                 );
 
-              // Reset the dropdown to clear visual selection, then send response
+              // Send the page content directly as reply
               try {
-                const originalComponents = interaction.message?.components || [];
-                const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
-                
-                if (resetSuccess) {
-                  // Wait a moment then send page content as follow-up
-                  setTimeout(async () => {
-                    try {
-                      await interaction.followUp({ embeds: [embed], ephemeral: true });
-                    } catch (followUpError) {
-                      console.error("Error sending follow-up:", followUpError);
-                    }
-                  }, 150);
-                } else {
-                  // Fallback: if reset fails, we need to acknowledge the interaction somehow
-                  if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ embeds: [embed], ephemeral: true });
-                  } else {
-                    await interaction.followUp({ embeds: [embed], ephemeral: true });
-                  }
-                }
-              } catch (resetError) {
-                console.error("Error resetting info menu dropdown:", resetError);
-                // Fallback: acknowledge interaction and send embed
-                if (!interaction.replied && !interaction.deferred) {
-                  await interaction.reply({ embeds: [embed], ephemeral: true });
-                } else {
-                  await interaction.followUp({ embeds: [embed], ephemeral: true });
-                }
+                await interaction.reply({ embeds: [embed], ephemeral: true });
+              } catch (error) {
+                console.error("Error sending page content:", error);
               }
             } else {
               // No pages found, fallback to reply
@@ -9522,57 +9323,37 @@ async function handleRoleInteraction(interaction) {
         // Send rich embed notification for role changes
         if (validRolesToAdd.length > 0 || validRolesToRemove.length > 0) {
             if (interaction.isStringSelectMenu()) {
-                // For dropdown interactions, update the message to reset dropdown and send follow-up
+                // For dropdown interactions, simply process selection and send feedback
                 try {
-                    // Use the original components from the interaction message for proper reset
-                    const originalComponents = interaction.message?.components || [];
-                    
-                    // Process the selection like a button - just acknowledge and send feedback
-                    try {
-                        const resetSuccess = await resetDropdownSelection(interaction, originalComponents, validRolesToAdd, validRolesToRemove, member);
-                        
-                        if (!resetSuccess) {
-                            // Fallback to notification if acknowledgment fails
-                            await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
-                        }
-                    } catch (error) {
-                        console.error("Error processing role menu dropdown:", error);
-                        // Fallback to notification follow-up
-                        await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
-                    }
+                    await handleDropdownSelection(interaction, validRolesToAdd, validRolesToRemove, member);
                 } catch (dropdownError) {
                     console.error("Error handling dropdown interaction:", dropdownError);
-                    // Fallback to notification follow-up
-                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                    // Fallback to notification
+                    try {
+                        if (!interaction.replied && !interaction.deferred) {
+                            await interaction.reply({ content: "✅ Role updated successfully!", ephemeral: true });
+                        }
+                    } catch (fallbackError) {
+                        console.error("Fallback error handling failed:", fallbackError);
+                    }
                 }
             } else {
-                    await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
-                }
+                await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
+            }
         } else {
             if (interaction.isStringSelectMenu()) {
                 try {
-                    // Still reset the dropdown even if no changes were made - use original components
-                    const originalComponents = interaction.message?.components || [];
-                    
-                    // Process like a button - acknowledge and give feedback (no role changes)
-                    const resetSuccess = await resetDropdownSelection(interaction, originalComponents, [], [], member);
-                    
-                    if (!resetSuccess) {
-                        // If reset failed, send a manual notification
+                    // No changes - just send simple feedback
+                    await handleDropdownSelection(interaction, [], [], member);
+                } catch (error) {
+                    console.error("Error handling no-change dropdown:", error);
+                    // Fallback
+                    try {
                         if (!interaction.replied && !interaction.deferred) {
                             await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
-                        } else {
-                            await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
                         }
-                    }
-                    // Note: If resetSuccess is true, the reset function will handle the "no changes" notification
-                } catch (error) {
-                    console.error("Error updating role menu dropdown:", error);
-                    // Fallback: handle interaction state properly
-                    if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
-                    } else {
-                        await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                    } catch (fallbackError) {
+                        console.error("Fallback error handling failed:", fallbackError);
                     }
                 }
             } else {
@@ -10937,28 +10718,11 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      // Reset the dropdown to clear visual selection, then send response
+      // Send the page content directly as reply
       try {
-        const originalComponents = interaction.message?.components || [];
-        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
-        
-        if (resetSuccess) {
-          // Wait a moment then send page content as follow-up
-          setTimeout(async () => {
-            try {
-              await interaction.followUp({ embeds: [embed], ephemeral: true });
-            } catch (followUpError) {
-              console.error("Error sending follow-up:", followUpError);
-            }
-          }, 150);
-        } else {
-          // Fallback to reply if reset fails
-          await interaction.reply({ embeds: [embed], ephemeral: true });
-        }
+        await interaction.reply({ embeds: [embed], ephemeral: true });
       } catch (error) {
-        console.error("Error resetting hybrid menu dropdown:", error);
-        // Fallback to just replying with the page content
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        console.error("Error sending page content:", error);
       }
 
       return;
@@ -11039,23 +10803,19 @@ async function handleHybridMenuInteraction(interaction) {
         await member.roles.remove(rolesToRemove);
       }
 
-      // Process like a button - acknowledge and send feedback
+      // Process the role selection and send feedback
       try {
-        // Get the original components from the message to rebuild
-        const originalComponents = interaction.message?.components || [];
-        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
-        
-        if (resetSuccess) {
-          // Send notification as ephemeral follow-up (like buttons do)
-          await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
-        } else {
-          // Fallback to notification if acknowledgment fails
-          await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
-        }
+        await handleDropdownSelection(interaction, rolesToAdd, rolesToRemove, member);
       } catch (error) {
         console.error("Error processing hybrid menu dropdown:", error);
         // Fallback to notification
-        await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: "✅ Role updated successfully!", ephemeral: true });
+          }
+        } catch (fallbackError) {
+          console.error("Fallback error handling failed:", fallbackError);
+        }
       }
 
       return;
