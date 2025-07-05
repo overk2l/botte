@@ -355,30 +355,12 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting Sapphire-style hybrid info dropdown reset...");
+    console.log("🔄 Starting TRUE Sapphire-style hybrid info dropdown handling...");
     
-    // Step 1: Defer the interaction to prevent timeout
-    if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferUpdate();
-    }
+    // ✅ SAPPHIRE APPROACH: Never edit the original message!
+    // Instead, only send ephemeral replies to preserve the dropdown's natural state
     
-    // Step 2: Rebuild the message components to clear the selection
-    const originalMessage = interaction.message;
-    if (originalMessage && originalMessage.components) {
-      try {
-        // Rebuild the components with a new timestamp to force clearing
-        const newComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
-        
-        // Update the message with fresh components (this should clear the selection)
-        await interaction.editReply({ components: newComponents });
-        console.log("✅ Hybrid info dropdown components refreshed with new timestamp");
-      } catch (rebuildError) {
-        console.error("❌ Error rebuilding hybrid info dropdown components:", rebuildError);
-        // Continue with notification anyway
-      }
-    }
-    
-    // Step 3: Create and send the page content as follow-up
+    // Create and send the page content as ephemeral followUp
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -457,21 +439,19 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
       }
     }
 
-    // Send the page content as follow-up
+    // Send the page content as ephemeral followUp (TRUE Sapphire approach)
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    console.log("✅ Sapphire-style hybrid info dropdown selection processed with reset + follow-up");
+    console.log("✅ TRUE Sapphire-style hybrid info dropdown selection processed with ephemeral followUp only");
   } catch (error) {
     console.error("❌ Error in Sapphire-style hybrid info dropdown handling:", error);
     
     // Fallback error handling
     try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "❌ An error occurred processing your selection.", ephemeral: true });
-      } else if (interaction.deferred) {
-        await interaction.editReply({ content: "❌ An error occurred processing your selection." });
-      } else {
+      if (!interaction.replied) {
         await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      } else {
+        console.log("❌ Cannot send error message - interaction already replied");
       }
     } catch (fallbackError) {
       console.error("❌ Fallback error handling failed:", fallbackError);
@@ -655,49 +635,28 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting Sapphire-style dropdown reset...");
+    console.log("🔄 Starting TRUE Sapphire-style dropdown handling...");
     
-    // Step 1: Rebuild the message components to clear the selection
-    const originalMessage = interaction.message;
-    if (originalMessage && originalMessage.components) {
-      // Get the menu ID from the custom ID
-      const parts = interaction.customId.split(":");
-      const menuId = parts[1];
-      const menu = db.getMenu(menuId) || db.getHybridMenu(menuId);
-      
-      if (menu) {
-        try {
-          // Rebuild the components with a new timestamp to force clearing
-          const newComponents = await rebuildDropdownComponents(originalMessage, menu, menuId);
-          
-          // Update the message with fresh components (this should clear the selection)
-          await interaction.editReply({ components: newComponents });
-          console.log("✅ Dropdown components refreshed with new timestamp");
-        } catch (rebuildError) {
-          console.error("❌ Error rebuilding dropdown components:", rebuildError);
-          // Continue with notification anyway
-        }
-      }
-    }
+    // ✅ SAPPHIRE APPROACH: Never edit the original message!
+    // Instead, only send ephemeral replies to preserve the dropdown's natural state
     
-    // Step 2: Send role change notification as follow-up (since message was already edited)
+    // Send role change notification as ephemeral followUp (since interaction is deferred)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
-      await sendRoleChangeNotificationFollowUp(interaction, addedRoles, removedRoles, member);
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
-      // No changes case - send as follow-up
+      // No changes case - send ephemeral followUp
       await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
     }
     
-    console.log("✅ Sapphire-style dropdown selection processed with reset + follow-up");
+    console.log("✅ TRUE Sapphire-style dropdown selection processed with ephemeral followUp only");
   } catch (error) {
-    console.error("❌ Error in Sapphire-style dropdown handling:", error);
+    console.error("❌ Error in TRUE Sapphire-style dropdown handling:", error);
     
     // Fallback error handling
     try {
       if (!interaction.replied) {
         await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
       } else {
-        // If we already replied, we can't send another follow-up
         console.log("❌ Cannot send error message - interaction already replied");
       }
     } catch (fallbackError) {
@@ -901,6 +860,74 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
             return await interaction.followUp({ embeds: [embed], ephemeral: true });
         } catch (finalError) {
             console.error("Final fallback failed:", finalError);
+        }
+    }
+}
+
+/**
+ * Sends a role change notification as an ephemeral followUp (TRUE Sapphire approach).
+ * This function sends a rich embed response that only the interacting user can see.
+ * @param {import('discord.js').Interaction} interaction - The interaction to send followUp to
+ * @param {string[]} addedRoles - Array of role IDs that were added
+ * @param {string[]} removedRoles - Array of role IDs that were removed
+ * @param {import('discord.js').GuildMember} member - The member whose roles changed
+ * @returns {Promise<void>}
+ */
+async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member) {
+    if (!interaction || (!addedRoles.length && !removedRoles.length)) {
+        return;
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle("🎭 Role Update")
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setTimestamp()
+        .setFooter({
+            text: "Role Update",
+            iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
+        });
+
+    // Build description based on role changes
+    let description = "";
+    let color = "#5865F2"; // Default Discord blurple
+
+    if (addedRoles.length > 0) {
+        const addedRoleNames = addedRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            return role ? `<@&${roleId}>` : 'Unknown Role';
+        });
+        
+        description += `**✅ Roles Added:**\n${addedRoleNames.join('\n')}`;
+        color = "#00FF00"; // Green for additions
+    }
+
+    if (removedRoles.length > 0) {
+        const removedRoleNames = removedRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            return role ? `<@&${roleId}>` : 'Unknown Role';
+        });
+        
+        if (description) description += "\n\n";
+        description += `**❌ Roles Removed:**\n${removedRoleNames.join('\n')}`;
+        
+        // If both added and removed, use orange. If only removed, use red
+        color = addedRoles.length > 0 ? "#FFA500" : "#FF0000";
+    }
+
+    embed.setDescription(description);
+    embed.setColor(color);
+
+    // Send ephemeral followUp - this is the TRUE Sapphire approach
+    try {
+        await interaction.followUp({ embeds: [embed], ephemeral: true });
+        console.log("✅ Sent ephemeral role change notification (TRUE Sapphire style)");
+    } catch (error) {
+        console.error("❌ Error sending ephemeral role notification:", error);
+        // Fallback to simple text ephemeral followUp
+        try {
+            await interaction.followUp({ content: "✅ Your roles have been updated!", ephemeral: true });
+        } catch (fallbackError) {
+            console.error("❌ Fallback ephemeral followUp failed:", fallbackError);
         }
     }
 }
@@ -2927,7 +2954,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))
   );
 
-  // Check if it's a published dropdown interaction (should use deferUpdate to prevent "edited" marks)
+  // Check if it's a published dropdown interaction (TRUE Sapphire approach: use deferReply for ephemeral responses)
   const isPublishedDropdownInteraction = (
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info-menu-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
@@ -2950,16 +2977,13 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("dynamic:"))
   );
 
-  // Defer non-modal-trigger interactions, but handle dropdown interactions with deferUpdate
+  // Defer non-modal-trigger interactions using TRUE Sapphire approach
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // Use deferUpdate for dropdown interactions to prevent "edited" marks
-      if (isPublishedDropdownInteraction) {
-        await interaction.deferUpdate();
-      } else {
-        // Always defer interactions that need responses
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      }
+      // ✅ TRUE SAPPHIRE APPROACH: Always use deferReply for dropdown interactions
+      // This allows us to send ephemeral replies without editing the original message
+      await interaction.deferReply({ ephemeral: true });
+      console.log("✅ Deferred interaction with ephemeral reply (TRUE Sapphire style)");
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
@@ -9335,7 +9359,7 @@ client.on("interactionCreate", async (interaction) => {
 
 async function handleRoleInteraction(interaction) {
     // Deferring is now handled at the main interaction level
-    // Dropdown interactions use deferUpdate, button interactions use deferReply
+    // TRUE Sapphire approach: Dropdown interactions use deferReply (ephemeral), button interactions use deferReply
 
     try {
         // Check rate limiting
@@ -10899,7 +10923,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
  */
 async function handleHybridMenuInteraction(interaction) {
   // Deferring is now handled at the main interaction level
-  // Dropdown interactions use deferUpdate, button interactions use deferReply
+  // TRUE Sapphire approach: Dropdown interactions use deferReply (ephemeral), button interactions use deferReply
 
   try {
     const parts = interaction.customId.split(":");
@@ -13446,25 +13470,12 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting Sapphire-style info dropdown reset...");
+    console.log("🔄 Starting TRUE Sapphire-style info dropdown handling...");
     
-    // Step 1: Rebuild the message components to clear the selection
-    const originalMessage = interaction.message;
-    if (originalMessage && originalMessage.components) {
-      try {
-        // Rebuild the components with a new timestamp to force clearing
-        const newComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
-        
-        // Update the message with fresh components (this should clear the selection)
-        await interaction.editReply({ components: newComponents });
-        console.log("✅ Info dropdown components refreshed with new timestamp");
-      } catch (rebuildError) {
-        console.error("❌ Error rebuilding info dropdown components:", rebuildError);
-        // Continue with notification anyway
-      }
-    }
+    // ✅ SAPPHIRE APPROACH: Never edit the original message!
+    // Instead, only send ephemeral replies to preserve the dropdown's natural state
     
-    // Step 2: Create and send the page content as follow-up
+    // Create and send the page content as ephemeral followUp
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -13564,10 +13575,10 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
       }
     }
 
-    // Send the page content as follow-up
+    // Send the page content as ephemeral followUp (TRUE Sapphire approach)
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    console.log("✅ Sapphire-style info dropdown selection processed with reset + follow-up");
+    console.log("✅ TRUE Sapphire-style info dropdown selection processed with ephemeral followUp only");
   } catch (error) {
     console.error("❌ Error in Sapphire-style info dropdown handling:", error);
     
