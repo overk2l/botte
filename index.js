@@ -3170,8 +3170,8 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
   console.log(`[Webhook Debug] Rebuilding hybrid menu components for webhook message`);
   console.log(`[Webhook Debug] Menu has pages: ${menu.pages ? menu.pages.length : 0}`);
   console.log(`[Webhook Debug] Menu has dropdownRoles: ${menu.dropdownRoles ? menu.dropdownRoles.length : 0}`);
-  console.log(`[Webhook Debug] Menu infoSelectionType: ${menu.infoSelectionType}`);
-  console.log(`[Webhook Debug] Menu roleSelectionType: ${menu.roleSelectionType}`);
+  console.log(`[Webhook Debug] Menu infoSelectionType: '${menu.infoSelectionType}' (type: ${typeof menu.infoSelectionType})`);
+  console.log(`[Webhook Debug] Menu roleSelectionType: '${menu.roleSelectionType}' (type: ${typeof menu.roleSelectionType})`);
   
   try {
     // Create completely fresh components using the original menu configuration
@@ -3180,10 +3180,13 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
     const timestamp = Date.now();
     
     // Build info pages dropdown if configured
-    console.log(`[Webhook Debug] Info condition check: pages=${menu.pages?.length}, includes=${menu.infoSelectionType?.includes("dropdown")}, not=${!menu.infoSelectionType}, empty=${menu.infoSelectionType === ""}`);
-    if (menu.pages && menu.pages.length > 0 && 
-        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType || menu.infoSelectionType === "")) {
-      
+    console.log(`[Webhook Debug] Info condition check: pages=${menu.pages?.length}, includes=${menu.infoSelectionType?.includes("dropdown")}, not=${!menu.infoSelectionType}, empty=${menu.infoSelectionType === ""}, undefined=${menu.infoSelectionType === undefined}, null=${menu.infoSelectionType === null}`);
+    
+    // Simplified condition: if not explicitly set to "button", default to dropdown
+    const shouldBuildInfoDropdown = menu.pages && menu.pages.length > 0 && 
+        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType || menu.infoSelectionType === "" || menu.infoSelectionType === undefined || menu.infoSelectionType === null);
+    
+    if (shouldBuildInfoDropdown) {
       console.log(`[Webhook Debug] Building info pages dropdown with ${menu.pages.length} pages`);
       
       const infoOptions = menu.pages.map((page, index) => ({
@@ -3207,10 +3210,13 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
     }
 
     // Build roles dropdown if configured
-    console.log(`[Webhook Debug] Role condition check: roles=${menu.dropdownRoles?.length}, includes=${menu.roleSelectionType?.includes("dropdown")}, not=${!menu.roleSelectionType}, empty=${menu.roleSelectionType === ""}`);
-    if ((menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
-        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType || menu.roleSelectionType === "")) {
-      
+    console.log(`[Webhook Debug] Role condition check: roles=${menu.dropdownRoles?.length}, includes=${menu.roleSelectionType?.includes("dropdown")}, not=${!menu.roleSelectionType}, empty=${menu.roleSelectionType === ""}, undefined=${menu.roleSelectionType === undefined}, null=${menu.roleSelectionType === null}`);
+    
+    // Simplified condition: if not explicitly set to "button", default to dropdown
+    const shouldBuildRoleDropdown = (menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
+        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType || menu.roleSelectionType === "" || menu.roleSelectionType === undefined || menu.roleSelectionType === null);
+    
+    if (shouldBuildRoleDropdown) {
       console.log(`[Webhook Debug] Building roles dropdown with ${menu.dropdownRoles.length} roles`);
       
       const guild = originalMessage.guild;
@@ -3238,8 +3244,15 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
             .addOptions(roleOptions.slice(0, 25)); // Discord limit
 
           components.push(new ActionRowBuilder().addComponents(roleSelect));
+          console.log(`[Webhook Debug] Added roles dropdown`);
+        } else {
+          console.log(`[Webhook Debug] No valid role options found`);
         }
+      } else {
+        console.log(`[Webhook Debug] No guild found for role dropdown`);
       }
+    } else {
+      console.log(`[Webhook Debug] Skipping roles dropdown - condition not met`);
     }
 
     // Build info page buttons if configured
