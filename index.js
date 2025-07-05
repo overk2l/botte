@@ -13731,6 +13731,161 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     }
 });
 
+/**
+ * Shows a modal for editing role properties (emoji, description, button color)
+ * @param {import('discord.js').Interaction} interaction - The interaction to respond to
+ * @param {string} hybridMenuId - The ID of the hybrid menu
+ * @param {string} roleType - The type of role ('dropdown' or 'button')
+ * @param {string} roleId - The ID of the role to edit
+ */
+async function showRoleEditModal(interaction, hybridMenuId, roleType, roleId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const role = interaction.guild.roles.cache.get(roleId);
+  if (!role) {
+    return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+  }
+
+  // Get current values
+  const currentEmoji = roleType === 'dropdown' 
+    ? menu.dropdownEmojis[roleId] || ''
+    : menu.buttonEmojis[roleId] || '';
+  const currentDescription = menu.dropdownRoleDescriptions[roleId] || '';
+  const currentButtonColor = menu.buttonColors[roleId] || 'Secondary';
+
+  const modal = new ModalBuilder()
+    .setCustomId(`hybrid-role-edit-modal:${hybridMenuId}:${roleType}:${roleId}`)
+    .setTitle(`Edit Role: ${role.name}`);
+
+  // Emoji input
+  const emojiInput = new TextInputBuilder()
+    .setCustomId('emoji')
+    .setLabel('Emoji')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('🎭 or :custom_emoji: or leave empty')
+    .setRequired(false)
+    .setMaxLength(100)
+    .setValue(currentEmoji);
+
+  // Description input (only for dropdown roles)
+  const descriptionInput = new TextInputBuilder()
+    .setCustomId('description')
+    .setLabel('Description (Dropdown Only)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Optional description for dropdown roles')
+    .setRequired(false)
+    .setMaxLength(100)
+    .setValue(currentDescription);
+
+  // Button color input (only for button roles)
+  const buttonColorInput = new TextInputBuilder()
+    .setCustomId('buttonColor')
+    .setLabel('Button Color (Button Only)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('Primary, Secondary, Success, Danger')
+    .setRequired(false)
+    .setMaxLength(20)
+    .setValue(currentButtonColor);
+
+  // Add components to modal
+  const row1 = new ActionRowBuilder().addComponents(emojiInput);
+  const row2 = new ActionRowBuilder().addComponents(descriptionInput);
+  const row3 = new ActionRowBuilder().addComponents(buttonColorInput);
+
+  modal.addComponents(row1, row2, row3);
+
+  return interaction.showModal(modal);
+}
+
+/**
+ * Handles the role edit modal submission
+ * @param {import('discord.js').Interaction} interaction - The modal submission interaction
+ */
+async function handleRoleEditModalSubmission(interaction) {
+  const parts = interaction.customId.split(':');
+  const hybridMenuId = parts[1];
+  const roleType = parts[2];
+  const roleId = parts[3];
+
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const role = interaction.guild.roles.cache.get(roleId);
+  if (!role) {
+    return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+  }
+
+  try {
+    const emoji = interaction.fields.getTextInputValue('emoji').trim();
+    const description = interaction.fields.getTextInputValue('description').trim();
+    const buttonColor = interaction.fields.getTextInputValue('buttonColor').trim();
+
+    // Validate button color
+    const validColors = ['Primary', 'Secondary', 'Success', 'Danger'];
+    const normalizedButtonColor = buttonColor.charAt(0).toUpperCase() + buttonColor.slice(1).toLowerCase();
+    
+    if (buttonColor && !validColors.includes(normalizedButtonColor)) {
+      return sendEphemeralEmbed(interaction, `❌ Invalid button color. Valid options: ${validColors.join(', ')}`, "#FF0000", "Error", false);
+    }
+
+    // Update emoji
+    if (roleType === 'dropdown') {
+      if (emoji) {
+        menu.dropdownEmojis[roleId] = emoji;
+      } else {
+        delete menu.dropdownEmojis[roleId];
+      }
+    } else if (roleType === 'button') {
+      if (emoji) {
+        menu.buttonEmojis[roleId] = emoji;
+      } else {
+        delete menu.buttonEmojis[roleId];
+      }
+    }
+
+    // Update description (for dropdown roles)
+    if (description) {
+      menu.dropdownRoleDescriptions[roleId] = description;
+    } else {
+      delete menu.dropdownRoleDescriptions[roleId];
+    }
+
+    // Update button color (for button roles)
+    if (roleType === 'button') {
+      if (buttonColor) {
+        menu.buttonColors[roleId] = normalizedButtonColor;
+      } else {
+        menu.buttonColors[roleId] = 'Secondary'; // Default
+      }
+    }
+
+    // Save changes
+    await db.saveHybridMenu(hybridMenuId, menu);
+
+    // Build success message
+    const changes = [];
+    if (emoji) changes.push(`emoji: ${emoji}`);
+    if (description) changes.push(`description: "${description}"`);
+    if (roleType === 'button' && buttonColor) changes.push(`button color: ${normalizedButtonColor}`);
+
+    const successMessage = changes.length > 0 
+      ? `✅ Updated ${role.name}: ${changes.join(', ')}`
+      : `✅ Cleared customization for ${role.name}`;
+
+    // Return to roles configuration
+    await showHybridRolesConfiguration(interaction, hybridMenuId, successMessage);
+
+  } catch (error) {
+    console.error('Error updating role customization:', error);
+    return sendEphemeralEmbed(interaction, "❌ Error updating role customization.", "#FF0000", "Error", false);
+  }
+}
+
 client.on('guildMemberAdd', async (member) => {
     try {
         if (!memberCountUpdateQueued) {
