@@ -18,6 +18,570 @@
 
 require("dotenv").config();
 
+// Enhanced Logging System
+const LOG_LEVELS = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3,
+  VERBOSE: 4
+};
+
+const CURRENT_LOG_LEVEL = process.env.LOG_LEVEL ? LOG_LEVELS[process.env.LOG_LEVEL.toUpperCase()] || LOG_LEVELS.INFO : LOG_LEVELS.INFO;
+
+const logger = {
+  error: (message, ...args) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVELS.ERROR) {
+      console.error(`[ERROR] ${new Date().toISOString()} - ${message}`, ...args);
+    }
+  },
+  warn: (message, ...args) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVELS.WARN) {
+      console.warn(`[WARN] ${new Date().toISOString()} - ${message}`, ...args);
+    }
+  },
+  info: (message, ...args) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVELS.INFO) {
+      console.log(`[INFO] ${new Date().toISOString()} - ${message}`, ...args);
+    }
+  },
+  debug: (message, ...args) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVELS.DEBUG) {
+      console.log(`[DEBUG] ${new Date().toISOString()} - ${message}`, ...args);
+    }
+  },
+  verbose: (message, ...args) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVELS.VERBOSE) {
+      console.log(`[VERBOSE] ${new Date().toISOString()} - ${message}`, ...args);
+    }
+  },
+  interaction: (interaction, message) => {
+    logger.debug(`[${interaction.type}] ${interaction.user.tag} (${interaction.user.id}) in ${interaction.guild?.name || 'DM'}: ${message}`);
+  }
+};
+
+// ==================== RECENT QOL IMPROVEMENTS ====================
+// 1. Connection Management with Exponential Backoff
+const connectionHealth = {
+  disconnects: 0,
+  lastDisconnect: null,
+  reconnectAttempts: 0,
+  isReconnecting: false,
+  backoffDelay: 5000, // Start with 5 seconds
+  maxBackoffDelay: 300000, // Max 5 minutes
+  
+  recordDisconnect() {
+    this.disconnects++;
+    this.lastDisconnect = Date.now();
+    logger.warn(`Connection lost. Total disconnects: ${this.disconnects}`);
+  },
+  
+  recordReconnect() {
+    this.reconnectAttempts++;
+    this.isReconnecting = true;
+    logger.info(`Reconnect attempt ${this.reconnectAttempts} starting...`);
+  },
+  
+  recordReconnectSuccess() {
+    this.isReconnecting = false;
+    this.backoffDelay = 5000; // Reset backoff
+    logger.info(`Reconnection successful after ${this.reconnectAttempts} attempts`);
+  },
+  
+  getNextBackoffDelay() {
+    const delay = Math.min(this.backoffDelay * Math.pow(2, this.reconnectAttempts), this.maxBackoffDelay);
+    return delay + Math.random() * 1000; // Add jitter
+  }
+};
+
+// 2. BotError Class for Standardized Error Handling
+class BotError extends Error {
+  constructor(message, type = 'GENERAL', context = {}) {
+    super(message);
+    this.name = 'BotError';
+    this.type = type;
+    this.context = context;
+    this.timestamp = new Date().toISOString();
+  }
+  
+  static types = {
+    PERMISSION: 'PERMISSION',
+    VALIDATION: 'VALIDATION',
+    INTERACTION: 'INTERACTION',
+    DATABASE: 'DATABASE',
+    NETWORK: 'NETWORK',
+    GENERAL: 'GENERAL'
+  };
+}
+
+// 3. Safe Interaction Reply Wrapper
+async function safeInteractionReply(interaction, options, fallbackMessage = "❌ An error occurred.") {
+  try {
+    if (!interaction.replied && !interaction.deferred) {
+      if (options.ephemeral || options.flags?.includes?.(MessageFlags.Ephemeral)) {
+        await interaction.reply({ ...options, ephemeral: true });
+      } else {
+        await interaction.reply(options);
+      }
+    } else if (interaction.deferred) {
+      await interaction.editReply(options);
+    } else {
+      await interaction.followUp({ ...options, ephemeral: true });
+    }
+    return true;
+  } catch (error) {
+    logger.error('Safe interaction reply failed:', error);
+    
+    // Ultimate fallback
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: fallbackMessage, ephemeral: true });
+      } else if (interaction.deferred) {
+        await interaction.editReply({ content: fallbackMessage, embeds: [], components: [] });
+      } else {
+        await interaction.followUp({ content: fallbackMessage, ephemeral: true });
+      }
+    } catch (fallbackError) {
+      logger.error('Fallback interaction reply also failed:', fallbackError);
+      return false;
+    }
+    return false;
+  }
+}
+
+// 4. User-Friendly Error Message Generator
+function generateUserFriendlyError(error, context = {}) {
+  const errorMessages = {
+    10003: "The channel for this menu no longer exists or I don't have access to it.",
+    10008: "The message for this menu has been deleted.",
+    10013: "Invalid permissions or the user has left the server.",
+    50001: "I don't have permission to perform this action. Please check my permissions.",
+    50013: "I don't have permission to manage these roles. Please ensure my role is above the roles I need to manage.",
+    50035: "Invalid input provided. Please check your configuration.",
+    50013: "Missing permissions to perform this action.",
+    429: "Rate limited. Please try again in a few moments.",
+    40060: "This interaction has expired. Please try again.",
+    ENOTFOUND: "Network connection issue. Please try again later.",
+    ECONNREFUSED: "Unable to connect to Discord. Please try again later."
+  };
+  
+  let message = "❌ An unexpected error occurred.";
+  
+  if (error.code && errorMessages[error.code]) {
+    message = `❌ ${errorMessages[error.code]}`;
+  } else if (error.message) {
+    if (error.message.includes('Unknown interaction')) {
+      message = "❌ This interaction has expired. Please try the command again.";
+    } else if (error.message.includes('Missing Permissions')) {
+      message = "❌ I don't have the required permissions to perform this action.";
+    } else if (error.message.includes('Rate limit')) {
+      message = "❌ Rate limited. Please wait a moment and try again.";
+    }
+  }
+  
+  // Add context if available
+  if (context.action) {
+    message += ` (Action: ${context.action})`;
+  }
+  
+  return message;
+}
+
+// Enhanced interaction error handler
+async function handleInteractionError(interaction, error, context = 'unknown') {
+  logger.error(`Interaction error in ${context}:`, error);
+  
+  // Track interaction details for debugging
+  const interactionDetails = trackInteractionDetails(interaction);
+  
+  // Categorize the error
+  let errorType = 'other';
+  if (error.code === 50013) errorType = 'permission';
+  else if (error.code === 40060) errorType = 'timeout';
+  else if (error.code === 429) errorType = 'rateLimit';
+  else if (error instanceof BotError) errorType = error.type.toLowerCase();
+  
+  // Track the specific error
+  trackInteractionPerformance(interaction, Date.now(), false, errorType);
+  
+  // Generate user-friendly error message
+  const friendlyError = generateUserFriendlyError(error, { action: context });
+  
+  // Use safe interaction reply
+  return await safeInteractionReply(interaction, {
+    content: friendlyError,
+    flags: MessageFlags.Ephemeral
+  }, "❌ An error occurred while processing your request.");
+}
+
+// 5. Permission Validation Utilities
+function validateBotPermissions(interaction, requiredPermissions = []) {
+  if (!interaction.guild) {
+    throw new BotError('This command can only be used in servers', BotError.types.PERMISSION);
+  }
+  
+  const botMember = interaction.guild.members.me;
+  if (!botMember) {
+    throw new BotError('Unable to verify bot permissions', BotError.types.PERMISSION);
+  }
+  
+  const missingPermissions = requiredPermissions.filter(perm => 
+    !botMember.permissions.has(perm)
+  );
+  
+  if (missingPermissions.length > 0) {
+    throw new BotError(
+      `Missing permissions: ${missingPermissions.join(', ')}`,
+      BotError.types.PERMISSION,
+      { missingPermissions }
+    );
+  }
+  
+  return true;
+}
+
+// 6. Configuration Backup and Restore System
+async function createConfigurationBackup(guildId = null) {
+  try {
+    const backup = {
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      guildId,
+      menus: {},
+      infoMenus: {},
+      hybridMenus: {}
+    };
+    
+    // Backup regular menus
+    if (guildId) {
+      const guildMenus = db.menus.get(guildId) || [];
+      for (const menuId of guildMenus) {
+        const menu = db.getMenu(menuId);
+        if (menu) backup.menus[menuId] = menu;
+      }
+    } else {
+      // Backup all menus
+      for (const [menuId, menu] of db.menuData.entries()) {
+        backup.menus[menuId] = menu;
+      }
+    }
+    
+    // Backup info menus
+    for (const [menuId, menu] of db.infoMenuData.entries()) {
+      if (!guildId || menu.guildId === guildId) {
+        backup.infoMenus[menuId] = menu;
+      }
+    }
+    
+    // Backup hybrid menus
+    for (const [menuId, menu] of db.hybridMenuData.entries()) {
+      if (!guildId || menu.guildId === guildId) {
+        backup.hybridMenus[menuId] = menu;
+      }
+    }
+    
+    return backup;
+  } catch (error) {
+    logger.error('Failed to create configuration backup:', error);
+    throw new BotError('Failed to create backup', BotError.types.DATABASE, { error: error.message });
+  }
+}
+
+async function restoreConfigurationBackup(backup, options = {}) {
+  const { skipExisting = false, generateNewIds = false, updateTimestamps = true } = options;
+  
+  try {
+    const results = {
+      menus: { restored: 0, skipped: 0, failed: 0 },
+      infoMenus: { restored: 0, skipped: 0, failed: 0 },
+      hybridMenus: { restored: 0, skipped: 0, failed: 0 },
+      errors: []
+    };
+    
+    // Restore regular menus
+    for (const [menuId, menu] of Object.entries(backup.menus || {})) {
+      try {
+        const existingMenu = db.getMenu(menuId);
+        if (existingMenu && skipExisting) {
+          results.menus.skipped++;
+          continue;
+        }
+        
+        const restoredMenu = { ...menu };
+        if (updateTimestamps) {
+          restoredMenu.createdAt = new Date().toISOString();
+          restoredMenu.updatedAt = new Date().toISOString();
+        }
+        
+        const finalMenuId = generateNewIds ? `${menuId}_${Date.now()}` : menuId;
+        
+        // Add to guild menu list
+        if (!db.menus.has(menu.guildId)) {
+          db.menus.set(menu.guildId, []);
+        }
+        const guildMenus = db.menus.get(menu.guildId);
+        if (!guildMenus.includes(finalMenuId)) {
+          guildMenus.push(finalMenuId);
+        }
+        
+        db.menuData.set(finalMenuId, restoredMenu);
+        results.menus.restored++;
+      } catch (error) {
+        results.menus.failed++;
+        results.errors.push(`Menu ${menuId}: ${error.message}`);
+      }
+    }
+    
+    // Restore info menus
+    for (const [menuId, menu] of Object.entries(backup.infoMenus || {})) {
+      try {
+        const existingMenu = db.getInfoMenu(menuId);
+        if (existingMenu && skipExisting) {
+          results.infoMenus.skipped++;
+          continue;
+        }
+        
+        const restoredMenu = { ...menu };
+        if (updateTimestamps) {
+          restoredMenu.createdAt = new Date().toISOString();
+          restoredMenu.updatedAt = new Date().toISOString();
+        }
+        
+        const finalMenuId = generateNewIds ? `${menuId}_${Date.now()}` : menuId;
+        db.infoMenuData.set(finalMenuId, restoredMenu);
+        results.infoMenus.restored++;
+      } catch (error) {
+        results.infoMenus.failed++;
+        results.errors.push(`Info menu ${menuId}: ${error.message}`);
+      }
+    }
+    
+    // Restore hybrid menus
+    for (const [menuId, menu] of Object.entries(backup.hybridMenus || {})) {
+      try {
+        const existingMenu = db.getHybridMenu(menuId);
+        if (existingMenu && skipExisting) {
+          results.hybridMenus.skipped++;
+          continue;
+        }
+        
+        const restoredMenu = { ...menu };
+        if (updateTimestamps) {
+          restoredMenu.createdAt = new Date().toISOString();
+          restoredMenu.updatedAt = new Date().toISOString();
+        }
+        
+        const finalMenuId = generateNewIds ? `${menuId}_${Date.now()}` : menuId;
+        db.hybridMenuData.set(finalMenuId, restoredMenu);
+        results.hybridMenus.restored++;
+      } catch (error) {
+        results.hybridMenus.failed++;
+        results.errors.push(`Hybrid menu ${menuId}: ${error.message}`);
+      }
+    }
+    
+    return results;
+  } catch (error) {
+    logger.error('Failed to restore configuration backup:', error);
+    throw new BotError('Failed to restore backup', BotError.types.DATABASE, { error: error.message });
+  }
+}
+
+// 7. System Diagnostics and Health Checks
+async function generateSystemDiagnostics(client = null) {
+  const diagnostics = {
+    timestamp: new Date().toISOString(),
+    discord: {
+      status: 'unknown',
+      latency: 0,
+      guilds: 0,
+      users: 0,
+      uptime: formatUptime(process.uptime())
+    },
+    database: {
+      status: 'unknown',
+      menus: 0,
+      infoMenus: 0,
+      hybridMenus: 0,
+      firebaseEnabled: firebaseEnabled
+    },
+    performance: {
+      memory: {
+        used: 0,
+        total: 0,
+        percentage: 0
+      },
+      cpu: {
+        usage: 0
+      },
+      interactions: {
+        total: performanceMetrics.interactions.total,
+        successful: performanceMetrics.interactions.successful,
+        failed: performanceMetrics.interactions.failed,
+        avgResponseTime: Math.round(performanceMetrics.interactions.averageResponseTime)
+      }
+    },
+    health: {
+      status: 'unknown',
+      issues: [],
+      recommendations: []
+    }
+  };
+  
+  try {
+    // Discord diagnostics
+    if (client && client.isReady()) {
+      diagnostics.discord.status = 'connected';
+      diagnostics.discord.latency = client.ws.ping;
+      diagnostics.discord.guilds = client.guilds.cache.size;
+      diagnostics.discord.users = client.users.cache.size;
+    } else {
+      diagnostics.discord.status = 'disconnected';
+      diagnostics.health.issues.push('Discord client not ready');
+    }
+    
+    // Database diagnostics
+    diagnostics.database.status = firebaseEnabled ? 'connected' : 'memory-only';
+    diagnostics.database.menus = db.menuData.size;
+    diagnostics.database.infoMenus = db.infoMenuData.size;
+    diagnostics.database.hybridMenus = db.hybridMenuData.size;
+    
+    // Performance diagnostics
+    const memUsage = process.memoryUsage();
+    diagnostics.performance.memory.used = Math.round(memUsage.heapUsed / 1024 / 1024);
+    diagnostics.performance.memory.total = Math.round(memUsage.heapTotal / 1024 / 1024);
+    diagnostics.performance.memory.percentage = Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100);
+    
+    // Health analysis
+    const issues = [];
+    const recommendations = [];
+    
+    if (diagnostics.discord.status !== 'connected') {
+      issues.push('Discord connection lost');
+      recommendations.push('Check network connection and bot token');
+    }
+    
+    if (diagnostics.discord.latency > 500) {
+      issues.push('High Discord latency');
+      recommendations.push('Check network connection quality');
+    }
+    
+    if (diagnostics.performance.memory.used > 512) {
+      issues.push('High memory usage');
+      recommendations.push('Consider restarting the bot or checking for memory leaks');
+    }
+    
+    if (performanceMetrics.interactions.failed > performanceMetrics.interactions.successful * 0.1) {
+      issues.push('High interaction failure rate');
+      recommendations.push('Check bot permissions and error logs');
+    }
+    
+    if (!firebaseEnabled) {
+      issues.push('Database persistence disabled');
+      recommendations.push('Configure Firebase for data persistence');
+    }
+    
+    diagnostics.health.issues = issues;
+    diagnostics.health.recommendations = recommendations;
+    diagnostics.health.status = issues.length === 0 ? 'healthy' : issues.length < 3 ? 'warning' : 'critical';
+    
+    return diagnostics;
+  } catch (error) {
+    logger.error('Failed to generate system diagnostics:', error);
+    diagnostics.health.status = 'error';
+    diagnostics.health.issues.push(`Diagnostics error: ${error.message}`);
+    return diagnostics;
+  }
+}
+
+// Auto-recovery system
+async function performAutoRecovery(client) {
+  try {
+    const diagnostics = await generateSystemDiagnostics(client);
+    
+    // High memory recovery
+    if (diagnostics.performance.memory.used > 512) {
+      logger.warn('High memory usage detected, triggering garbage collection');
+      if (global.gc) {
+        global.gc();
+      }
+      
+      // Clean up expired timeouts
+      const now = Date.now();
+      for (const [id, timeout] of ephemeralTimeouts.entries()) {
+        if (now - timeout.created > 600000) { // 10 minutes
+          clearTimeout(timeout.id);
+          ephemeralTimeouts.delete(id);
+        }
+      }
+    }
+    
+    // Clean up old performance metrics
+    if (performanceMetrics.interactions.responseTimes.length > 100) {
+      performanceMetrics.interactions.responseTimes = performanceMetrics.interactions.responseTimes.slice(-50);
+    }
+    
+    // Reset error counters if too high
+    if (performanceMetrics.interactions.failed > 1000) {
+      performanceMetrics.interactions.failed = Math.floor(performanceMetrics.interactions.failed * 0.8);
+      logger.info('High error count detected, partially reset error metrics');
+    }
+    
+    return diagnostics;
+  } catch (error) {
+    logger.error('Auto-recovery failed:', error);
+    return null;
+  }
+}
+
+// Periodic health monitoring
+let healthMonitorInterval;
+function startHealthMonitoring(client) {
+  if (healthMonitorInterval) {
+    clearInterval(healthMonitorInterval);
+  }
+  
+  healthMonitorInterval = setInterval(async () => {
+    await performAutoRecovery(client);
+    updateBotHealth(client);
+  }, 30000); // Every 30 seconds
+  
+  // Deep health check every 5 minutes
+  setInterval(async () => {
+    const diagnostics = await generateSystemDiagnostics(client);
+    if (diagnostics.health.status === 'critical') {
+      logger.error('Critical health status detected:', diagnostics.health.issues);
+    }
+  }, 300000);
+}
+
+// Enhanced interaction tracking
+function trackInteractionDetails(interaction) {
+  const details = {
+    type: interaction.type,
+    user: interaction.user.tag,
+    userId: interaction.user.id,
+    guild: interaction.guild?.name || 'DM',
+    guildId: interaction.guild?.id || null,
+    channel: interaction.channel?.name || 'Unknown',
+    customId: interaction.customId || interaction.commandName || 'Unknown',
+    timestamp: new Date().toISOString()
+  };
+  
+  logger.interaction(interaction, `${details.customId} - ${details.type}`);
+  
+  // Track by menu if applicable
+  if (interaction.customId) {
+    const parsed = parseCustomId(interaction.customId);
+    if (parsed.isValid && parsed.menuId) {
+      trackMenuUsage(parsed.menuId, 'interaction');
+    }
+  }
+  
+  return details;
+}
+// END OF RECENT QOL IMPROVEMENTS
+
 const {
   Client,
   GatewayIntentBits,
@@ -103,29 +667,66 @@ try {
   console.warn("[Firebase] Running without persistence.");
 }
 
-// Performance Metrics System
+// Enhanced Performance Metrics System
 const performanceMetrics = {
   interactions: {
     total: 0,
     successful: 0,
     failed: 0,
     averageResponseTime: 0,
-    responseTimes: []
+    responseTimes: [],
+    byType: {
+      button: { total: 0, failed: 0, avgTime: 0 },
+      dropdown: { total: 0, failed: 0, avgTime: 0 },
+      modal: { total: 0, failed: 0, avgTime: 0 },
+      command: { total: 0, failed: 0, avgTime: 0 }
+    },
+    slowInteractions: [], // Track interactions taking >3 seconds
+    errors: {
+      timeout: 0,
+      permission: 0,
+      rateLimit: 0,
+      other: 0
+    }
   },
   menus: {
     created: 0,
     published: 0,
-    interactions: 0
+    interactions: 0,
+    mostUsed: new Map(), // Track which menus are used most
+    averageRolesPerMenu: 0
   },
   health: {
     uptime: 0,
     memoryUsage: 0,
-    lastCheck: Date.now()
+    lastCheck: Date.now(),
+    restarts: 0,
+    lastRestart: null,
+    peakMemory: 0,
+    guilds: 0,
+    users: 0
+  },
+  insights: {
+    getTopErrors: () => {
+      const errors = performanceMetrics.interactions.errors;
+      return Object.entries(errors)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 3)
+        .map(([type, count]) => ({ type, count }));
+    },
+    getPerformanceStatus: () => {
+      const avgTime = performanceMetrics.interactions.averageResponseTime;
+      const failureRate = performanceMetrics.interactions.failed / Math.max(1, performanceMetrics.interactions.total);
+      
+      if (avgTime > 3000 || failureRate > 0.1) return '🔴 Poor';
+      if (avgTime > 1500 || failureRate > 0.05) return '🟡 Fair';
+      return '🟢 Good';
+    }
   }
 };
 
-// Track interaction performance
-function trackInteractionPerformance(interaction, startTime, success) {
+// Track interaction performance with detailed metrics
+function trackInteractionPerformance(interaction, startTime, success, errorType = null) {
   const responseTime = Date.now() - startTime;
   
   performanceMetrics.interactions.total++;
@@ -133,11 +734,51 @@ function trackInteractionPerformance(interaction, startTime, success) {
     performanceMetrics.interactions.successful++;
   } else {
     performanceMetrics.interactions.failed++;
+    if (errorType) {
+      performanceMetrics.interactions.errors[errorType] = (performanceMetrics.interactions.errors[errorType] || 0) + 1;
+    }
+  }
+  
+  // Track by interaction type
+  let type = 'other';
+  if (interaction.isButton()) type = 'button';
+  else if (interaction.isStringSelectMenu()) type = 'dropdown';
+  else if (interaction.isModalSubmit()) type = 'modal';
+  else if (interaction.isChatInputCommand()) type = 'command';
+  
+  if (performanceMetrics.interactions.byType[type]) {
+    performanceMetrics.interactions.byType[type].total++;
+    if (!success) performanceMetrics.interactions.byType[type].failed++;
+    
+    // Update average time for this type
+    const typeMetrics = performanceMetrics.interactions.byType[type];
+    typeMetrics.avgTime = ((typeMetrics.avgTime * (typeMetrics.total - 1)) + responseTime) / typeMetrics.total;
   }
   
   performanceMetrics.interactions.responseTimes.push(responseTime);
   
-  // Keep only last 50 response times to prevent memory issues (reduced from 100)
+  // Track slow interactions (>3 seconds)
+  if (responseTime > 3000) {
+    performanceMetrics.interactions.slowInteractions.push({
+      type,
+      responseTime,
+      userId: interaction.user.id,
+      customId: interaction.customId || interaction.commandName,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Keep only last 10 slow interactions
+    if (performanceMetrics.interactions.slowInteractions.length > 10) {
+      performanceMetrics.interactions.slowInteractions.shift();
+    }
+    
+    logger.warn(`Slow interaction detected: ${type} took ${responseTime}ms`, {
+      user: interaction.user.tag,
+      customId: interaction.customId || interaction.commandName
+    });
+  }
+  
+  // Keep only last 50 response times to prevent memory issues
   if (performanceMetrics.interactions.responseTimes.length > 50) {
     performanceMetrics.interactions.responseTimes.shift();
   }
@@ -147,33 +788,85 @@ function trackInteractionPerformance(interaction, startTime, success) {
     const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
     performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
   } catch (error) {
-    console.error("Error calculating average response time:", error);
+    logger.error("Error calculating average response time:", error);
     performanceMetrics.interactions.averageResponseTime = 0;
   }
 }
 
-// Track menu usage
-function trackMenuUsage(menuId, type) {
+// Track menu usage with detailed analytics
+function trackMenuUsage(menuId, type, action = 'interaction') {
   performanceMetrics.menus.interactions++;
-  console.log(`Menu usage tracked: ${type} menu ${menuId}`);
+  
+  // Track most used menus
+  const key = `${type}:${menuId}`;
+  const currentUsage = performanceMetrics.menus.mostUsed.get(key) || { menuId, type, count: 0, lastUsed: null };
+  currentUsage.count++;
+  currentUsage.lastUsed = new Date().toISOString();
+  performanceMetrics.menus.mostUsed.set(key, currentUsage);
+  
+  logger.debug(`Menu usage tracked: ${type} menu ${menuId} - ${action}`);
 }
 
-// Track page views
-function trackPageView(pageId) {
-  console.log(`Page view tracked: ${pageId}`);
+// Track page views with user tracking
+function trackPageView(pageId, userId = null, menuId = null) {
+  logger.debug(`Page view tracked: ${pageId}${userId ? ` by ${userId}` : ''}${menuId ? ` in menu ${menuId}` : ''}`);
+  
+  // Could be extended to track popular pages
+  if (menuId) {
+    trackMenuUsage(menuId, 'info', 'page_view');
+  }
 }
 
-// Update bot health metrics
-function updateBotHealth() {
+// Update bot health metrics with enhanced monitoring
+function updateBotHealth(client = null) {
   const used = process.memoryUsage();
-  performanceMetrics.health.memoryUsage = Math.round(used.heapUsed / 1024 / 1024 * 100) / 100; // MB
+  const currentMemory = Math.round(used.heapUsed / 1024 / 1024 * 100) / 100;
+  
+  performanceMetrics.health.memoryUsage = currentMemory;
   performanceMetrics.health.uptime = process.uptime();
   performanceMetrics.health.lastCheck = Date.now();
+  
+  // Track peak memory usage
+  if (currentMemory > performanceMetrics.health.peakMemory) {
+    performanceMetrics.health.peakMemory = currentMemory;
+  }
+  
+  // Update guild and user counts if client is available
+  if (client && client.isReady()) {
+    performanceMetrics.health.guilds = client.guilds.cache.size;
+    performanceMetrics.health.users = client.users.cache.size;
+  }
+  
+  // Memory leak warning
+  if (currentMemory > 512) { // 512MB threshold
+    logger.warn(`High memory usage detected: ${currentMemory}MB`);
+  }
 }
 
-// Get performance metrics
+// Get comprehensive performance metrics
 function getPerformanceMetrics() {
-  return performanceMetrics;
+  return {
+    ...performanceMetrics,
+    summary: {
+      status: performanceMetrics.insights.getPerformanceStatus(),
+      topErrors: performanceMetrics.insights.getTopErrors(),
+      successRate: `${Math.round((performanceMetrics.interactions.successful / Math.max(1, performanceMetrics.interactions.total)) * 100)}%`,
+      avgResponseTime: `${Math.round(performanceMetrics.interactions.averageResponseTime)}ms`,
+      uptime: formatUptime(performanceMetrics.health.uptime),
+      memoryStatus: `${performanceMetrics.health.memoryUsage}MB (Peak: ${performanceMetrics.health.peakMemory}MB)`
+    }
+  };
+}
+
+// Format uptime in human-readable format
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 // Global error handlers to prevent crashes
@@ -2885,6 +3578,49 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.GuildMember],
 });
 
+// Connection Management Event Handlers
+client.on('disconnect', (event) => {
+  connectionHealth.recordDisconnect();
+  logger.warn(`Discord client disconnected: ${event.reason} (${event.code})`);
+});
+
+client.on('reconnecting', () => {
+  connectionHealth.recordReconnect();
+  logger.info('Discord client attempting to reconnect...');
+});
+
+client.on('resume', () => {
+  connectionHealth.recordReconnectSuccess();
+  logger.info('Discord client connection resumed successfully');
+});
+
+client.on('error', (error) => {
+  logger.error('Discord client error:', error);
+  
+  // Handle different error types
+  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+    logger.error('Network error detected, will attempt reconnection with backoff');
+    
+    // Implement exponential backoff reconnection
+    setTimeout(() => {
+      if (!client.isReady()) {
+        logger.info('Attempting reconnection...');
+        client.login(process.env.TOKEN).catch(loginError => {
+          logger.error('Reconnection failed:', loginError);
+        });
+      }
+    }, connectionHealth.getNextBackoffDelay());
+  }
+});
+
+client.on('warn', (warning) => {
+  logger.warn('Discord client warning:', warning);
+});
+
+client.on('debug', (debug) => {
+  logger.debug('Discord client debug:', debug);
+});
+
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   
@@ -2895,7 +3631,14 @@ client.once("ready", async () => {
 
   // Initialize new features
   initializeScheduledMessages().catch(console.error);
-  updateBotHealth();
+  updateBotHealth(client);
+  
+  // Start health monitoring and auto-recovery
+  startHealthMonitoring(client);
+  
+  // Generate initial system diagnostics
+  const diagnostics = await generateSystemDiagnostics(client);
+  logger.info('System diagnostics:', diagnostics.health);
   
   console.log("🚀 All systems initialized successfully!");
 
@@ -3065,17 +3808,17 @@ client.on("interactionCreate", async (interaction) => {
     try {
       // For non-dropdown interactions, use deferReply
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      console.log("✅ Deferred interaction with ephemeral reply");
+      logger.debug("Interaction deferred with ephemeral reply");
     } catch (e) {
-      console.error("Error deferring reply:", e);
+      logger.error("Error deferring reply:", e);
     }
   } else if (isPublishedDropdownInteraction) {
     // Dropdown interactions are handled directly with interaction.update() - no deferring needed
-    console.log("🔄 Dropdown interaction detected - will use update() method for reset");
+    logger.debug("Dropdown interaction detected - will use update() method for reset");
   }
 
   try {
-    console.log(`[Interaction Debug] Starting interaction processing for type: ${interaction.type}, customId: ${interaction.customId || 'N/A'}`);
+    logger.interaction(interaction, `Processing ${interaction.type} interaction`);
     
     // Show Firebase warning only once per interaction for admin commands
     if (!firebaseEnabled && interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -3141,24 +3884,76 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "perf") {
         if (action === "refresh") return showPerformanceDashboard(interaction);
+        if (action === "export") {
+          // Export performance data
+          const metrics = getPerformanceMetrics();
+          const exportData = {
+            timestamp: new Date().toISOString(),
+            summary: metrics.summary,
+            detailed: {
+              interactions: {
+                total: metrics.interactions.total,
+                successful: metrics.interactions.successful,
+                failed: metrics.interactions.failed,
+                byType: metrics.interactions.byType,
+                slowInteractions: metrics.interactions.slowInteractions
+              },
+              health: metrics.health,
+              topMenus: Array.from(metrics.menus.mostUsed.values()).slice(0, 10)
+            }
+          };
+          
+          const exportText = `**Bot Performance Report**\nGenerated: ${new Date().toLocaleString()}\n\n` +
+            `**System Status:** ${metrics.summary.status}\n` +
+            `**Success Rate:** ${metrics.summary.successRate}\n` +
+            `**Average Response Time:** ${metrics.summary.avgResponseTime}\n` +
+            `**Memory Usage:** ${metrics.summary.memoryStatus}\n` +
+            `**Uptime:** ${metrics.summary.uptime}\n\n` +
+            `**Interaction Breakdown:**\n${Object.entries(metrics.interactions.byType)
+              .filter(([_, data]) => data.total > 0)
+              .map(([type, data]) => `- ${type}: ${data.total} total, ${data.failed} failed, ${Math.round(data.avgTime)}ms avg`)
+              .join('\n')}\n\n` +
+            `**Top Errors:**\n${metrics.summary.topErrors.map(e => `- ${e.type}: ${e.count}`).join('\n') || 'None'}\n\n` +
+            `**Raw Data (JSON):**\n\`\`\`json\n${JSON.stringify(exportData, null, 2).slice(0, 1500)}...\n\`\`\``;
+
+          await interaction.editReply({ 
+            content: exportText,
+            flags: MessageFlags.Ephemeral 
+          });
+          return;
+        }
         if (action === "clear") {
-          // Clear performance metrics
+          // Clear enhanced performance metrics
           performanceMetrics.interactions.total = 0;
           performanceMetrics.interactions.successful = 0;
           performanceMetrics.interactions.failed = 0;
           performanceMetrics.interactions.responseTimes = [];
           performanceMetrics.interactions.averageResponseTime = 0;
+          performanceMetrics.interactions.byType = {
+            button: { total: 0, failed: 0, avgTime: 0 },
+            dropdown: { total: 0, failed: 0, avgTime: 0 },
+            modal: { total: 0, failed: 0, avgTime: 0 },
+            command: { total: 0, failed: 0, avgTime: 0 }
+          };
+          performanceMetrics.interactions.slowInteractions = [];
+          performanceMetrics.interactions.errors = {
+            timeout: 0,
+            permission: 0,
+            rateLimit: 0,
+            other: 0
+          };
           performanceMetrics.menus.created = 0;
           performanceMetrics.menus.published = 0;
           performanceMetrics.menus.interactions = 0;
+          performanceMetrics.menus.mostUsed.clear();
           
-          await interaction.editReply({ content: "✅ Performance metrics cleared!", flags: MessageFlags.Ephemeral });
+          await interaction.editReply({ content: "✅ All performance metrics cleared!", flags: MessageFlags.Ephemeral });
           // Show updated dashboard after clearing
           setTimeout(async () => {
             try {
               await showPerformanceDashboard(interaction);
             } catch (error) {
-              console.error("Error refreshing performance dashboard after clear:", error);
+              logger.error("Error refreshing performance dashboard after clear:", error);
             }
           }, 1000);
           return;
@@ -9405,33 +10200,53 @@ client.on("interactionCreate", async (interaction) => {
         return handleRoleInteraction(interaction);
     }
 
+    
+    // Track interaction success
+    interactionSuccess = true;
+    trackInteractionPerformance(interaction, interactionStartTime, true);
+    
   } catch (error) {
-      console.error("Unhandled error during interaction:", error);
-      if (!interaction.replied && !interaction.deferred) {
-          try {
-              await interaction.reply({ content: "❌ An unexpected error occurred. Please try again.", ephemeral: true });
-          } catch (replyError) {
-              console.error("Error sending fallback error reply:", replyError);
-          }
-      } else {
-          try {
-            await interaction.editReply({ content: "❌ An unexpected error occurred. Please try again.", embeds: [], components: [] });
-          } catch (editError) {
-              console.error("Error sending fallback error editReply:", editError);
-          }
-      }
+    logger.error("Unhandled error during interaction:", error);
+    
+    // Track interaction details for debugging
+    const interactionDetails = trackInteractionDetails(interaction);
+    
+    // Categorize the error
+    let errorType = 'other';
+    if (error.code === 50013) errorType = 'permission';
+    else if (error.code === 40060) errorType = 'timeout';
+    else if (error.code === 429) errorType = 'rateLimit';
+    else if (error instanceof BotError) errorType = error.type.toLowerCase();
+    
+    // Track the specific error
+    trackInteractionPerformance(interaction, interactionStartTime, false, errorType);
+    
+    // Generate user-friendly error message
+    const friendlyError = generateUserFriendlyError(error, { action: interactionDetails.customId });
+    
+    // Use safe interaction reply
+    await safeInteractionReply(interaction, {
+      content: friendlyError,
+      flags: MessageFlags.Ephemeral
+    }, "❌ An error occurred while processing your request.");
   }
 
     // Track menu usage and performance
     if (interaction.customId?.includes("info-page:")) {
-      const menuId = interaction.customId.split(":")[1];
-      trackMenuUsage(menuId, 'info');
+      const parts = interaction.customId.split(":");
+      const menuId = parts[1];
+      const pageId = parts[2];
+      trackMenuUsage(menuId, 'info', 'page_interaction');
+      trackPageView(pageId, interaction.user.id, menuId);
     }
     
-    // Track page views
-    if (interaction.customId?.includes("info-page:")) {
-      const pageId = interaction.customId.split(":")[2];
-      if (pageId) trackPageView(pageId);
+    // Track page views for hybrid menus
+    if (interaction.customId?.includes("hybrid-info-page:")) {
+      const parts = interaction.customId.split(":");
+      const menuId = parts[1];
+      const pageId = parts[2];
+      trackMenuUsage(menuId, 'hybrid', 'info_page_interaction');
+      trackPageView(pageId, interaction.user.id, menuId);
     }
     
     // Track performance at end of interaction
@@ -9875,57 +10690,120 @@ async function promptManageRoles(interaction, menuId, type) {
 // Performance Dashboard
 async function showPerformanceDashboard(interaction) {
   try {
-    updateBotHealth();
+    updateBotHealth(client);
+    const metrics = getPerformanceMetrics();
     
     const embed = new EmbedBuilder()
-      .setTitle("🔧 Bot Performance Dashboard")
-      .setColor("#00ff00")
+      .setTitle("� Enhanced Performance Dashboard")
+      .setDescription("Comprehensive performance metrics and system insights")
+      .setColor("#00D084")
       .setTimestamp();
 
-    // Bot Health
-    const uptimeHours = Math.floor(performanceMetrics.health.uptime / 3600);
-    const uptimeMinutes = Math.floor((performanceMetrics.health.uptime % 3600) / 60);
-    
+    // System Health Section
     embed.addFields([
       {
-        name: "🤖 Bot Health",
-        value: `**Uptime:** ${uptimeHours}h ${uptimeMinutes}m\n**Memory:** ${performanceMetrics.health.memoryUsage.toFixed(1)}MB\n**Status:** ${performanceMetrics.health.uptime > 60 ? '🟢 Healthy' : '🟡 Starting'}`,
+        name: "📊 Overall Status",
+        value: `**Status:** ${metrics.summary.status}\n**Success Rate:** ${metrics.summary.successRate}\n**Avg Response:** ${metrics.summary.avgResponseTime}`,
         inline: true
       },
       {
-        name: "⚡ Performance",
-        value: `**Total Interactions:** ${performanceMetrics.interactions.total}\n**Success Rate:** ${performanceMetrics.interactions.total > 0 ? ((performanceMetrics.interactions.successful / performanceMetrics.interactions.total) * 100).toFixed(1) : 0}%\n**Avg Response:** ${performanceMetrics.interactions.averageResponseTime.toFixed(0)}ms`,
+        name: "💾 System Health",
+        value: `**Memory:** ${metrics.summary.memoryStatus}\n**Uptime:** ${metrics.summary.uptime}\n**Guilds:** ${metrics.health.guilds || 'N/A'} | **Users:** ${metrics.health.users || 'N/A'}`,
         inline: true
       },
       {
-        name: "📊 Usage Stats",
-        value: `**Menu Interactions:** ${performanceMetrics.menus.interactions}\n**Menus Created:** ${performanceMetrics.menus.created}\n**Menus Published:** ${performanceMetrics.menus.published}`,
-        inline: true
+        name: "🔍 Interaction Breakdown",
+        value: Object.entries(metrics.interactions.byType)
+          .filter(([_, data]) => data.total > 0)
+          .map(([type, data]) => `**${type}:** ${data.total} (${Math.round((data.failed/data.total)*100)}% fail, ${Math.round(data.avgTime)}ms avg)`)
+          .join('\n') || 'No interaction data yet',
+        inline: false
       }
     ]);
 
-    const backButton = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("dash:main")
-        .setLabel("Back to Dashboard")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🔙"),
-      new ButtonBuilder()
-        .setCustomId("perf:refresh")
-        .setLabel("Refresh")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🔄"),
-      new ButtonBuilder()
-        .setCustomId("perf:clear")
-        .setLabel("Clear Metrics")
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji("🗑️")
-    );
+    // Error Analysis
+    if (metrics.summary.topErrors.length > 0) {
+      embed.addFields({
+        name: "⚠️ Top Error Types",
+        value: metrics.summary.topErrors.map(e => `**${e.type.replace('_', ' ')}:** ${e.count} occurrence${e.count !== 1 ? 's' : ''}`).join('\n'),
+        inline: true
+      });
+    }
 
-    await interaction.editReply({ embeds: [embed], components: [backButton], flags: MessageFlags.Ephemeral });
+    // Performance Insights
+    const insights = [];
+    if (metrics.interactions.slowInteractions.length > 0) {
+      insights.push(`🐌 ${metrics.interactions.slowInteractions.length} slow interactions (>3s) recently`);
+    }
+    if (metrics.health.memoryUsage > 400) {
+      insights.push(`⚠️ High memory usage: ${metrics.health.memoryUsage}MB`);
+    }
+    if (metrics.interactions.failed / Math.max(1, metrics.interactions.total) > 0.1) {
+      insights.push(`🔴 High failure rate: ${Math.round((metrics.interactions.failed / metrics.interactions.total) * 100)}%`);
+    }
+    if (insights.length === 0) {
+      insights.push('🟢 All systems operating normally');
+    }
+
+    embed.addFields({
+      name: "💡 Performance Insights",
+      value: insights.join('\n'),
+      inline: false
+    });
+
+    // Menu Analytics
+    const topMenus = Array.from(metrics.menus.mostUsed.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    if (topMenus.length > 0) {
+      embed.addFields({
+        name: "📈 Most Active Menus",
+        value: topMenus.map((menu, i) => `${i + 1}. **${menu.type}** menu \`${menu.menuId.slice(0, 8)}...\` (${menu.count} uses)`).join('\n'),
+        inline: true
+      });
+    }
+
+    embed.addFields({
+      name: "� Menu Statistics",
+      value: `**Total Interactions:** ${metrics.menus.interactions}\n**Menus Created:** ${metrics.menus.created}\n**Published:** ${metrics.menus.published}\n**Active Tracking:** ${metrics.menus.mostUsed.size} menus`,
+      inline: true
+    });
+
+    // Warning for high memory usage
+    if (metrics.health.memoryUsage > 400) {
+      embed.addFields({
+        name: "⚠️ Memory Warning",
+        value: `Memory usage is high (${metrics.health.memoryUsage}MB). Consider restarting if performance degrades.`,
+        inline: false
+      });
+    }
+
+    const components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("perf:refresh")
+          .setLabel("🔄 Refresh")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId("perf:clear")
+          .setLabel("�️ Clear Metrics")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId("perf:export")
+          .setLabel("📤 Export Data")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("dash:main")
+          .setLabel("⬅️ Back")
+          .setStyle(ButtonStyle.Secondary)
+      )
+    ];
+
+    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
   } catch (error) {
-    console.error("Error showing performance dashboard:", error);
-    await interaction.editReply({ content: "❌ Error showing performance dashboard.", flags: MessageFlags.Ephemeral });
+    logger.error("Error showing performance dashboard:", error);
+    await handleInteractionError(interaction, error, 'showPerformanceDashboard');
   }
 }
 
@@ -11636,65 +12514,55 @@ async function showMenuConfiguration(interaction, menuId) {
  * @param {import('discord.js').Message} [messageToEdit=null] - An optional existing message to edit instead of sending a new one.
  */
 async function publishMenu(interaction, menuId, messageToEdit = null) {
-    if (!menuId || typeof menuId !== 'string') {
-        return interaction.editReply({ content: "❌ Invalid menu ID provided.", flags: MessageFlags.Ephemeral });
-    }
-
-    const menu = db.getMenu(menuId);
-    if (!menu) {
-        return interaction.editReply({ content: "❌ Menu not found.", flags: MessageFlags.Ephemeral });
-    }
-
-    // Validate guild and permissions
-    if (!interaction.guild) {
-        return interaction.editReply({ content: "❌ This command can only be used in a server.", flags: MessageFlags.Ephemeral });
-    }
-
-    // Check if bot has necessary permissions
-    const botMember = interaction.guild.members.me;
-    if (!botMember) {
-        return interaction.editReply({ content: "❌ Unable to verify bot permissions.", flags: MessageFlags.Ephemeral });
-    }
-
-    const channel = messageToEdit ? messageToEdit.channel : interaction.channel;
-    if (!channel.permissionsFor(botMember).has(['SendMessages', 'UseExternalEmojis', 'EmbedLinks'])) {
-        return interaction.editReply({ content: "❌ Bot lacks required permissions in this channel: Send Messages, Use External Emojis, Embed Links.", flags: MessageFlags.Ephemeral });
-    }
-
-    if (menu.useWebhook && !channel.permissionsFor(botMember).has('ManageWebhooks')) {
-        return interaction.editReply({ content: "❌ Webhook mode is enabled but bot lacks 'Manage Webhooks' permission.", flags: MessageFlags.Ephemeral });
-    }
-
-    // Validate menu configuration
-    if (!menu.selectionType.length || (menu.selectionType.includes('dropdown') && !menu.dropdownRoles.length) && (menu.selectionType.includes('button') && !menu.buttonRoles.length)) {
-        return interaction.editReply({ content: "❌ Cannot publish: Please configure at least one role for the enabled component types.", flags: MessageFlags.Ephemeral });
-    }
-
-    // Validate roles still exist
-    const allConfiguredRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
-    const validRoles = allConfiguredRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
-    const invalidRoles = allConfiguredRoles.filter(roleId => !interaction.guild.roles.cache.has(roleId));
-
-    if (invalidRoles.length > 0) {
-        console.warn(`Menu ${menuId} contains ${invalidRoles.length} invalid roles:`, invalidRoles);
-        // Optionally clean up invalid roles from the menu
-        if (menu.dropdownRoles) {
-            menu.dropdownRoles = menu.dropdownRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
-        }
-        if (menu.buttonRoles) {
-            menu.buttonRoles = menu.buttonRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
-        }
-        await db.updateMenu(menuId, { 
-            dropdownRoles: menu.dropdownRoles, 
-            buttonRoles: menu.buttonRoles 
-        });
-    }
-
-    if (validRoles.length === 0) {
-        return interaction.editReply({ content: "❌ Cannot publish: All configured roles have been deleted. Please reconfigure the menu.", flags: MessageFlags.Ephemeral });
-    }
-
     try {
+        if (!menuId || typeof menuId !== 'string') {
+            throw new BotError('Invalid menu ID provided', BotError.types.VALIDATION);
+        }
+
+        const menu = db.getMenu(menuId);
+        if (!menu) {
+            throw new BotError('Menu not found', BotError.types.VALIDATION);
+        }
+
+        // Use enhanced permission validation
+        const requiredPermissions = ['SendMessages', 'UseExternalEmojis', 'EmbedLinks'];
+        if (menu.useWebhook) {
+            requiredPermissions.push('ManageWebhooks');
+        }
+        
+        validateBotPermissions(interaction, requiredPermissions);
+
+        const channel = messageToEdit ? messageToEdit.channel : interaction.channel;
+
+        // Validate menu configuration
+        if (!menu.selectionType.length || (menu.selectionType.includes('dropdown') && !menu.dropdownRoles.length) && (menu.selectionType.includes('button') && !menu.buttonRoles.length)) {
+            throw new BotError('Cannot publish: Please configure at least one role for the enabled component types.', BotError.types.VALIDATION);
+        }
+
+        // Validate roles still exist
+        const allConfiguredRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+        const validRoles = allConfiguredRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+        const invalidRoles = allConfiguredRoles.filter(roleId => !interaction.guild.roles.cache.has(roleId));
+
+        if (invalidRoles.length > 0) {
+            console.warn(`Menu ${menuId} contains ${invalidRoles.length} invalid roles:`, invalidRoles);
+            // Optionally clean up invalid roles from the menu
+            if (menu.dropdownRoles) {
+                menu.dropdownRoles = menu.dropdownRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+            }
+            if (menu.buttonRoles) {
+                menu.buttonRoles = menu.buttonRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+            }
+            await db.updateMenu(menuId, { 
+                dropdownRoles: menu.dropdownRoles, 
+                buttonRoles: menu.buttonRoles 
+            });
+        }
+
+        if (validRoles.length === 0) {
+            throw new BotError('Cannot publish: All configured roles have been deleted. Please reconfigure the menu.', BotError.types.VALIDATION);
+        }
+
         const embed = await createReactionRoleEmbed(interaction.guild, menu);
         const components = [];
 
@@ -11847,7 +12715,20 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         return showMenuConfiguration(interaction, menuId);
         
     } catch (error) {
-        console.error("Publishing error:", error);
+        // Enhanced error handling using new safe interaction reply
+        logger.error('Error in publishMenu:', error);
+        
+        // Check if it's a BotError with specific handling
+        if (error instanceof BotError) {
+            const friendlyError = generateUserFriendlyError(error, { action: 'publish_menu' });
+            await safeInteractionReply(interaction, {
+                content: friendlyError,
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
+        
+        // Legacy error handling for backward compatibility
         let errorMsg = "❌ Failed to publish menu. ";
 
         if (error.code === 50013) {
@@ -11862,7 +12743,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
             errorMsg += error.message || "Unknown error occurred.";
         }
 
-        await interaction.editReply({ content: errorMsg, flags: MessageFlags.Ephemeral });
+        await safeInteractionReply(interaction, {
+            content: errorMsg,
+            flags: MessageFlags.Ephemeral
+        });
     }
 }
 
@@ -13875,8 +14759,22 @@ async function updateAllMemberCounts(forceUpdate = false) {
 
 // Start periodic member count updates when bot is ready
 client.once('ready', () => {
-    console.log('Bot is ready! Starting periodic member count updates...');
+    logger.info(`Bot is ready! Logged in as ${client.user.tag}`);
+    logger.info(`Serving ${client.guilds.cache.size} guilds with ${client.users.cache.size} users`);
+    
+    // Update initial health metrics
+    updateBotHealth(client);
+    
+    // Start periodic systems
     setInterval(updateAllMemberCounts, 60000); // Check every minute, but only update every 5 minutes
+    
+    // Perform initial health check after 30 seconds
+    setTimeout(() => performHealthCheck(client), 30000);
+    
+    // Schedule periodic health checks every 6 hours
+    setInterval(() => performHealthCheck(client), 6 * 60 * 60 * 1000);
+    
+    logger.info("All periodic systems started successfully");
 });
 
 // Listen for role updates to refresh member counts in real time
@@ -14121,19 +15019,54 @@ client.login(process.env.TOKEN).catch(error => {
     process.exit(1);
 });
 
-// Add periodic cleanup to prevent memory leaks
+// Enhanced periodic cleanup to prevent memory leaks
 setInterval(() => {
     try {
         // Clean up old performance metrics
-        updateBotHealth();
+        updateBotHealth(client);
         
         // Clean up any stale interaction timeouts
         if (performanceMetrics.interactions.responseTimes.length > 100) {
             performanceMetrics.interactions.responseTimes = performanceMetrics.interactions.responseTimes.slice(-50);
         }
         
-        console.log(`[Health Check] Memory: ${performanceMetrics.health.memoryUsage}MB, Uptime: ${Math.floor(performanceMetrics.health.uptime / 3600)}h`);
+        // Clean up old slow interaction records (keep only last 10)
+        if (performanceMetrics.interactions.slowInteractions.length > 10) {
+            performanceMetrics.interactions.slowInteractions = performanceMetrics.interactions.slowInteractions.slice(-10);
+        }
+        
+        // Clean up old menu usage data (keep only top 100 most used)
+        if (performanceMetrics.menus.mostUsed.size > 100) {
+            const sortedMenus = Array.from(performanceMetrics.menus.mostUsed.entries())
+                .sort(([,a], [,b]) => b.count - a.count)
+                .slice(0, 100);
+            
+            performanceMetrics.menus.mostUsed.clear();
+            sortedMenus.forEach(([key, value]) => {
+                performanceMetrics.menus.mostUsed.set(key, value);
+            });
+        }
+        
+        // Clear completed auto-save timeouts
+        for (const [menuId, saveData] of autoSaveQueue) {
+            if (saveData.timeout._destroyed) {
+                autoSaveQueue.delete(menuId);
+            }
+        }
+        
+        const metrics = getPerformanceMetrics();
+        logger.info(`Health Check: ${metrics.summary.memoryStatus}, Uptime: ${metrics.summary.uptime}, Status: ${metrics.summary.status}`);
+        
+        // Warn about concerning metrics
+        if (performanceMetrics.health.memoryUsage > 512) {
+            logger.warn(`High memory usage: ${performanceMetrics.health.memoryUsage}MB`);
+        }
+        
+        if (performanceMetrics.interactions.failed / Math.max(1, performanceMetrics.interactions.total) > 0.15) {
+            logger.warn(`High failure rate: ${Math.round((performanceMetrics.interactions.failed / performanceMetrics.interactions.total) * 100)}%`);
+        }
+        
     } catch (error) {
-        console.error("Error in periodic cleanup:", error);
+        logger.error("Error in periodic cleanup:", error);
     }
 }, 300000); // Every 5 minutes
