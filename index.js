@@ -334,7 +334,7 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  * SAPPHIRE-STYLE DROPDOWN RESET: Immediately clear dropdown selection for seamless UX
  * This approach updates the message with fresh components immediately after selection
  * @param {import('discord.js').Interaction} interaction - The interaction to process
- * @param {Array} originalComponents - The original components to restore (optional)
+ * @param {Array} originalComponents - The original components to restore (optional - will use interaction.message.components if not provided)
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
@@ -344,38 +344,56 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
       await interaction.deferUpdate();
     }
     
+    // Get components from the interaction message if not provided
+    const components = originalComponents || (interaction.message?.components);
+    
     // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
-    if (originalComponents && originalComponents.length > 0) {
+    if (components && components.length > 0) {
       try {
-        console.log(`[Dropdown Reset] Starting with ${originalComponents.length} original component rows`);
+        console.log(`[Dropdown Reset] Starting with ${components.length} original component rows`);
         
         // Rebuild components with completely fresh state and no selections
-        const freshComponents = originalComponents.map((row, index) => {
+        const freshComponents = components.map((row, index) => {
           const newRow = new ActionRowBuilder();
           
-          // Handle both Discord.js ActionRow objects and raw component data
-          const components = row.components || row;
-          console.log(`[Dropdown Reset] Processing row ${index} with ${components.length} components`);
+          // Get components from the row - handle both Discord.js ActionRow and raw API data
+          const rowComponents = row.components || [];
+          console.log(`[Dropdown Reset] Processing row ${index} with ${rowComponents.length} components`);
           
-          components.forEach((component, compIndex) => {
-            // Check both Discord.js enum and raw API values
-            const componentType = component.type || component.component_type;
-            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${componentType}, data=`, {
-              customId: component.customId || component.custom_id,
-              placeholder: component.placeholder,
-              options: component.options?.length
+          rowComponents.forEach((component, compIndex) => {
+            // Extract component data - handle both Discord.js Component objects and raw API data
+            let componentData;
+            
+            if (component.data) {
+              // Discord.js Component object
+              componentData = component.data;
+            } else if (component.toJSON) {
+              // Discord.js Component object with toJSON method
+              componentData = component.toJSON();
+            } else {
+              // Raw API data
+              componentData = component;
+            }
+            
+            // Get the component type
+            const componentType = componentData.type;
+            
+            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${componentType}`, {
+              customId: componentData.custom_id || componentData.customId,
+              placeholder: componentData.placeholder,
+              options: componentData.options?.length,
+              label: componentData.label
             });
             
-            // StringSelectMenu is type 3 in Discord API
-            if (componentType === ComponentType.StringSelect || componentType === 3) {
-              // Create a completely new dropdown with no default selections
-              const customId = component.customId || component.custom_id;
-              const placeholder = component.placeholder || 'Select an option...';
-              const minValues = component.minValues || component.min_values || 1;
-              const maxValues = component.maxValues || component.max_values || 1;
-              const options = component.options || [];
+            // Handle StringSelectMenu (type 3)
+            if (componentType === 3) {
+              const customId = componentData.custom_id || componentData.customId;
+              const placeholder = componentData.placeholder || 'Select an option...';
+              const minValues = componentData.min_values || componentData.minValues || 1;
+              const maxValues = componentData.max_values || componentData.maxValues || 1;
+              const options = componentData.options || [];
               
-              if (options.length > 0) {
+              if (customId && options.length > 0) {
                 const newDropdown = new StringSelectMenuBuilder()
                   .setCustomId(customId)
                   .setPlaceholder(placeholder)
@@ -390,14 +408,14 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
                   })));
                 
                 newRow.addComponents(newDropdown);
-                console.log(`[Dropdown Reset] Added dropdown to row ${index}`);
+                console.log(`[Dropdown Reset] Rebuilt dropdown "${customId}" with ${options.length} options (all defaults=false)`);
               }
             } 
-            // Button is type 2 in Discord API
-            else if (componentType === ComponentType.Button || componentType === 2) {
-              const customId = component.customId || component.custom_id;
-              const label = component.label;
-              const style = component.style;
+            // Handle Button (type 2)
+            else if (componentType === 2) {
+              const customId = componentData.custom_id || componentData.customId;
+              const label = componentData.label;
+              const style = componentData.style;
               
               if (customId && label && style) {
                 const newButton = new ButtonBuilder()
@@ -405,27 +423,24 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
                   .setLabel(label)
                   .setStyle(style);
                 
-                if (component.emoji) {
-                  newButton.setEmoji(component.emoji);
+                if (componentData.emoji) {
+                  newButton.setEmoji(componentData.emoji);
                 }
-                if (component.disabled !== undefined) {
-                  newButton.setDisabled(component.disabled);
+                if (componentData.disabled !== undefined) {
+                  newButton.setDisabled(componentData.disabled);
                 }
                 
                 newRow.addComponents(newButton);
-                console.log(`[Dropdown Reset] Added button to row ${index}`);
+                console.log(`[Dropdown Reset] Rebuilt button "${customId}"`);
               }
             }
           });
           
           console.log(`[Dropdown Reset] Row ${index} rebuilt with ${newRow.components.length} components`);
           return newRow;
-        }).filter(row => row.components.length > 0); // CRITICAL FIX: Remove empty rows
+        }).filter(row => row.components.length > 0); // Remove empty rows
         
-        console.log(`[Dropdown Reset] Final component structure: ${freshComponents.length} rows`);
-        freshComponents.forEach((row, index) => {
-          console.log(`[Dropdown Reset] Final row ${index}: ${row.components.length} components`);
-        });
+        console.log(`[Dropdown Reset] Final: ${freshComponents.length} rows with components`);
         
         // Only update if we have valid components
         if (freshComponents.length > 0) {
@@ -434,30 +449,31 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
             components: freshComponents
           });
           
-          console.log("Sapphire-style dropdown reset: Components refreshed with no selections");
+          console.log("✅ Sapphire-style dropdown reset completed: All selections cleared");
           return true;
         } else {
-          console.log("No valid components to update, skipping refresh");
+          console.log("⚠️ No valid components to update, skipping refresh");
           return true;
         }
       } catch (rebuildError) {
-        console.error("Error in Sapphire-style component rebuild:", rebuildError);
-        console.error("Original components structure:", JSON.stringify(originalComponents, null, 2));
+        console.error("❌ Error in Sapphire-style component rebuild:", rebuildError);
+        console.error("Component structure debug:", JSON.stringify(components, null, 2));
         // Fall back to simple acknowledgment
       }
     }
     
     // Fallback: Just acknowledge if no components provided
+    console.log("⚠️ No components provided for reset, using fallback acknowledgment");
     return true;
   } catch (error) {
-    console.error("Error in Sapphire-style dropdown reset:", error);
+    console.error("❌ Error in Sapphire-style dropdown reset:", error);
     // Ultimate fallback: at minimum, acknowledge the interaction
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate();
       }
     } catch (fallbackError) {
-      console.error("Error in fallback acknowledgment:", fallbackError);
+      console.error("❌ Error in fallback acknowledgment:", fallbackError);
     }
     return false;
   }
@@ -7065,11 +7081,10 @@ client.on("interactionCreate", async (interaction) => {
                   }))
                 );
 
-              const row = new ActionRowBuilder().addComponents(selectMenu);
-              
               // Reset the dropdown to clear visual selection, then send response
               try {
-                const resetSuccess = await resetDropdownSelection(interaction, [row]);
+                const originalComponents = interaction.message?.components || [];
+                const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
                 
                 if (resetSuccess) {
                   // Wait a moment then send page content as follow-up
@@ -9440,98 +9455,12 @@ async function handleRoleInteraction(interaction) {
             if (interaction.isStringSelectMenu()) {
                 // For dropdown interactions, update the message to reset dropdown and send follow-up
                 try {
-                    // Rebuild the components to reset the dropdown
-                    const components = [];
-
-                    // Rebuild Dropdown Select Menu
-                    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-                        const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-                            ? menu.dropdownRoleOrder
-                            : menu.dropdownRoles
-                        ).map(roleId => {
-                            const role = interaction.guild.roles.cache.get(roleId);
-                            if (!role) return null;
-                            
-                            // Get member count if enabled for dropdowns
-                            const memberCountOptions = menu.memberCountOptions || {};
-                            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
-                            const memberCount = showCountsInDropdowns ? role.members.size : null;
-                            const labelText = memberCount !== null 
-                                ? `${role.name} (${memberCount})` 
-                                : role.name;
-                            
-                            return {
-                                label: labelText.substring(0, 100),
-                                value: role.id,
-                                emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-                                description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-                                default: false // Always set default to false so roles are not pre-selected
-                            };
-                        }).filter(Boolean);
-
-                        if (dropdownOptions.length > 0) {
-                            const selectMenu = new StringSelectMenuBuilder()
-                                .setCustomId(`rr-role-select:${menuId}`)
-                                .setPlaceholder("Select a role to toggle...")
-                                .setMinValues(1)
-                                .setMaxValues(1)
-                                .addOptions(dropdownOptions);
-                            components.push(new ActionRowBuilder().addComponents(selectMenu));
-                        }
-                    }
-
-                    // Rebuild Buttons if they exist
-                    if (menu.selectionType.includes("button") && (menu.buttonRoles && menu.buttonRoles.length > 0)) {
-                        const buttonRows = [];
-                        let currentRow = new ActionRowBuilder();
-                        const orderedButtonRoles = menu.buttonRoleOrder.length > 0
-                            ? menu.buttonRoleOrder
-                            : menu.buttonRoles;
-
-                        for (const roleId of orderedButtonRoles) {
-                            const role = interaction.guild.roles.cache.get(roleId);
-                            if (!role) continue;
-
-                            // Get member count if enabled for buttons
-                            const memberCountOptions = menu.memberCountOptions || {};
-                            const showCountsInButtons = memberCountOptions.showInButtons || (menu.showMemberCounts && !memberCountOptions.showInDropdowns);
-                            const memberCount = showCountsInButtons ? role.members.size : null;
-                            const labelText = memberCount !== null 
-                                ? `${role.name} (${memberCount})` 
-                                : role.name;
-
-                            // Get custom button color or default to secondary
-                            const buttonColorName = menu.buttonColors?.[role.id] || 'Secondary';
-                            const buttonStyle = ButtonStyle[buttonColorName] || ButtonStyle.Secondary;
-
-                            const button = new ButtonBuilder()
-                                .setCustomId(`rr-role-button:${menuId}:${role.id}`)
-                                .setLabel(labelText.substring(0, 80))
-                                .setStyle(buttonStyle);
-
-                            // Only set emoji if parseEmoji returns a valid object
-                            const parsedEmoji = parseEmoji(menu.buttonEmojis[role.id]);
-                            if (parsedEmoji) {
-                                button.setEmoji(parsedEmoji);
-                            }
-
-                            if (currentRow.components.length < 5) {
-                                currentRow.addComponents(button);
-                            } else {
-                                buttonRows.push(currentRow);
-                                currentRow = new ActionRowBuilder().addComponents(button);
-                                if (buttonRows.length >= 4) break; // Discord limit
-                            }
-                        }
-                        if (currentRow.components.length > 0 && buttonRows.length < 4) {
-                            buttonRows.push(currentRow);
-                        }
-                        components.push(...buttonRows);
-                    }
-
+                    // Use the original components from the interaction message for proper reset
+                    const originalComponents = interaction.message?.components || [];
+                    
                     // Process the selection like a button - just acknowledge and send feedback
                     try {
-                        const resetSuccess = await resetDropdownSelection(interaction, components);
+                        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
                         
                         if (resetSuccess) {
                             // Send notification as ephemeral follow-up (like buttons do)
@@ -9556,45 +9485,11 @@ async function handleRoleInteraction(interaction) {
         } else {
             if (interaction.isStringSelectMenu()) {
                 try {
-                    // Still reset the dropdown even if no changes were made
-                    const components = [];
-                    if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-                        const dropdownOptions = (menu.dropdownRoleOrder.length > 0
-                            ? menu.dropdownRoleOrder
-                            : menu.dropdownRoles
-                        ).map(roleId => {
-                            const role = interaction.guild.roles.cache.get(roleId);
-                            if (!role) return null;
-                            
-                            const memberCountOptions = menu.memberCountOptions || {};
-                            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
-                            const memberCount = showCountsInDropdowns ? role.members.size : null;
-                            const labelText = memberCount !== null 
-                                ? `${role.name} (${memberCount})` 
-                                : role.name;
-                            
-                            return {
-                                label: labelText.substring(0, 100),
-                                value: role.id,
-                                emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-                                description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-                                default: false
-                            };
-                        }).filter(Boolean);
-
-                        if (dropdownOptions.length > 0) {
-                            const selectMenu = new StringSelectMenuBuilder()
-                                .setCustomId(`rr-role-select:${menuId}`)
-                                .setPlaceholder("Select a role to toggle...")
-                                .setMinValues(1)
-                                .setMaxValues(1)
-                                .addOptions(dropdownOptions);
-                            components.push(new ActionRowBuilder().addComponents(selectMenu));
-                        }
-                    }
+                    // Still reset the dropdown even if no changes were made - use original components
+                    const originalComponents = interaction.message?.components || [];
                     
                     // Process like a button - acknowledge and give feedback
-                    const resetSuccess = await resetDropdownSelection(interaction, components);
+                    const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
                     
                     if (resetSuccess) {
                         await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
@@ -10979,8 +10874,8 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Reset the dropdown to clear visual selection, then send response
       try {
-        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        const resetSuccess = await resetDropdownSelection(interaction, updatedComponents);
+        const originalComponents = interaction.message?.components || [];
+        const resetSuccess = await resetDropdownSelection(interaction, originalComponents);
         
         if (resetSuccess) {
           // Wait a moment then send page content as follow-up
