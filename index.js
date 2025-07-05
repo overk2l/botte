@@ -900,7 +900,7 @@ async function buildEphemeralDropdown({
   });
 }
 
-// 🧱 Basic component rebuild logic for dropdown reset
+// 🧱 TRUE Sapphire approach - avoid "edited" mark completely
 function rebuildDropdownComponents(originalMessage) {
   const baseTimestamp = Date.now();
   let counter = 0;
@@ -926,10 +926,24 @@ function rebuildDropdownComponents(originalMessage) {
           .addOptions(options);
 
         newRow.addComponents(newSelect);
+      } else if (component.type === ComponentType.Button) {
+        // Handle buttons too
+        const newButton = new ButtonBuilder()
+          .setCustomId(`${component.customId.split(':')[0]}:${baseTimestamp + counter}`)
+          .setLabel(component.label)
+          .setStyle(component.style);
+        
+        if (component.emoji) {
+          newButton.setEmoji(component.emoji);
+        }
+        
+        newRow.addComponents(newButton);
       }
     }
 
-    rebuilt.push(newRow);
+    if (newRow.components.length > 0) {
+      rebuilt.push(newRow);
+    }
   }
 
   return rebuilt;
@@ -937,7 +951,44 @@ function rebuildDropdownComponents(originalMessage) {
 
 async function handleDropdown(interaction) {
   try {
+    // ✅ Defer the interaction without updating anything
+    await interaction.deferUpdate();
+    
+    // Get the original message content and components
     const originalMessage = interaction.message;
+    const freshComponents = rebuildDropdownComponents(originalMessage);
+    
+    // ✅ Delete the original message and send a fresh one
+    // This completely avoids the "edited" mark
+    await originalMessage.delete();
+    
+    // Send a completely fresh message with the same content
+    await interaction.channel.send({
+      content: originalMessage.content,
+      embeds: originalMessage.embeds,
+      components: freshComponents
+    });
+
+    // ✉️ Send role confirmation as ephemeral
+    await interaction.followUp({
+      content: `✅ Role toggled: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
+      ephemeral: true
+    });
+
+  } catch (err) {
+    console.error("TRUE Sapphire Dropdown Handler Error:", err);
+    
+    // Fallback - just send ephemeral message
+    try {
+      await interaction.followUp({
+        content: "❌ An error occurred processing your selection.",
+        ephemeral: true
+      });
+    } catch (fallbackError) {
+      console.error("Fallback error:", fallbackError);
+    }
+  }
+}
 
     // 🔁 Rebuild components with a fresh ID and reset selections
     const updatedComponents = rebuildDropdownComponents(originalMessage);
@@ -947,18 +998,10 @@ async function handleDropdown(interaction) {
       components: updatedComponents
     });
 
-    // ✉️ Optional: Send ephemeral confirmation
-    await interaction.followUp({
-      content: `✅ You selected: ${interaction.values.join(", ")}`,
-      ephemeral: true
-    });
-  } catch (error) {
-    console.error('Dropdown error:', error);
-  }
 }
 
 /**
- * TRUE Sapphire-style dropdown reset - refreshes original message components
+ * TRUE Sapphire-style dropdown reset - delete original, send fresh message (no "edited" mark)
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
  * @param {Array} addedRoles - Roles that were added
  * @param {Array} removedRoles - Roles that were removed  
@@ -967,6 +1010,42 @@ async function handleDropdown(interaction) {
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
+    console.log("🔄 Sapphire-style dropdown reset approach...");
+    
+    const originalMessage = interaction.message;
+    const updatedComponents = rebuildDropdownComponents(originalMessage);
+
+    // ✅ Update the message with fresh components (resets dropdown visually)
+    await interaction.update({
+      components: updatedComponents
+    });
+
+    // Send role change feedback as ephemeral followUp
+    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+    } else {
+      // ✉️ Send ephemeral confirmation
+      await interaction.followUp({
+        content: `✅ You selected: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
+        ephemeral: true
+      });
+    }
+    
+    console.log("✅ Sapphire-style dropdown reset completed");
+  } catch (error) {
+    console.error('Dropdown error:', error);
+    
+    // Fallback error handling
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+      }
+      await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+    } catch (fallbackError) {
+      console.error("❌ Fallback error handling failed:", fallbackError);
+    }
+  }
+}
     console.log("🔄 Testing simple dropdown reset approach...");
     
     const originalMessage = interaction.message;
