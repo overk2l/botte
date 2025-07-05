@@ -1458,17 +1458,72 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
-    if (updatedComponents && updatedComponents.length > 0) {
+    // Check if this is a webhook message (custom branding)
+    const isWebhookMessage = originalMessage.webhookId !== null;
+    
+    if (isWebhookMessage) {
+      console.log("🌐 Webhook message detected - using webhook-specific dropdown reset");
+      
+      // For webhook messages, we need to use the webhook to edit the message
       try {
-        await originalMessage.edit({
-          components: updatedComponents
-        });
-        console.log("✅ Message components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit message components:", editError);
+        const webhooks = await originalMessage.channel.fetchWebhooks();
+        const webhook = webhooks.find(w => w.id === originalMessage.webhookId);
+        
+        if (webhook) {
+          // For hybrid menus, we need to identify the menu type and ID
+          const customId = interaction.customId;
+          let menuId = null;
+          
+          // Extract menu ID from custom ID patterns
+          if (customId.startsWith('hybrid-role-select:')) {
+            const parts = customId.split(':');
+            if (parts.length >= 2) {
+              menuId = parts[1];
+            }
+          } else if (customId.startsWith('hybrid-info-select:')) {
+            const parts = customId.split(':');
+            if (parts.length >= 2) {
+              menuId = parts[1];
+            }
+          }
+          
+          if (menuId) {
+            // Find the menu configuration
+            const menu = hybridMenus.get(menuId);
+            if (menu) {
+              // Use the webhook-specific component rebuilding
+              const freshComponents = await rebuildHybridMenuComponentsForWebhook(originalMessage, menu, menuId);
+              
+              if (freshComponents && freshComponents.length > 0) {
+                await webhook.editMessage(originalMessage.id, {
+                  components: freshComponents
+                });
+                console.log("✅ Webhook message components refreshed with dropdown reset");
+              }
+            }
+          }
+        } else {
+          console.warn("⚠️ Webhook not found for webhook message, skipping component reset");
+        }
+      } catch (webhookError) {
+        console.error("❌ Failed to reset webhook dropdown:", webhookError);
+      }
+    } else {
+      console.log("🤖 Bot message detected - using standard dropdown reset");
+      
+      // For regular bot messages, use the standard component rebuild
+      const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
+      
+      if (updatedComponents && updatedComponents.length > 0) {
+        try {
+          await originalMessage.edit({
+            components: updatedComponents
+          });
+          console.log("✅ Message components refreshed without 'edited' mark - TRUE Sapphire style");
+        } catch (editError) {
+          console.error("❌ Failed to edit message components:", editError);
+        }
       }
     }
     
@@ -3743,7 +3798,19 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             }
         } else {
             // Just update the components to reset dropdown selections without changing the embed
-            await originalMessage.edit({ components });
+            if (menu.useWebhook) {
+                try {
+                    const webhookName = menu.webhookName || "Reaction Role Webhook";
+                    const webhook = await getOrCreateWebhook(originalChannel, webhookName);
+                    await webhook.editMessage(originalMessage.id, { components });
+                } catch (webhookError) {
+                    console.error("Error updating reaction role components via webhook:", webhookError);
+                    // Fallback to regular bot message edit
+                    await originalMessage.edit({ components });
+                }
+            } else {
+                await originalMessage.edit({ components });
+            }
         }
 
     } catch (error) {
@@ -11966,7 +12033,19 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
             }
         } else {
             // Just update the components to reset dropdown selections without changing the embed
-            await originalMessage.edit({ components });
+            if (menu.useWebhook) {
+                try {
+                    const webhookName = menu.webhookName || "Hybrid Menu Webhook";
+                    const webhook = await getOrCreateWebhook(originalChannel, webhookName);
+                    await webhook.editMessage(originalMessage.id, { components });
+                } catch (webhookError) {
+                    console.error("Error updating hybrid menu components via webhook:", webhookError);
+                    // Fallback to regular bot message edit
+                    await originalMessage.edit({ components });
+                }
+            } else {
+                await originalMessage.edit({ components });
+            }
         }
 
     } catch (error) {
@@ -14740,17 +14819,49 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
-    if (updatedComponents && updatedComponents.length > 0) {
+    // Check if this is a webhook message (custom branding)
+    const isWebhookMessage = originalMessage.webhookId !== null;
+    
+    if (isWebhookMessage) {
+      console.log("🌐 Webhook message detected - using webhook-specific info dropdown reset");
+      
+      // For webhook messages, we need to use the webhook to edit the message
       try {
-        await originalMessage.edit({
-          components: updatedComponents
-        });
-        console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit info dropdown components:", editError);
+        const webhooks = await originalMessage.channel.fetchWebhooks();
+        const webhook = webhooks.find(w => w.id === originalMessage.webhookId);
+        
+        if (webhook) {
+          // For info menus, we need to rebuild the components with fresh IDs
+          const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
+          
+          if (updatedComponents && updatedComponents.length > 0) {
+            await webhook.editMessage(originalMessage.id, {
+              components: updatedComponents
+            });
+            console.log("✅ Webhook info dropdown components refreshed with dropdown reset");
+          }
+        } else {
+          console.warn("⚠️ Webhook not found for webhook message, skipping info dropdown reset");
+        }
+      } catch (webhookError) {
+        console.error("❌ Failed to reset webhook info dropdown:", webhookError);
+      }
+    } else {
+      console.log("🤖 Bot message detected - using standard info dropdown reset");
+      
+      // For regular bot messages, use the standard component rebuild
+      const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
+      
+      if (updatedComponents && updatedComponents.length > 0) {
+        try {
+          await originalMessage.edit({
+            components: updatedComponents
+          });
+          console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
+        } catch (editError) {
+          console.error("❌ Failed to edit info dropdown components:", editError);
+        }
       }
     }
     
