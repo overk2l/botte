@@ -339,174 +339,13 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // If originalComponents not provided, try to get them from the message
-    if (!originalComponents) {
-      try {
-        const message = interaction.message;
-        if (message && message.components) {
-          originalComponents = message.components;
-        } else {
-          // If we can't get components, just acknowledge the interaction
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.deferUpdate();
-          }
-          return true;
-        }
-      } catch (error) {
-        console.error("Error getting original components:", error);
-        // Fallback to simple acknowledgment
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-        }
-        return true;
-      }
-    }
-
-    // For webhook messages, we need to handle them differently
-    const originalMessage = interaction.message;
-    const isWebhookMessage = originalMessage && originalMessage.webhookId;
-
-    if (isWebhookMessage) {
-      // For webhook messages, we MUST acknowledge the interaction first
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
-      }
-
-      // For webhook messages, we'll use a different approach:
-      // We'll create a small delay to let the interaction settle, then update
-      setTimeout(async () => {
-        try {
-          const freshComponents = originalComponents.map(row => {
-            const newRow = new ActionRowBuilder();
-            
-            row.components.forEach(component => {
-              if (component.type === ComponentType.StringSelect) {
-                const options = component.options.map(option => ({
-                  label: option.label,
-                  value: option.value,
-                  description: option.description || undefined,
-                  emoji: option.emoji || undefined,
-                  default: false
-                }));
-                
-                const newSelect = new StringSelectMenuBuilder()
-                  .setCustomId(component.customId)
-                  .setPlaceholder(component.placeholder || "Select an option...")
-                  .setMinValues(component.minValues || 1)
-                  .setMaxValues(component.maxValues || 1)
-                  .setDisabled(component.disabled || false)
-                  .addOptions(options);
-                
-                newRow.addComponents(newSelect);
-              } else {
-                newRow.addComponents(component);
-              }
-            });
-            
-            return newRow;
-          });
-
-          // Try to get the webhook and update the message
-          const webhook = await originalMessage.channel.fetchWebhooks()
-            .then(webhooks => webhooks.find(w => w.id === originalMessage.webhookId))
-            .catch(() => null);
-          
-          if (webhook) {
-            await webhook.editMessage(originalMessage.id, {
-              components: freshComponents
-            });
-          } else {
-            // Fallback to direct message edit if webhook not found
-            await originalMessage.edit({ components: freshComponents });
-          }
-        } catch (webhookError) {
-          console.error("Error updating webhook message:", webhookError);
-          // Fallback to direct message edit
-          try {
-            await originalMessage.edit({ components: originalComponents });
-          } catch (fallbackError) {
-            console.error("Fallback message edit failed:", fallbackError);
-          }
-        }
-      }, 200); // Small delay to let interaction settle
-      
-      return true;
-    }
-
-    // For non-webhook messages, use standard approach
+    // For single-selection dropdowns, we can use the simpler deferUpdate approach
+    // This resets the dropdown without showing the "edited" label
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
-      
-      const freshComponents = originalComponents.map(row => {
-        const newRow = new ActionRowBuilder();
-        
-        row.components.forEach(component => {
-          if (component.type === ComponentType.StringSelect) {
-            const options = component.options.map(option => ({
-              label: option.label,
-              value: option.value,
-              description: option.description || undefined,
-              emoji: option.emoji || undefined,
-              default: false
-            }));
-            
-            const newSelect = new StringSelectMenuBuilder()
-              .setCustomId(component.customId)
-              .setPlaceholder(component.placeholder || "Select an option...")
-              .setMinValues(component.minValues || 1)
-              .setMaxValues(component.maxValues || 1)
-              .setDisabled(component.disabled || false)
-              .addOptions(options);
-            
-            newRow.addComponents(newSelect);
-          } else {
-            newRow.addComponents(component);
-          }
-        });
-        
-        return newRow;
-      });
-
-      await interaction.editReply({ components: freshComponents });
       return true;
     }
-
-    // Final fallback: try to update the original message directly
-    if (originalMessage && originalMessage.editable) {
-      const freshComponents = originalComponents.map(row => {
-        const newRow = new ActionRowBuilder();
-        
-        row.components.forEach(component => {
-          if (component.type === ComponentType.StringSelect) {
-            const options = component.options.map(option => ({
-              label: option.label,
-              value: option.value,
-              description: option.description || undefined,
-              emoji: option.emoji || undefined,
-              default: false
-            }));
-            
-            const newSelect = new StringSelectMenuBuilder()
-              .setCustomId(component.customId)
-              .setPlaceholder(component.placeholder || "Select an option...")
-              .setMinValues(component.minValues || 1)
-              .setMaxValues(component.maxValues || 1)
-              .setDisabled(component.disabled || false)
-              .addOptions(options);
-            
-            newRow.addComponents(newSelect);
-          } else {
-            newRow.addComponents(component);
-          }
-        });
-        
-        return newRow;
-      });
-
-      await originalMessage.edit({ components: freshComponents });
-      return true;
-    }
-
+    
     return true;
   } catch (error) {
     console.error("Error resetting dropdown selection:", error);
@@ -604,46 +443,30 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
 
         // For webhook messages, we need to handle notifications differently
         if (isWebhookMessage) {
-            // For webhook messages, we'll send a new message (not a follow-up)
-            // because follow-ups on webhook messages can be problematic
+            // For webhook messages, always use ephemeral follow-ups
+            // This is the most reliable approach for webhook interactions
             try {
-                if (useWebhook) {
-                    // Try to use the same webhook for consistency
-                    const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
-                    if (webhook) {
-                        // Set webhook avatar if specified
-                        if (webhookAvatar && webhookAvatar !== webhook.avatar) {
-                            try {
-                                await webhook.edit({ avatar: webhookAvatar });
-                            } catch (avatarError) {
-                                console.log("Could not update webhook avatar:", avatarError.message);
-                            }
+                const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
+                
+                // Auto-delete ephemeral message after delay
+                if (autoDelete && message) {
+                    setTimeout(async () => {
+                        try {
+                            await message.delete();
+                        } catch (deleteError) {
+                            // Ephemeral messages may auto-delete, so this might fail
+                            console.log("Ephemeral message already deleted or inaccessible");
                         }
-
-                        // Send via webhook
-                        const message = await webhook.send({ 
-                            embeds: [embed],
-                            username: webhookName || webhook.name,
-                            avatarURL: webhookAvatar || webhook.avatar
-                        });
-
-                        // Auto-delete if requested
-                        if (autoDelete && message) {
-                            setTimeout(async () => {
-                                try {
-                                    await message.delete();
-                                } catch (deleteError) {
-                                    console.log("Could not delete webhook message:", deleteError.message);
-                                }
-                            }, 6000);
-                        }
-                        return message;
-                    }
-                } else {
-                    // Send as a regular message in the channel
+                    }, 6000);
+                }
+                return message;
+            } catch (webhookFollowUpError) {
+                console.log("Webhook follow-up failed:", webhookFollowUpError.message);
+                
+                // Final fallback: try channel message
+                try {
                     const message = await interaction.channel.send({ embeds: [embed] });
                     
-                    // Auto-delete if requested
                     if (autoDelete && message) {
                         setTimeout(async () => {
                             try {
@@ -654,82 +477,69 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
                         }, 6000);
                     }
                     return message;
-                }
-            } catch (webhookChannelError) {
-                console.log("Webhook channel message failed:", webhookChannelError.message);
-                // Final fallback: try follow-up anyway
-                try {
-                    const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
-                    return message;
-                } catch (followUpError) {
-                    console.log("Follow-up also failed:", followUpError.message);
+                } catch (channelError) {
+                    console.log("Channel message also failed:", channelError.message);
                 }
             }
         } else {
-            // For non-webhook messages, use the standard approach
-            // If webhook is enabled, try webhook first
-            if (useWebhook) {
-                try {
-                    const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
-                    if (webhook) {
-                        // Set webhook avatar if specified
-                        if (webhookAvatar && webhookAvatar !== webhook.avatar) {
-                            try {
-                                await webhook.edit({ avatar: webhookAvatar });
-                            } catch (avatarError) {
-                                console.log("Could not update webhook avatar:", avatarError.message);
-                            }
+            // For non-webhook messages, use ephemeral follow-ups
+            // This avoids the "edited" label issue entirely
+            try {
+                const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
+                
+                // Auto-delete ephemeral message after delay
+                if (autoDelete && message) {
+                    setTimeout(async () => {
+                        try {
+                            await message.delete();
+                        } catch (deleteError) {
+                            // Ephemeral messages may auto-delete, so this might fail
+                            console.log("Ephemeral message already deleted or inaccessible");
                         }
-
-                        // Send via webhook
-                        const message = await webhook.send({ 
-                            embeds: [embed],
-                            username: webhookName || webhook.name,
-                            avatarURL: webhookAvatar || webhook.avatar
-                        });
-
-                        // Auto-delete if requested
-                        if (autoDelete && message) {
-                            setTimeout(async () => {
+                    }, 6000);
+                }
+                return message;
+            } catch (followUpError) {
+                console.log("Follow-up failed, trying webhook approach:", followUpError.message);
+                
+                // Fallback to webhook if configured
+                if (useWebhook) {
+                    try {
+                        const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
+                        if (webhook) {
+                            // Set webhook avatar if specified
+                            if (webhookAvatar && webhookAvatar !== webhook.avatar) {
                                 try {
-                                    await message.delete();
-                                } catch (deleteError) {
-                                    console.log("Could not delete webhook message:", deleteError.message);
+                                    await webhook.edit({ avatar: webhookAvatar });
+                                } catch (avatarError) {
+                                    console.log("Could not update webhook avatar:", avatarError.message);
                                 }
-                            }, 6000);
+                            }
+
+                            // Send via webhook
+                            const message = await webhook.send({ 
+                                embeds: [embed],
+                                username: webhookName || webhook.name,
+                                avatarURL: webhookAvatar || webhook.avatar
+                            });
+
+                            // Auto-delete if requested
+                            if (autoDelete && message) {
+                                setTimeout(async () => {
+                                    try {
+                                        await message.delete();
+                                    } catch (deleteError) {
+                                        console.log("Could not delete webhook message:", deleteError.message);
+                                    }
+                                }, 6000);
+                            }
+                            return message;
                         }
-                        return message;
+                    } catch (webhookError) {
+                        console.log("Webhook failed:", webhookError.message);
                     }
-                } catch (webhookError) {
-                    console.log("Webhook failed, falling back to follow-up:", webhookError.message);
                 }
             }
-
-            // Fallback to regular follow-up
-            const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
-            
-            // Auto-delete ephemeral message (note: ephemeral messages auto-delete anyway)
-            if (message && autoDelete) {
-                const timeoutId = setTimeout(async () => {
-                    try {
-                        await message.delete().catch(() => {
-                            // Silently fail if already deleted
-                        });
-                    } catch (e) {
-                        // Silently fail if message is already deleted or no permission
-                    }
-                    
-                    // Clean up timeout reference
-                    if (ephemeralTimeouts.has(interaction.id)) {
-                        ephemeralTimeouts.delete(interaction.id);
-                    }
-                }, 6000);
-
-                // Store timeout reference
-                ephemeralTimeouts.set(interaction.id, timeoutId);
-            }
-            
-            return message;
         }
     } catch (error) {
         console.error("Error sending role change notification:", error);
@@ -2498,9 +2308,9 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             if (dropdownOptions.length > 0) {
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`rr-role-select:${menuId}`)
-                    .setPlaceholder("Select roles to toggle...")
+                    .setPlaceholder("Select a role to toggle...")
                     .setMinValues(1)
-                    .setMaxValues(dropdownOptions.length)
+                    .setMaxValues(1)
                     .addOptions(dropdownOptions);
                 components.push(new ActionRowBuilder().addComponents(selectMenu));
             }
@@ -9532,9 +9342,9 @@ async function handleRoleInteraction(interaction) {
                         if (dropdownOptions.length > 0) {
                             const selectMenu = new StringSelectMenuBuilder()
                                 .setCustomId(`rr-role-select:${menuId}`)
-                                .setPlaceholder("Select roles to toggle...")
+                                .setPlaceholder("Select a role to toggle...")
                                 .setMinValues(1)
-                                .setMaxValues(dropdownOptions.length)
+                                .setMaxValues(1)
                                 .addOptions(dropdownOptions);
                             components.push(new ActionRowBuilder().addComponents(selectMenu));
                         }
@@ -9651,9 +9461,9 @@ async function handleRoleInteraction(interaction) {
                         if (dropdownOptions.length > 0) {
                             const selectMenu = new StringSelectMenuBuilder()
                                 .setCustomId(`rr-role-select:${menuId}`)
-                                .setPlaceholder("Select roles to toggle...")
+                                .setPlaceholder("Select a role to toggle...")
                                 .setMinValues(1)
-                                .setMaxValues(dropdownOptions.length)
+                                .setMaxValues(1)
                                 .addOptions(dropdownOptions);
                             components.push(new ActionRowBuilder().addComponents(selectMenu));
                         }
@@ -10591,9 +10401,9 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
         if (roleOptions.length > 0) {
             const roleDropdown = new StringSelectMenuBuilder()
                 .setCustomId(`hybrid-role-select:${hybridMenuId}`)
-                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
                 .setMinValues(1)
-                .setMaxValues(roleOptions.length)
+                .setMaxValues(1)
                 .addOptions(roleOptions);
             
             componentParts.push({
@@ -11701,9 +11511,9 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           if (dropdownOptions.length > 0) {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`rr-role-select:${menuId}`)
-              .setPlaceholder("Select roles to toggle...")
+              .setPlaceholder("Select a role to toggle...")
               .setMinValues(1)
-              .setMaxValues(dropdownOptions.length)
+              .setMaxValues(1)
               .addOptions(dropdownOptions);
             components.push(new ActionRowBuilder().addComponents(selectMenu));
           }
