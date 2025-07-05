@@ -609,40 +609,29 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  * @param {Object} page - The selected page data
  * @param {string} hybridMenuId - The hybrid menu ID
  */
+/**
+ * Simple dropdown reset for hybrid menus - using your test approach
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {Object} menu - The hybrid menu configuration
+ * @param {Object} page - The selected page data
+ * @param {string} hybridMenuId - The hybrid menu ID
+ */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire hybrid info dropdown reset...");
+    console.log("🔄 Testing simple hybrid dropdown reset approach...");
     
-    // Build fresh components with reset state (no selections shown)
-    const updatedComponents = buildHybridMenuComponents(hybridMenuId, menu);
-    
-    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
-    // This keeps the same message but resets the dropdown visual state
+    const originalMessage = interaction.message;
+
+    // 🔁 Rebuild components with a fresh ID and reset selections
+    const updatedComponents = rebuildDropdownComponents(originalMessage);
+
+    // ✅ Seamlessly update the message with new components
     await interaction.update({
       components: updatedComponents
     });
-    
-    console.log("✅ Hybrid dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
-    
-    // Build and send page content as ephemeral followUp
-    const embed = new EmbedBuilder();
-    
-    // Helper function to validate URLs
-    const isValidUrl = (url) => {
-      if (!url || typeof url !== 'string' || url.trim() === '') return false;
-      try {
-        new URL(url);
-        return true;
-      } catch {
-        return false;
-      }
-    };
 
-    // Helper function to validate color
-    const isValidColor = (color) => {
-      if (!color || typeof color !== 'string') return false;
-      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
-    };
+    // Build page embed
+    const embed = new EmbedBuilder();
     
     // Build embed from page data
     if (page.name && page.name.trim()) {
@@ -655,66 +644,16 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
     
     // Handle color with validation
     const color = page.color || menu.embedColor || "#5865F2";
-    if (isValidColor(color)) {
+    if (color) {
       embed.setColor(color);
     }
-    
-    // Handle thumbnail with URL validation
-    if (page.thumbnail && isValidUrl(page.thumbnail)) {
-      embed.setThumbnail(page.thumbnail);
-    }
-    
-    // Handle image with URL validation
-    if (page.image && isValidUrl(page.image)) {
-      embed.setImage(page.image);
-    }
-    
-    // Handle author
-    if (page.author && page.author.name) {
-      const author = { name: page.author.name.slice(0, 256) };
-      if (page.author.iconURL && isValidUrl(page.author.iconURL)) {
-        author.iconURL = page.author.iconURL;
-      }
-      if (page.author.url && isValidUrl(page.author.url)) {
-        author.url = page.author.url;
-      }
-      embed.setAuthor(author);
-    }
-    
-    // Handle footer
-    if (page.footer && page.footer.text) {
-      const footer = { text: page.footer.text.slice(0, 2048) };
-      if (page.footer.iconURL && isValidUrl(page.footer.iconURL)) {
-        footer.iconURL = page.footer.iconURL;
-      }
-      embed.setFooter(footer);
-    }
-    
-    // Handle fields
-    if (page.fields && Array.isArray(page.fields)) {
-      const validFields = page.fields.slice(0, 25).map(field => ({
-        name: (field.name || 'Field').slice(0, 256),
-        value: (field.value || 'Value').slice(0, 1024),
-        inline: Boolean(field.inline)
-      }));
-      
-      if (validFields.length > 0) {
-        embed.addFields(validFields);
-      }
-    }
 
-    // Send the page content as ephemeral followUp  
+    // ✉️ Send page content as ephemeral followUp
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    // TRUE SAPPHIRE APPROACH: Send fresh ephemeral dropdown for hybrid menu
-    await buildEphemeralDropdown({
-      interaction,
-      feedback: '✅ Page displayed! Select another page if you wish.',
-    });
-    
-    console.log("✅ TRUE Sapphire hybrid info dropdown handling completed with ephemeral reposting");
+    console.log("✅ Simple hybrid dropdown reset completed");
   } catch (error) {
-    console.error("❌ Error in Sapphire hybrid info dropdown handling:", error);
+    console.error('Hybrid dropdown error:', error);
     
     // Fallback error handling
     try {
@@ -726,6 +665,7 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
       console.error("❌ Fallback error handling failed:", fallbackError);
     }
   }
+}
 }
 
 /**
@@ -961,6 +901,63 @@ async function buildEphemeralDropdown({
   });
 }
 
+// 🧱 Basic component rebuild logic for dropdown reset
+function rebuildDropdownComponents(originalMessage) {
+  const baseTimestamp = Date.now();
+  let counter = 0;
+  const rebuilt = [];
+
+  for (const row of originalMessage.components) {
+    const newRow = new ActionRowBuilder();
+
+    for (const component of row.components) {
+      counter++;
+      if (component.type === ComponentType.StringSelect) {
+        const options = component.options.map(opt => ({
+          label: opt.label,
+          value: opt.value,
+          description: opt.description,
+          emoji: opt.emoji,
+          default: false, // Clear any previous selection
+        }));
+
+        const newSelect = new StringSelectMenuBuilder()
+          .setCustomId(`${component.customId.split(':')[0]}:${baseTimestamp + counter}`)
+          .setPlaceholder(component.placeholder || "Select an option...")
+          .addOptions(options);
+
+        newRow.addComponents(newSelect);
+      }
+    }
+
+    rebuilt.push(newRow);
+  }
+
+  return rebuilt;
+}
+
+async function handleDropdown(interaction) {
+  try {
+    const originalMessage = interaction.message;
+
+    // 🔁 Rebuild components with a fresh ID and reset selections
+    const updatedComponents = rebuildDropdownComponents(originalMessage);
+
+    // ✅ Seamlessly update the message with new components
+    await interaction.update({
+      components: updatedComponents
+    });
+
+    // ✉️ Optional: Send ephemeral confirmation
+    await interaction.followUp({
+      content: `✅ You selected: ${interaction.values.join(", ")}`,
+      ephemeral: true
+    });
+  } catch (error) {
+    console.error('Dropdown error:', error);
+  }
+}
+
 /**
  * TRUE Sapphire-style dropdown reset - refreshes original message components
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
@@ -971,52 +968,32 @@ async function buildEphemeralDropdown({
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting TRUE Sapphire dropdown reset...");
+    console.log("🔄 Testing simple dropdown reset approach...");
     
-    // Extract menu ID from interaction
-    const parts = interaction.customId.split(':');
-    const menuId = parts[1];
-    
-    // Get menu data
-    let menu = db.getMenu(menuId);
-    const isHybridMenu = !menu;
-    if (isHybridMenu) {
-      menu = db.getHybridMenu(menuId);
-    }
-    
-    if (!menu) {
-      console.error(`Menu not found: ${menuId}`);
-      return interaction.reply({ content: "❌ Menu not found.", ephemeral: true });
-    }
-    
-    // Build fresh components with reset state (no selections shown)
-    let updatedComponents;
-    if (isHybridMenu) {
-      updatedComponents = buildHybridMenuComponents(menuId, menu);
-    } else {
-      updatedComponents = [buildRoleSelectMenu(menuId, menu.dropdownRoles || [])];
-      if (menu.buttonRoles && menu.buttonRoles.length > 0) {
-        const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
-        updatedComponents.push(...buttonRows);
-      }
-    }
-    
-    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
-    // This keeps the same message but resets the dropdown visual state
+    const originalMessage = interaction.message;
+
+    // � Rebuild components with a fresh ID and reset selections
+    const updatedComponents = rebuildDropdownComponents(originalMessage);
+
+    // ✅ Seamlessly update the message with new components
     await interaction.update({
       components: updatedComponents
     });
-    
-    console.log("✅ Dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
-    
+
     // Send role change feedback as ephemeral followUp
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+    } else {
+      // ✉️ Send ephemeral confirmation
+      await interaction.followUp({
+        content: `✅ You selected: ${interaction.values ? interaction.values.join(", ") : "button action"}`,
+        ephemeral: true
+      });
     }
     
-    console.log("✅ TRUE Sapphire dropdown handling completed");
+    console.log("✅ Simple dropdown reset completed");
   } catch (error) {
-    console.error("❌ Error in TRUE Sapphire dropdown handling:", error);
+    console.error('Dropdown error:', error);
     
     // Fallback error handling
     try {
@@ -13962,7 +13939,7 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  * @param {string} infoMenuId - The info menu ID
  */
 /**
- * TRUE Sapphire-style info dropdown reset - refreshes original message components
+ * Simple dropdown reset for info menus - using your test approach
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
  * @param {Object} menu - The info menu configuration
  * @param {Object} page - The selected page data
@@ -13970,38 +13947,20 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire info dropdown reset...");
+    console.log("🔄 Testing simple info dropdown reset approach...");
     
-    // Build fresh components with reset state (no selections shown)
-    const updatedComponents = [buildInfoSelectMenu(infoMenuId, menu.pages || [])];
-    
-    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
-    // This keeps the same message but resets the dropdown visual state
+    const originalMessage = interaction.message;
+
+    // 🔁 Rebuild components with a fresh ID and reset selections
+    const updatedComponents = rebuildDropdownComponents(originalMessage);
+
+    // ✅ Seamlessly update the message with new components
     await interaction.update({
       components: updatedComponents
     });
-    
-    console.log("✅ Info dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
-    
-    // Build and send page content as ephemeral followUp
-    const embed = new EmbedBuilder();
-    
-    // Helper function to validate URLs
-    const isValidUrl = (url) => {
-      if (!url || typeof url !== 'string' || url.trim() === '') return false;
-      try {
-        new URL(url);
-        return true;
-      } catch {
-        return false;
-      }
-    };
 
-    // Helper function to validate color
-    const isValidColor = (color) => {
-      if (!color || typeof color !== 'string') return false;
-      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
-    };
+    // Build page embed
+    const embed = new EmbedBuilder();
     
     if (page.content.title && page.content.title.trim()) {
       embed.setTitle(page.content.title.slice(0, 256));
@@ -14013,79 +13972,16 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     
     // Handle color with validation
     const color = page.color || page.content.color || menu.embedColor;
-    if (color && isValidColor(color)) {
+    if (color) {
       embed.setColor(color);
     }
-    
-    // Handle thumbnail with URL validation
-    const thumbnail = page.content.thumbnail || menu.embedThumbnail;
-    if (thumbnail && isValidUrl(thumbnail)) {
-      embed.setThumbnail(thumbnail);
-    }
-    
-    // Handle image with URL validation
-    const image = page.content.image || menu.embedImage;
-    if (image && isValidUrl(image)) {
-      embed.setImage(image);
-    }
-    
-    // Handle author with validation
-    if (page.content.author && page.content.author.name) {
-      const authorData = {
-        name: page.content.author.name.slice(0, 256)
-      };
-      if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
-        authorData.iconURL = page.content.author.iconURL;
-      }
-      embed.setAuthor(authorData);
-    } else if (menu.embedAuthorName) {
-      const authorData = {
-        name: menu.embedAuthorName.slice(0, 256)
-      };
-      if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
-        authorData.iconURL = menu.embedAuthorIconURL;
-      }
-      embed.setAuthor(authorData);
-    }
 
-    // Handle footer with validation
-    if (page.content.footer && page.content.footer.text) {
-      const footerData = {
-        text: page.content.footer.text.slice(0, 2048)
-      };
-      if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
-        footerData.iconURL = page.content.footer.iconURL;
-      }
-      embed.setFooter(footerData);
-    } else if (menu.embedFooterText) {
-      const footerData = {
-        text: menu.embedFooterText.slice(0, 2048)
-      };
-      if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
-        footerData.iconURL = menu.embedFooterIconURL;
-      }
-      embed.setFooter(footerData);
-    }
-    
-    // Handle fields with validation
-    if (page.content.fields && Array.isArray(page.content.fields)) {
-      const validFields = page.content.fields.slice(0, 25).map(field => ({
-        name: (field.name || 'Field').slice(0, 256),
-        value: (field.value || 'Value').slice(0, 1024),
-        inline: Boolean(field.inline)
-      }));
-      
-      if (validFields.length > 0) {
-        embed.addFields(validFields);
-      }
-    }
-
-    // Send page content as ephemeral followUp
+    // ✉️ Send page content as ephemeral followUp
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    console.log("✅ TRUE Sapphire info dropdown handling completed");
+    console.log("✅ Simple info dropdown reset completed");
   } catch (error) {
-    console.error("❌ Error in TRUE Sapphire info dropdown handling:", error);
+    console.error('Info dropdown error:', error);
     
     // Fallback error handling
     try {
