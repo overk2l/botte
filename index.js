@@ -2404,15 +2404,14 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "hybrid") {
         try {
-          console.log(`[Hybrid Debug] Button interaction received - action: ${action}, customId: ${interaction.customId}`);
+          console.log(`[Hybrid Debug] Processing action: ${action}`);
           
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            console.log(`[Hybrid Debug] Permission denied for user ${interaction.user.id}`);
             return sendEphemeralEmbed(interaction, "❌ You need Administrator permissions to configure hybrid menus.", "#FF0000", "Permission Denied", false);
           }
 
-          // Check if this is a modal trigger action
-          const isHybridModalTrigger = (
+          // Handle modal trigger actions (don't defer these)
+          const isModalTrigger = (
             action === "create" ||
             action === "create_from_json" ||
             action.startsWith("add_info_page") ||
@@ -2422,16 +2421,10 @@ client.on("interactionCreate", async (interaction) => {
             action === "toggle_member_counts"
           );
 
-          // Only defer if it's NOT a modal trigger
-          if (!isHybridModalTrigger) {
-            try {
-              if (!interaction.deferred && !interaction.replied) {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                console.log(`[Hybrid Debug] Deferred reply for action: ${action}`);
-              }
-            } catch (error) {
-              console.error(`[Hybrid Debug] Error deferring reply:`, error);
-              // Continue processing - the interaction might already be handled
+          // Defer all non-modal interactions
+          if (!isModalTrigger) {
+            if (!interaction.deferred && !interaction.replied) {
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             }
           }
 
@@ -2695,9 +2688,12 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "display_types") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
+          try {
             return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
-          });
+          } catch (error) {
+            console.error("Error in display_types:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error loading display types configuration.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "set_info_default") {
@@ -2799,66 +2795,71 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "bulk_setup") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (!menu) {
-                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-              }
-
-              const embed = new EmbedBuilder()
-                .setTitle("🪄 Bulk Setup Wizard")
-                .setDescription("Choose how to configure all items at once:")
-                .setColor("#5865F2");
-
-              const components = [
-                new ActionRowBuilder().addComponents(
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:bulk_all_dropdown:${hybridMenuId}`)
-                    .setLabel("All Dropdown")
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji("📋"),
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:bulk_all_buttons:${hybridMenuId}`)
-                    .setLabel("All Buttons")
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji("🔘"),
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:bulk_all_both:${hybridMenuId}`)
-                    .setLabel("All Both")
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji("🔗")
-                ),
-                new ActionRowBuilder().addComponents(
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:bulk_info_dropdown_roles_button:${hybridMenuId}`)
-                    .setLabel("Info: Dropdown, Roles: Buttons")
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji("📋"),
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:bulk_info_button_roles_dropdown:${hybridMenuId}`)
-                    .setLabel("Info: Buttons, Roles: Dropdown")
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji("🔘")
-                ),
-                new ActionRowBuilder().addComponents(
-                  new ButtonBuilder()
-                    .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
-                    .setLabel("← Back")
-                    .setStyle(ButtonStyle.Secondary)
-                )
-              ];
-
-              await interaction.editReply({
-                embeds: [embed],
-                components,
-                flags: MessageFlags.Ephemeral
-              });
-            } catch (error) {
-              console.error("Error showing bulk setup:", error);
-              return sendEphemeralEmbed(interaction, "❌ Error showing bulk setup. Please try again.", "#FF0000", "Error", false);
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
-          });
+
+            const embed = new EmbedBuilder()
+              .setTitle("🚀 Quick Setup")
+              .setDescription(`Choose a preset configuration for **${menu.name}**:\n\n` +
+                "**Common Configurations:**\n" +
+                "• **All Dropdown** - Everything shows as dropdown menus\n" +
+                "• **All Buttons** - Everything shows as buttons\n" +
+                "• **All Both** - Everything shows as both dropdown and buttons\n\n" +
+                "**Mixed Configurations:**\n" +
+                "• **Info: Dropdown, Roles: Buttons** - Info pages as dropdown, roles as buttons\n" +
+                "• **Info: Buttons, Roles: Dropdown** - Info pages as buttons, roles as dropdown")
+              .setColor("#00FF00");
+
+            const components = [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:bulk_all_dropdown:${hybridMenuId}`)
+                  .setLabel("All Dropdown")
+                  .setStyle(ButtonStyle.Primary)
+                  .setEmoji("📋"),
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:bulk_all_buttons:${hybridMenuId}`)
+                  .setLabel("All Buttons")
+                  .setStyle(ButtonStyle.Primary)
+                  .setEmoji("🔘"),
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:bulk_all_both:${hybridMenuId}`)
+                  .setLabel("All Both")
+                  .setStyle(ButtonStyle.Primary)
+                  .setEmoji("🔗")
+              ),
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:bulk_info_dropdown_roles_button:${hybridMenuId}`)
+                  .setLabel("Info: Dropdown, Roles: Buttons")
+                  .setStyle(ButtonStyle.Secondary)
+                  .setEmoji("📋"),
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:bulk_info_button_roles_dropdown:${hybridMenuId}`)
+                  .setLabel("Info: Buttons, Roles: Dropdown")
+                  .setStyle(ButtonStyle.Secondary)
+                  .setEmoji("🔘")
+              ),
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
+                  .setLabel("← Back")
+                  .setStyle(ButtonStyle.Secondary)
+              )
+            ];
+
+            await interaction.editReply({
+              embeds: [embed],
+              components,
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error("Error showing bulk setup:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error showing bulk setup. Please try again.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "clear_all_overrides") {
