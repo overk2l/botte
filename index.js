@@ -2325,8 +2325,10 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             }).filter(Boolean);
 
             if (dropdownOptions.length > 0) {
+                // Add timestamp to make dropdown truly unique and force clearing selection
+                const timestamp = Date.now();
                 const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`rr-role-select:${menuId}`)
+                    .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
                     .setPlaceholder("Select a role to toggle...")
                     .setMinValues(1)
                     .setMaxValues(1)
@@ -7257,7 +7259,10 @@ client.on("interactionCreate", async (interaction) => {
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
         }
       } else if (interaction.customId.startsWith("rr-role-select:")) {
-          return handleRoleInteraction(interaction);
+          // Extract menu ID from custom ID (handle both old and new format with timestamp)
+          const parts = interaction.customId.split(":");
+          const menuId = parts[1]; // Extract menu ID regardless of timestamp
+          return handleRoleInteraction(interaction, menuId);
       }
     }
 
@@ -11348,8 +11353,10 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           }).filter(Boolean);
 
           if (dropdownOptions.length > 0) {
+            // Add timestamp to make dropdown truly unique and force clearing selection
+            const timestamp = Date.now();
             const selectMenu = new StringSelectMenuBuilder()
-              .setCustomId(`rr-role-select:${menuId}`)
+              .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
               .setPlaceholder("Select a role to toggle...")
               .setMinValues(1)
               .setMaxValues(1)
