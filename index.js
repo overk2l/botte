@@ -292,27 +292,119 @@ async function recreateMessageViaWebhook(message, components, webhookOptions = {
 }
 
 /**
- * Handles dropdown selection processing while keeping the dropdown visually unchanged.
- * If the interaction is already deferred, it just returns true to indicate successful processing.
+ * Resets dropdown selections by rebuilding components and using the message update approach.
+ * This is the most reliable method for ensuring dropdown selections don't persist visually.
  * @param {import('discord.js').Interaction} interaction - The interaction to process
- * @returns {Promise<boolean>} true if processing is ready for follow-up, false otherwise
+ * @param {Array} originalComponents - The original components to restore (optional)
+ * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
-async function resetDropdownSelection(interaction) {
+async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // Check if interaction is already deferred (by main handler)
-    if (interaction.deferred) {
-      return true; // Ready for follow-up
+    // If originalComponents not provided, try to get them from the message
+    if (!originalComponents) {
+      try {
+        const message = interaction.message;
+        if (message && message.components) {
+          originalComponents = message.components;
+        } else {
+          // If we can't get components, just acknowledge the interaction
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.deferUpdate();
+          }
+          return true;
+        }
+      } catch (error) {
+        console.error("Error getting original components:", error);
+        // Fallback to simple acknowledgment
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate();
+        }
+        return true;
+      }
     }
-    
-    // If not deferred, defer it now
-    if (!interaction.replied) {
-      await interaction.deferUpdate();
+
+    // Create completely fresh components to force Discord client to re-render
+    const freshComponents = originalComponents.map(row => {
+      const newRow = new ActionRowBuilder();
+      
+      row.components.forEach(component => {
+        if (component.type === ComponentType.StringSelect) {
+          // Create fresh options with explicit default: false
+          const options = component.options.map(option => ({
+            label: option.label,
+            value: option.value,
+            description: option.description || undefined,
+            emoji: option.emoji || undefined,
+            default: false // Explicitly ensure no options are selected
+          }));
+          
+          // Add a small timestamp to the placeholder to force re-render
+          const originalPlaceholder = component.placeholder || "Select an option...";
+          const resetPlaceholder = originalPlaceholder;
+          
+          const newSelect = new StringSelectMenuBuilder()
+            .setCustomId(component.customId)
+            .setPlaceholder(resetPlaceholder)
+            .setMinValues(component.minValues || 1)
+            .setMaxValues(component.maxValues || 1)
+            .setDisabled(component.disabled || false)
+            .addOptions(options);
+          
+          newRow.addComponents(newSelect);
+        } else {
+          // For non-dropdown components, just copy them as-is
+          newRow.addComponents(component);
+        }
+      });
+      
+      return newRow;
+    });
+
+    // Strategy: Use the most compatible approach based on interaction state
+    if (!interaction.replied && !interaction.deferred) {
+      // First interaction response - use update to avoid "edited" mark
+      await interaction.update({ components: freshComponents });
       return true;
+    } else {
+      // Try to update the original message directly to avoid "edited" marks
+      try {
+        const originalMessage = interaction.message;
+        if (originalMessage && originalMessage.editable) {
+          // Update the original message components directly
+          await originalMessage.edit({ components: freshComponents });
+          
+          // If we had a deferred interaction, we still need to acknowledge it
+          if (interaction.deferred && !interaction.replied) {
+            // Send an empty edit to acknowledge the deferred interaction
+            await interaction.editReply({}).catch(() => {
+              // If that fails, it's likely already been handled
+            });
+          }
+          return true;
+        } else {
+          // Fallback to editing the reply
+          await interaction.editReply({ components: freshComponents });
+          return true;
+        }
+      } catch (updateError) {
+        console.error("Error updating original message:", updateError);
+        // Final fallback
+        if (interaction.deferred) {
+          await interaction.editReply({ components: freshComponents });
+        }
+        return true;
+      }
     }
-    
-    return false;
   } catch (error) {
-    console.error("Error processing dropdown interaction:", error);
+    console.error("Error resetting dropdown selection:", error);
+    // Fallback: at minimum, acknowledge the interaction if needed
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+      }
+    } catch (fallbackError) {
+      console.error("Error in fallback acknowledgment:", fallbackError);
+    }
     return false;
   }
 }
@@ -6866,25 +6958,43 @@ client.on("interactionCreate", async (interaction) => {
 
               const row = new ActionRowBuilder().addComponents(selectMenu);
               
-              // Process the selection invisibly - defer update to avoid visual changes
+              // Reset the dropdown to clear visual selection, then send response
               try {
-                const resetSuccess = await resetDropdownSelection(interaction);
+                const resetSuccess = await resetDropdownSelection(interaction, [row]);
                 
                 if (resetSuccess) {
-                  // Send page content as follow-up after successful invisible processing
-                  await interaction.followUp({ embeds: [embed], ephemeral: true });
+                  // Wait a moment then send page content as follow-up
+                  setTimeout(async () => {
+                    try {
+                      await interaction.followUp({ embeds: [embed], ephemeral: true });
+                    } catch (followUpError) {
+                      console.error("Error sending follow-up:", followUpError);
+                    }
+                  }, 150);
                 } else {
-                  // Fallback to reply if defer fails
-                  await interaction.reply({ embeds: [embed], ephemeral: true });
+                  // Fallback: if reset fails, we need to acknowledge the interaction somehow
+                  if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ embeds: [embed], ephemeral: true });
+                  } else {
+                    await interaction.followUp({ embeds: [embed], ephemeral: true });
+                  }
                 }
               } catch (resetError) {
-                console.error("Error processing info menu dropdown:", resetError);
-                // Fallback to reply
-                await interaction.reply({ embeds: [embed], ephemeral: true });
+                console.error("Error resetting info menu dropdown:", resetError);
+                // Fallback: acknowledge interaction and send embed
+                if (!interaction.replied && !interaction.deferred) {
+                  await interaction.reply({ embeds: [embed], ephemeral: true });
+                } else {
+                  await interaction.followUp({ embeds: [embed], ephemeral: true });
+                }
               }
             } else {
               // No pages found, fallback to reply
-              await interaction.reply({ embeds: [embed], ephemeral: true });
+              if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ embeds: [embed], ephemeral: true });
+              } else {
+                await interaction.followUp({ embeds: [embed], ephemeral: true });
+              }
             }
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
@@ -9353,11 +9463,21 @@ async function handleRoleInteraction(interaction) {
                     if (resetSuccess) {
                         await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
                     } else {
-                        await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                        // If reset failed, we need to handle the interaction state properly
+                        if (!interaction.replied && !interaction.deferred) {
+                            await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                        } else {
+                            await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                        }
                     }
                 } catch (error) {
                     console.error("Error updating role menu dropdown:", error);
-                    await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                    // Fallback: handle interaction state properly
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                    } else {
+                        await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                    }
                 }
             } else {
                 await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
@@ -10721,19 +10841,26 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      // Process the selection invisibly - defer update to avoid visual changes
+      // Reset the dropdown to clear visual selection, then send response
       try {
-        const resetSuccess = await resetDropdownSelection(interaction);
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        const resetSuccess = await resetDropdownSelection(interaction, updatedComponents);
         
         if (resetSuccess) {
-          // Send page content as follow-up after successful invisible processing
-          await interaction.followUp({ embeds: [embed], ephemeral: true });
+          // Wait a moment then send page content as follow-up
+          setTimeout(async () => {
+            try {
+              await interaction.followUp({ embeds: [embed], ephemeral: true });
+            } catch (followUpError) {
+              console.error("Error sending follow-up:", followUpError);
+            }
+          }, 150);
         } else {
-          // Fallback to reply if defer fails
+          // Fallback to reply if reset fails
           await interaction.reply({ embeds: [embed], ephemeral: true });
         }
       } catch (error) {
-        console.error("Error processing hybrid menu dropdown:", error);
+        console.error("Error resetting hybrid menu dropdown:", error);
         // Fallback to just replying with the page content
         return interaction.reply({ embeds: [embed], ephemeral: true });
       }
@@ -10816,19 +10943,26 @@ async function handleHybridMenuInteraction(interaction) {
         await member.roles.remove(rolesToRemove);
       }
 
-      // Process the selection invisibly - defer update to avoid visual changes
+      // Reset the dropdown to clear visual selection, then send response
       try {
-        const resetSuccess = await resetDropdownSelection(interaction);
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        const resetSuccess = await resetDropdownSelection(interaction, updatedComponents);
         
         if (resetSuccess) {
-          // Send notification as follow-up after successful invisible processing
-          await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
+          // Wait a moment then send notification as follow-up
+          setTimeout(async () => {
+            try {
+              await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
+            } catch (followUpError) {
+              console.error("Error sending follow-up:", followUpError);
+            }
+          }, 150);
         } else {
-          // Fallback to notification follow-up if defer fails
+          // Fallback to notification follow-up if reset fails
           await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
         }
       } catch (error) {
-        console.error("Error processing hybrid menu dropdown:", error);
+        console.error("Error resetting hybrid menu dropdown:", error);
         // Fallback to notification follow-up
         await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
       }
