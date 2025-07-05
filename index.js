@@ -1464,15 +1464,22 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     
     if (isWebhookMessage) {
       console.log("🌐 Webhook message detected - using webhook-specific dropdown reset");
+      console.log(`[Webhook Debug] Message ID: ${originalMessage.id}, Webhook ID: ${originalMessage.webhookId}`);
       
       // For webhook messages, we need to use the webhook to edit the message
       try {
         const webhooks = await originalMessage.channel.fetchWebhooks();
+        console.log(`[Webhook Debug] Found ${webhooks.size} webhooks in channel`);
+        
         const webhook = webhooks.find(w => w.id === originalMessage.webhookId);
         
         if (webhook) {
+          console.log(`[Webhook Debug] Found matching webhook: ${webhook.name}`);
+          
           // For hybrid menus, we need to identify the menu type and ID
           const customId = interaction.customId;
+          console.log(`[Webhook Debug] Interaction customId: ${customId}`);
+          
           let menuId = null;
           
           // Extract menu ID from custom ID patterns
@@ -1488,20 +1495,32 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
             }
           }
           
+          console.log(`[Webhook Debug] Extracted menu ID: ${menuId}`);
+          
           if (menuId) {
             // Find the menu configuration
             const menu = db.hybridMenuData.get(menuId);
+            console.log(`[Webhook Debug] Found menu configuration: ${menu ? 'Yes' : 'No'}`);
+            
             if (menu) {
               // Use the webhook-specific component rebuilding
               const freshComponents = await rebuildHybridMenuComponentsForWebhook(originalMessage, menu, menuId);
+              
+              console.log(`[Webhook Debug] Generated ${freshComponents ? freshComponents.length : 0} fresh components`);
               
               if (freshComponents && freshComponents.length > 0) {
                 await webhook.editMessage(originalMessage.id, {
                   components: freshComponents
                 });
                 console.log("✅ Webhook message components refreshed with dropdown reset");
+              } else {
+                console.warn("⚠️ No fresh components generated for webhook message");
               }
+            } else {
+              console.warn(`⚠️ Menu configuration not found for ID: ${menuId}`);
             }
+          } else {
+            console.warn("⚠️ Could not extract menu ID from custom ID");
           }
         } else {
           console.warn("⚠️ Webhook not found for webhook message, skipping component reset");
@@ -3149,6 +3168,10 @@ async function loadHybridMenusFromLocalFile() {
  */
 async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybridMenuId) {
   console.log(`[Webhook Debug] Rebuilding hybrid menu components for webhook message`);
+  console.log(`[Webhook Debug] Menu has pages: ${menu.pages ? menu.pages.length : 0}`);
+  console.log(`[Webhook Debug] Menu has dropdownRoles: ${menu.dropdownRoles ? menu.dropdownRoles.length : 0}`);
+  console.log(`[Webhook Debug] Menu infoSelectionType: ${menu.infoSelectionType}`);
+  console.log(`[Webhook Debug] Menu roleSelectionType: ${menu.roleSelectionType}`);
   
   try {
     // Create completely fresh components using the original menu configuration
@@ -3159,6 +3182,8 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
     // Build info pages dropdown if configured
     if (menu.pages && menu.pages.length > 0 && 
         (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+      
+      console.log(`[Webhook Debug] Building info pages dropdown with ${menu.pages.length} pages`);
       
       const infoOptions = menu.pages.map((page, index) => ({
         label: page.name?.slice(0, 100) || `Page ${index + 1}`,
@@ -3174,12 +3199,15 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
           .addOptions(infoOptions.slice(0, 25)); // Discord limit
 
         components.push(new ActionRowBuilder().addComponents(infoSelect));
+        console.log(`[Webhook Debug] Added info pages dropdown`);
       }
     }
 
     // Build roles dropdown if configured
     if ((menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
         (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+      
+      console.log(`[Webhook Debug] Building roles dropdown with ${menu.dropdownRoles.length} roles`);
       
       const guild = originalMessage.guild;
       if (guild) {
