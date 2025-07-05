@@ -5682,6 +5682,52 @@ client.on("interactionCreate", async (interaction) => {
           return showHybridMenuConfiguration(interaction, hybridMenuId);
         }
 
+        if (action === "select_page_display_type") {
+          const hybridMenuId = parts[2];
+          const displayType = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Processing select_page_display_type for menu: ${hybridMenuId}, display type: ${displayType}`);
+          
+          try {
+            const modal = new ModalBuilder()
+              .setCustomId(`hybrid:modal:add_info_page_with_type:${hybridMenuId}:${displayType}`)
+              .setTitle("Add Information Page")
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("title")
+                    .setLabel("Page Title")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setPlaceholder("Enter page title (e.g., 'Server Rules')")
+                    .setMaxLength(100)
+                ),
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("description")
+                    .setLabel("Page Description")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setPlaceholder("Enter the content for this page...")
+                    .setMaxLength(4000)
+                ),
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId("emoji")
+                    .setLabel("Page Emoji (optional)")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(false)
+                    .setPlaceholder("📋")
+                    .setMaxLength(10)
+                )
+              );
+            return interaction.showModal(modal);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error showing modal for display type ${displayType}:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error showing page creation form. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
         if (action === "select_dropdown_role") {
           const hybridMenuId = parts[2];
           const selectedRoleIds = interaction.values;
@@ -8117,6 +8163,46 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Menu] Error adding info page from JSON:`, error);
             return sendEphemeralEmbed(interaction, "❌ Failed to add information page from JSON. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "add_info_page_with_type") {
+          try {
+            const hybridMenuId = parts[3];
+            const displayType = parts[4];
+            const title = interaction.fields.getTextInputValue("title");
+            const description = interaction.fields.getTextInputValue("description");
+            const emoji = interaction.fields.getTextInputValue("emoji") || null;
+            
+            console.log(`[Hybrid Menu] Adding info page "${title}" with display type "${displayType}" to menu ${hybridMenuId}`);
+            
+            // Add the page to the hybrid menu
+            const pageId = generateId();
+            const newPage = {
+              id: pageId,
+              title: title,
+              description: description,
+              emoji: emoji,
+              displayType: displayType, // Store the display type on the page
+              createdAt: new Date().toISOString()
+            };
+            
+            // Get current menu and add the page
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+            
+            const currentPages = menu.pages || [];
+            currentPages.push(newPage);
+            
+            await db.updateHybridMenu(hybridMenuId, { pages: currentPages });
+            
+            await sendEphemeralEmbed(interaction, `✅ Information page "${title}" added successfully as ${displayType}!`, "#00FF00", "Success", false);
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Menu] Error adding info page with type:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to add information page. Please try again.", "#FF0000", "Error", false);
           }
         }
 
