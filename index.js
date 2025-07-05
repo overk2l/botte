@@ -1192,10 +1192,12 @@ async createHybridMenu(guildId, name, desc) {
     name,
     desc,
     // Information menu properties
-    infoSelectionType: [], // Array of 'dropdown' and/or 'button' for info
+    infoSelectionType: [], // Array of 'dropdown' and/or 'button' for info (legacy)
+    defaultInfoDisplayType: 'dropdown', // New field for info pages default
     pages: [], // Array of page objects: { id, name, content }
     // Reaction role properties
-    roleSelectionType: [], // Array of 'dropdown' and/or 'button' for roles
+    roleSelectionType: [], // Array of 'dropdown' and/or 'button' for roles (legacy)
+    defaultRoleDisplayType: 'dropdown', // New field for roles default
     dropdownRoles: [],
     buttonRoles: [],
     dropdownEmojis: {},
@@ -2771,8 +2773,8 @@ client.on("interactionCreate", async (interaction) => {
           return await clearTimeoutAndProcess(async () => {
             try {
               await db.updateHybridMenu(hybridMenuId, {
-                infoSelectionType: [],
-                roleSelectionType: []
+                defaultInfoDisplayType: 'dropdown',
+                defaultRoleDisplayType: 'dropdown'
               });
               
               await sendEphemeralEmbed(interaction, "✅ All menu-wide defaults have been cleared!", "#00FF00", "Success", false);
@@ -2923,74 +2925,6 @@ client.on("interactionCreate", async (interaction) => {
               )
             );
           return interaction.showModal(modal);
-        }
-
-        if (action === "set_info_display") {
-          const hybridMenuId = parts[2];
-          console.log(`[Hybrid Debug] Processing set_info_display for menu: ${hybridMenuId}`);
-          
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`hybrid:save_info_display:${hybridMenuId}`)
-                .setPlaceholder("Choose how info pages are displayed...")
-                .addOptions([
-                  { label: "Dropdown Only", value: "dropdown", description: "Show info pages as dropdown options" },
-                  { label: "Buttons Only", value: "button", description: "Show info pages as buttons" },
-                  { label: "Both Dropdown and Buttons", value: "both", description: "Show info pages as both dropdown and buttons" }
-                ]);
-
-              const row = new ActionRowBuilder().addComponents(selectMenu);
-              
-              // Use editReply for deferred interactions, reply for non-deferred
-              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
-              const replyOptions = {
-                content: "Select how you want information pages to be displayed:",
-                components: [row],
-                flags: MessageFlags.Ephemeral
-              };
-
-              await interaction[replyMethod](replyOptions);
-              console.log(`[Hybrid Debug] Successfully sent info display selection menu using ${replyMethod}`);
-            } catch (error) {
-              console.error(`[Hybrid Debug] Error sending info display menu:`, error);
-              return sendEphemeralEmbed(interaction, "❌ Error showing display options. Please try again.", "#FF0000", "Error", false);
-            }
-          });
-        }
-
-        if (action === "set_role_display") {
-          const hybridMenuId = parts[2];
-          console.log(`[Hybrid Debug] Processing set_role_display for menu: ${hybridMenuId}`);
-          
-          return await clearTimeoutAndProcess(async () => {
-            try {
-              const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`hybrid:save_role_display:${hybridMenuId}`)
-                .setPlaceholder("Choose how roles are displayed...")
-                .addOptions([
-                  { label: "Dropdown Only", value: "dropdown", description: "Show roles as dropdown options" },
-                  { label: "Buttons Only", value: "button", description: "Show roles as buttons" },
-                  { label: "Both Dropdown and Buttons", value: "both", description: "Show roles as both dropdown and buttons" }
-                ]);
-
-              const row = new ActionRowBuilder().addComponents(selectMenu);
-              
-              // Use editReply for deferred interactions, reply for non-deferred
-              const replyMethod = interaction.deferred ? 'editReply' : 'reply';
-              const replyOptions = {
-                content: "Select how you want reaction roles to be displayed:",
-                components: [row],
-                flags: MessageFlags.Ephemeral
-              };
-
-              await interaction[replyMethod](replyOptions);
-              console.log(`[Hybrid Debug] Successfully sent role display selection menu using ${replyMethod}`);
-            } catch (error) {
-              console.error(`[Hybrid Debug] Error sending role display menu:`, error);
-              return sendEphemeralEmbed(interaction, "❌ Error showing display options. Please try again.", "#FF0000", "Error", false);
-            }
-          });
         }
 
         if (action === "add_dropdown_role") {
@@ -5647,7 +5581,10 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             const infoSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
-            await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
+            await db.updateHybridMenu(hybridMenuId, { 
+              infoSelectionType, // Keep legacy field for compatibility
+              defaultInfoDisplayType: displayType // New field
+            });
 
             console.log(`[Hybrid Debug] Successfully set info display type to: ${displayType}`);
             // Pass success message to the configuration function
@@ -5672,7 +5609,10 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             const roleSelectionType = displayType === "both" ? ["dropdown", "button"] : [displayType];
-            await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
+            await db.updateHybridMenu(hybridMenuId, { 
+              roleSelectionType, // Keep legacy field for compatibility
+              defaultRoleDisplayType: displayType // New field
+            });
 
             console.log(`[Hybrid Debug] Successfully set role display type to: ${displayType}`);
             // Pass success message to the configuration function
@@ -5817,16 +5757,7 @@ client.on("interactionCreate", async (interaction) => {
           console.log(`[Hybrid Debug] Processing save_info_default for menu: ${hybridMenuId}, type: ${selectedType}`);
           
           try {
-            let infoSelectionType = [];
-            if (selectedType === "dropdown") {
-              infoSelectionType = ["dropdown"];
-            } else if (selectedType === "button") {
-              infoSelectionType = ["button"];
-            } else if (selectedType === "both") {
-              infoSelectionType = ["dropdown", "button"];
-            }
-
-            await db.updateHybridMenu(hybridMenuId, { infoSelectionType });
+            await db.updateHybridMenu(hybridMenuId, { defaultInfoDisplayType: selectedType });
             
             console.log(`[Hybrid Debug] Successfully saved info default: ${selectedType}`);
             await sendEphemeralEmbed(interaction, `✅ Info pages default display type set to: ${selectedType}!`, "#00FF00", "Success", false);
@@ -5844,16 +5775,7 @@ client.on("interactionCreate", async (interaction) => {
           console.log(`[Hybrid Debug] Processing save_role_default for menu: ${hybridMenuId}, type: ${selectedType}`);
           
           try {
-            let roleSelectionType = [];
-            if (selectedType === "dropdown") {
-              roleSelectionType = ["dropdown"];
-            } else if (selectedType === "button") {
-              roleSelectionType = ["button"];
-            } else if (selectedType === "both") {
-              roleSelectionType = ["dropdown", "button"];
-            }
-
-            await db.updateHybridMenu(hybridMenuId, { roleSelectionType });
+            await db.updateHybridMenu(hybridMenuId, { defaultRoleDisplayType: selectedType });
             
             console.log(`[Hybrid Debug] Successfully saved role default: ${selectedType}`);
             await sendEphemeralEmbed(interaction, `✅ Role default display type set to: ${selectedType}!`, "#00FF00", "Success", false);
@@ -9251,29 +9173,24 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
             effectiveDisplayType = menu.displayTypes?.[itemId];
             if (!effectiveDisplayType) {
                 // Use menu-wide default for info pages
-                effectiveDisplayType = menu.infoSelectionType;
+                effectiveDisplayType = menu.defaultInfoDisplayType || 'dropdown';
             }
         } else if (itemType === 'role') {
             // Check for per-role override
             effectiveDisplayType = menu.roleDisplayTypes?.[itemId];
             if (!effectiveDisplayType) {
                 // Use menu-wide default for roles
-                effectiveDisplayType = menu.roleSelectionType;
+                effectiveDisplayType = menu.defaultRoleDisplayType || 'dropdown';
             }
         }
         
-        // Handle empty or null display types
-        if (!effectiveDisplayType || (Array.isArray(effectiveDisplayType) && effectiveDisplayType.length === 0)) {
-            return false; // Hidden
+        // Handle hidden items
+        if (effectiveDisplayType === 'hidden') {
+            return false;
         }
         
-        // Handle array format (e.g., ["dropdown", "button"])
-        if (Array.isArray(effectiveDisplayType)) {
-            return effectiveDisplayType.includes(displayType);
-        }
-        
-        // Handle string format or both
-        if (effectiveDisplayType === "both") {
+        // Handle both
+        if (effectiveDisplayType === 'both') {
             return true;
         }
         
@@ -9546,6 +9463,432 @@ async function updatePublishedHybridMenuComponents(interaction, menu, hybridMenu
             await db.updateHybridMenu(hybridMenuId, { channelId: null, messageId: null });
         }
     }
+}
+
+// Show comprehensive display types configuration for hybrid menus
+async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🎛️ Display Types Configuration: ${menu.name}`)
+    .setDescription(`**Configure how each item appears in your hybrid menu:**\n\n` +
+      `**📋 Dropdown** - Item appears in dropdown menu\n` +
+      `**🔘 Button** - Item appears as individual button\n` +
+      `**📋🔘 Both** - Item appears in both dropdown and button\n` +
+      `**❌ Hidden** - Item exists but won't be shown\n\n` +
+      `**Menu-wide defaults apply to all items unless overridden individually.**`)
+    .setColor("#5865F2");
+
+  const components = [];
+
+  // Get menu defaults
+  const infoDefault = menu.defaultInfoDisplayType || 'dropdown';
+  const roleDefault = menu.defaultRoleDisplayType || 'dropdown';
+
+  // Menu-wide defaults section
+  const defaultsRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:set_info_default:${hybridMenuId}`)
+      .setLabel(`Info Default: ${infoDefault}`)
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📋"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:set_role_default:${hybridMenuId}`)
+      .setLabel(`Role Default: ${roleDefault}`)
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎭"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:clear_all_defaults:${hybridMenuId}`)
+      .setLabel("Clear All Defaults")
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji("🗑️")
+  );
+
+  // Info Pages section
+  const infoPages = db.getInfoMenuPages(menu.infoMenuId);
+  if (infoPages.length > 0) {
+    embed.addFields([
+      { name: "📋 Info Pages", value: `**Default: ${infoDefault}**`, inline: false }
+    ]);
+
+    let infoFieldValue = "";
+    const infoOverrides = menu.displayTypes || {};
+    
+    for (const page of infoPages.slice(0, 10)) { // Limit to 10 for display
+      const override = infoOverrides[page.id];
+      const displayType = override || infoDefault;
+      const displayEmoji = {
+        'dropdown': '📋',
+        'button': '🔘',
+        'both': '📋🔘',
+        'hidden': '❌'
+      }[displayType] || '📋';
+      
+      infoFieldValue += `${displayEmoji} **${page.name}** ${override ? `(Override: ${displayType})` : '(Default)'}\n`;
+    }
+
+    if (infoFieldValue) {
+      embed.addFields([
+        { name: "Current Info Page Display Types", value: infoFieldValue, inline: false }
+      ]);
+    }
+  }
+
+  // Roles section
+  const roles = db.getMenuRoles(menu.roleMenuId);
+  if (roles.length > 0) {
+    embed.addFields([
+      { name: "🎭 Reaction Roles", value: `**Default: ${roleDefault}**`, inline: false }
+    ]);
+
+    let rolesFieldValue = "";
+    const roleOverrides = menu.roleDisplayTypes || {};
+    
+    for (const role of roles.slice(0, 10)) { // Limit to 10 for display
+      const override = roleOverrides[role.id];
+      const displayType = override || roleDefault;
+      const displayEmoji = {
+        'dropdown': '📋',
+        'button': '🔘',
+        'both': '📋🔘',
+        'hidden': '❌'
+      }[displayType] || '📋';
+      
+      rolesFieldValue += `${displayEmoji} **${role.name}** ${override ? `(Override: ${displayType})` : '(Default)'}\n`;
+    }
+
+    if (rolesFieldValue) {
+      embed.addFields([
+        { name: "Current Role Display Types", value: rolesFieldValue, inline: false }
+      ]);
+    }
+  }
+
+  // Individual item configuration button
+  const individualRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:configure_individual:${hybridMenuId}`)
+      .setLabel("Configure Individual Items")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("⚙️"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:clear_all_overrides:${hybridMenuId}`)
+      .setLabel("Clear All Overrides")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🔄"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:bulk_setup:${hybridMenuId}`)
+      .setLabel("Bulk Setup Wizard")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🪄")
+  );
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:back_to_config:${hybridMenuId}`)
+      .setLabel("← Back to Menu Config")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  components.push(defaultsRow, individualRow, backRow);
+
+  await interaction.editReply({
+    embeds: [embed],
+    components,
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+// Show individual item configuration for fine-grained control
+async function showIndividualItemConfiguration(interaction, hybridMenuId) {
+  const menu = db.getHybridMenu(hybridMenuId);
+  if (!menu) {
+    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`⚙️ Individual Item Configuration: ${menu.name}`)
+    .setDescription(`**Configure display types for individual items:**\n\n` +
+      `Click any item to cycle through: Dropdown → Button → Both → Hidden → Default`)
+    .setColor("#5865F2");
+
+  const components = [];
+
+  // Get current overrides
+  const infoOverrides = menu.displayTypes || {};
+  const roleOverrides = menu.roleDisplayTypes || {};
+  const infoDefault = menu.defaultInfoDisplayType || 'dropdown';
+  const roleDefault = menu.defaultRoleDisplayType || 'dropdown';
+
+  // Info Pages
+  const infoPages = db.getInfoMenuPages(menu.infoMenuId);
+  if (infoPages.length > 0) {
+    embed.addFields([
+      { name: "📋 Info Pages", value: "Click to configure each page:", inline: false }
+    ]);
+
+    const infoRows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonsInRow = 0;
+
+    for (const page of infoPages.slice(0, 20)) { // Limit to 20 items
+      if (buttonsInRow >= 5) {
+        infoRows.push(currentRow);
+        currentRow = new ActionRowBuilder();
+        buttonsInRow = 0;
+      }
+
+      const override = infoOverrides[page.id];
+      const displayType = override || infoDefault;
+      const isOverridden = !!override;
+      
+      const displayEmoji = {
+        'dropdown': '📋',
+        'button': '🔘',
+        'both': '📋🔘',
+        'hidden': '❌'
+      }[displayType] || '📋';
+
+      const button = new ButtonBuilder()
+        .setCustomId(`hybrid:toggle_page_display:${hybridMenuId}:${page.id}`)
+        .setLabel(`${page.name.substring(0, 20)}`)
+        .setEmoji(displayEmoji)
+        .setStyle(isOverridden ? ButtonStyle.Primary : ButtonStyle.Secondary);
+
+      currentRow.addComponents(button);
+      buttonsInRow++;
+    }
+
+    if (buttonsInRow > 0) {
+      infoRows.push(currentRow);
+    }
+
+    components.push(...infoRows);
+  }
+
+  // Roles
+  const roles = db.getMenuRoles(menu.roleMenuId);
+  if (roles.length > 0) {
+    embed.addFields([
+      { name: "🎭 Reaction Roles", value: "Click to configure each role:", inline: false }
+    ]);
+
+    const roleRows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonsInRow = 0;
+
+    for (const role of roles.slice(0, 20)) { // Limit to 20 items
+      if (buttonsInRow >= 5) {
+        roleRows.push(currentRow);
+        currentRow = new ActionRowBuilder();
+        buttonsInRow = 0;
+      }
+
+      const override = roleOverrides[role.id];
+      const displayType = override || roleDefault;
+      const isOverridden = !!override;
+      
+      const displayEmoji = {
+        'dropdown': '📋',
+        'button': '🔘',
+        'both': '📋🔘',
+        'hidden': '❌'
+      }[displayType] || '📋';
+
+      const button = new ButtonBuilder()
+        .setCustomId(`hybrid:toggle_role_display:${hybridMenuId}:${role.id}`)
+        .setLabel(`${role.name.substring(0, 20)}`)
+        .setEmoji(displayEmoji)
+        .setStyle(isOverridden ? ButtonStyle.Primary : ButtonStyle.Secondary);
+
+      currentRow.addComponents(button);
+      buttonsInRow++;
+    }
+
+    if (buttonsInRow > 0) {
+      roleRows.push(currentRow);
+    }
+
+    components.push(...roleRows);
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
+      .setLabel("← Back to Display Types")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  components.push(backRow);
+
+  await interaction.editReply({
+    embeds: [embed],
+    components,
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+// ...existing code...
+
+if (action === "configure_individual") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    return showIndividualItemConfiguration(interaction, hybridMenuId);
+  });
+}
+
+if (action === "back_to_display_types") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+  });
+}
+
+if (action === "clear_all_defaults") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    try {
+      await db.updateHybridMenu(hybridMenuId, {
+        defaultInfoDisplayType: null,
+        defaultRoleDisplayType: null
+      });
+      
+      await sendEphemeralEmbed(interaction, "✅ All menu-wide defaults have been cleared!", "#00FF00", "Success", false);
+      return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+    } catch (error) {
+      console.error("Error clearing all defaults:", error);
+      return sendEphemeralEmbed(interaction, "❌ Error clearing defaults. Please try again.", "#FF0000", "Error", false);
+    }
+  });
+}
+
+if (action === "clear_all_overrides") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    try {
+      await db.updateHybridMenu(hybridMenuId, {
+        displayTypes: {},
+        roleDisplayTypes: {}
+      });
+      
+      await sendEphemeralEmbed(interaction, "✅ All per-item overrides have been cleared!", "#00FF00", "Success", false);
+      return showHybridDisplayTypesConfiguration(interaction, hybridMenuId);
+    } catch (error) {
+      console.error("Error clearing all overrides:", error);
+      return sendEphemeralEmbed(interaction, "❌ Error clearing overrides. Please try again.", "#FF0000", "Error", false);
+    }
+  });
+}
+
+if (action === "toggle_page_display") {
+  const hybridMenuId = parts[2];
+  const pageId = parts[3];
+  return await clearTimeoutAndProcess(async () => {
+    try {
+      const menu = db.getHybridMenu(hybridMenuId);
+      if (!menu) {
+        return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+      }
+
+      const currentOverrides = menu.displayTypes || {};
+      const currentOverride = currentOverrides[pageId];
+      const defaultType = menu.defaultInfoDisplayType || 'dropdown';
+      
+      // Cycle through: default → dropdown → button → both → hidden → default
+      let newType;
+      if (!currentOverride) {
+        newType = 'dropdown';
+      } else if (currentOverride === 'dropdown') {
+        newType = 'button';
+      } else if (currentOverride === 'button') {
+        newType = 'both';
+      } else if (currentOverride === 'both') {
+        newType = 'hidden';
+      } else {
+        // Remove override (back to default)
+        delete currentOverrides[pageId];
+        await db.updateHybridMenu(hybridMenuId, {
+          displayTypes: currentOverrides
+        });
+        return showIndividualItemConfiguration(interaction, hybridMenuId);
+      }
+
+      currentOverrides[pageId] = newType;
+      await db.updateHybridMenu(hybridMenuId, {
+        displayTypes: currentOverrides
+      });
+      
+      return showIndividualItemConfiguration(interaction, hybridMenuId);
+    } catch (error) {
+      console.error("Error toggling page display:", error);
+      return sendEphemeralEmbed(interaction, "❌ Error toggling page display. Please try again.", "#FF0000", "Error", false);
+    }
+  });
+}
+
+if (action === "toggle_role_display") {
+  const hybridMenuId = parts[2];
+  const roleId = parts[3];
+  return await clearTimeoutAndProcess(async () => {
+    try {
+      const menu = db.getHybridMenu(hybridMenuId);
+      if (!menu) {
+        return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+      }
+
+      const currentOverrides = menu.roleDisplayTypes || {};
+      const currentOverride = currentOverrides[roleId];
+      const defaultType = menu.defaultRoleDisplayType || 'dropdown';
+      
+      // Cycle through: default → dropdown → button → both → hidden → default
+      let newType;
+      if (!currentOverride) {
+        newType = 'dropdown';
+      } else if (currentOverride === 'dropdown') {
+        newType = 'button';
+      } else if (currentOverride === 'button') {
+        newType = 'both';
+      } else if (currentOverride === 'both') {
+        newType = 'hidden';
+      } else {
+        // Remove override (back to default)
+        delete currentOverrides[roleId];
+        await db.updateHybridMenu(hybridMenuId, {
+          roleDisplayTypes: currentOverrides
+        });
+        return showIndividualItemConfiguration(interaction, hybridMenuId);
+      }
+
+      currentOverrides[roleId] = newType;
+      await db.updateHybridMenu(hybridMenuId, {
+        roleDisplayTypes: currentOverrides
+      });
+      
+      return showIndividualItemConfiguration(interaction, hybridMenuId);
+    } catch (error) {
+      console.error("Error toggling role display:", error);
+      return sendEphemeralEmbed(interaction, "❌ Error toggling role display. Please try again.", "#FF0000", "Error", false);
+    }
+  });
+}
+
+if (action === "bulk_setup") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    return showBulkSetupWizard(interaction, hybridMenuId);
+  });
+}
+
+if (action === "back_to_config") {
+  const hybridMenuId = parts[2];
+  return await clearTimeoutAndProcess(async () => {
+    return showHybridMenuConfiguration(interaction, hybridMenuId);
+  });
 }
 
 // ...existing code...
@@ -11058,12 +11401,12 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
     .addFields([
       { 
         name: "📋 Information Pages", 
-        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.infoSelectionType?.length > 0 ? menu.infoSelectionType.join(', ') : 'None'}`, 
+        value: `${menu.pages?.length || 0} pages configured\nDisplay: ${menu.defaultInfoDisplayType || 'dropdown'}`, 
         inline: true 
       },
       { 
         name: "🎭 Reaction Roles", 
-        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.roleSelectionType?.length > 0 ? menu.roleSelectionType.join(', ') : 'None'}`, 
+        value: `${(menu.dropdownRoles?.length || 0) + (menu.buttonRoles?.length || 0)} roles configured\nDisplay: ${menu.defaultRoleDisplayType || 'dropdown'}`, 
         inline: true 
       },
       { 
@@ -11465,12 +11808,6 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
         .setLabel(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? "Disable Buttons" : "Enable Buttons")
         .setStyle(Array.isArray(menu.selectionType) && menu.selectionType.includes("button") || menu.selectionType === "button" ? ButtonStyle.Danger : ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`info:configure_display:${infoMenuId}`)
-        .setLabel("Configure Page Display")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🎛️")
-        .setDisabled(menu.pages.length === 0),
-      new ButtonBuilder()
         .setCustomId(`info:manage_pages:${infoMenuId}`)
         .setLabel("Manage Pages")
         .setStyle(ButtonStyle.Secondary),
@@ -11621,12 +11958,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId, successMes
       .setCustomId(`hybrid:add_info_page_json:${hybridMenuId}`)
       .setLabel("Add Page from JSON")
       .setStyle(ButtonStyle.Primary)
-      .setEmoji("📄"),
-    new ButtonBuilder()
-      .setCustomId(`hybrid:set_info_display:${hybridMenuId}`)
-      .setLabel("Set Display Type")
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji("🎯")
+      .setEmoji("📄")
   );
   components.push(addPageRow);
 
@@ -11733,12 +12065,7 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId, successMe
       .setCustomId(`hybrid:add_button_role:${hybridMenuId}`)
       .setLabel("Add Button Role")
       .setStyle(ButtonStyle.Success)
-      .setEmoji("🔘"),
-    new ButtonBuilder()
-      .setCustomId(`hybrid:set_role_display:${hybridMenuId}`)
-      .setLabel("Set Display Type")
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji("🎯")
+      .setEmoji("🔘")
   );
   components.push(addRoleRow);
 
