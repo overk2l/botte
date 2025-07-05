@@ -2110,12 +2110,12 @@ client.on("interactionCreate", async (interaction) => {
     // Hybrid menu modal triggers
     (interaction.isButton() && interaction.customId === "hybrid:create") ||
     (interaction.isButton() && interaction.customId === "hybrid:create_from_json") ||
-    (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:add_info_page_json:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_info_page:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:customize_dropdown_text:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:webhook_branding:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:toggle_member_counts:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid:select_page_display_type:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
     (interaction.isButton() && interaction.customId.startsWith("schedule:webhook:"))
