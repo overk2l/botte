@@ -326,9 +326,27 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
         } else if (component.type === ComponentType.Button) {
           // Rebuild buttons with fresh unique timestamp
           const baseParts = component.customId?.split(':') || [];
-          const newCustomId = baseParts.length >= 3 
-            ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
-            : component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
+          let newCustomId;
+          
+          // Special handling for role buttons to preserve role ID
+          if (component.customId?.includes('role-button:')) {
+            // Format: prefix-role-button:menuId:roleId or prefix-role-button:menuId:roleId:oldTimestamp
+            if (baseParts.length === 3) {
+              // Format: prefix-role-button:menuId:roleId
+              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
+            } else if (baseParts.length === 4) {
+              // Format: prefix-role-button:menuId:roleId:oldTimestamp
+              newCustomId = `${baseParts[0]}:${baseParts[1]}:${baseParts[2]}:${uniqueTimestamp}`;
+            } else {
+              // Fallback for unexpected format
+              newCustomId = component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
+            }
+          } else {
+            // Regular button handling
+            newCustomId = baseParts.length >= 3 
+              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+              : component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
+          }
           
           const newButton = new ButtonBuilder()
             .setCustomId(newCustomId)
@@ -9473,6 +9491,43 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 /**
+ * Handles button selection with Sapphire-style behavior
+ * @param {import('discord.js').Interaction} interaction - The button interaction
+ * @param {Array} addedRoles - Array of role IDs that were added
+ * @param {Array} removedRoles - Array of role IDs that were removed
+ * @param {import('discord.js').GuildMember} member - The guild member
+ */
+async function handleButtonSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
+  try {
+    console.log("🔄 Starting professional button handling...");
+    
+    // 🔥 SAPPHIRE APPROACH: For buttons, we don't need to reset components
+    // Just send the role change notification as ephemeral followUp
+    
+    // Send role change notification as ephemeral followUp
+    if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
+    } else if (member) {
+      // No changes case - send ephemeral followUp
+      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+    }
+    
+    console.log("✅ Professional button handling completed");
+  } catch (error) {
+    console.error("Error in handleButtonSelection:", error);
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "❌ An error occurred processing your button interaction.", flags: MessageFlags.Ephemeral });
+      } else {
+        await interaction.followUp({ content: "❌ An error occurred processing your button interaction.", flags: MessageFlags.Ephemeral });
+      }
+    } catch (fallbackError) {
+      console.error("Fallback error in handleButtonSelection:", fallbackError);
+    }
+  }
+}
+
+/**
  * Safely sends a followUp message, ensuring the interaction is properly deferred for dropdowns
  * @param {import('discord.js').Interaction} interaction - The interaction object
  * @param {Object} messageOptions - The message options to send
@@ -9742,7 +9797,22 @@ async function handleRoleInteraction(interaction) {
                     }
                 }
             } else {
-                await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
+                // For button interactions, use the button handler
+                try {
+                    await handleButtonSelection(interaction, validRolesToAdd, validRolesToRemove, member);
+                } catch (buttonError) {
+                    console.error("Error handling button interaction:", buttonError);
+                    // Fallback to notification
+                    try {
+                        if (interaction.deferred) {
+                            await interaction.followUp({ content: "✅ Role updated successfully!", ephemeral: true });
+                        } else if (!interaction.replied) {
+                            await interaction.reply({ content: "✅ Role updated successfully!", ephemeral: true });
+                        }
+                    } catch (fallbackError) {
+                        console.error("Fallback error handling failed:", fallbackError);
+                    }
+                }
             }
         } else {
             if (interaction.isStringSelectMenu()) {
@@ -9763,7 +9833,21 @@ async function handleRoleInteraction(interaction) {
                     }
                 }
             } else {
-                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
+                // For button interactions (no changes), use the button handler
+                try {
+                    await handleButtonSelection(interaction, [], [], member);
+                } catch (error) {
+                    console.error("Error handling button interaction (no changes):", error);
+                    try {
+                        if (interaction.deferred) {
+                            await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                        } else if (!interaction.replied) {
+                            await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                        }
+                    } catch (fallbackError) {
+                        console.error("Fallback error handling failed:", fallbackError);
+                    }
+                }
             }
         }
 
