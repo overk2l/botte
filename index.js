@@ -10709,8 +10709,19 @@ async function handleRoleInteraction(interaction) {
             
             console.log(`[DEBUG] Dropdown - Selected values:`, selectedValues);
             
+            // Extract role IDs from selected values (for hybrid menus, format is "hybrid-role:menuId:roleId")
+            const roleIds = selectedValues.map(value => {
+                if (value.startsWith('hybrid-role:')) {
+                    const parts = value.split(':');
+                    return parts[2]; // Extract the role ID part
+                }
+                return value; // For regular menus, the value is already the role ID
+            });
+            
+            console.log(`[DEBUG] Extracted role IDs:`, roleIds);
+            
             // Validate all selected roles still exist
-            const validSelectedValues = selectedValues.filter(roleId => {
+            const validRoleIds = roleIds.filter(roleId => {
                 const role = interaction.guild.roles.cache.get(roleId);
                 if (!role) {
                     console.warn(`[Warning] Selected role ${roleId} no longer exists in guild`);
@@ -10719,7 +10730,7 @@ async function handleRoleInteraction(interaction) {
                 return true;
             });
             
-            if (validSelectedValues.length === 0) {
+            if (validRoleIds.length === 0) {
                 if (interaction.isStringSelectMenu()) {
                     return safeFollowUp(interaction, { content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
                 } else {
@@ -10728,7 +10739,7 @@ async function handleRoleInteraction(interaction) {
             }
             
             // Toggle each selected role individually
-            for (const selectedRoleId of validSelectedValues) {
+            for (const selectedRoleId of validRoleIds) {
                 const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
                 if (newRoles.has(selectedRoleId)) {
                     newRoles.delete(selectedRoleId);
