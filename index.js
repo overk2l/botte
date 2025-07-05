@@ -331,35 +331,31 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
 }
 
 /**
- * FINAL ATTEMPT: Force dropdown visual reset by completely rebuilding components
- * This approach tries to trick Discord by creating entirely new dropdowns with different IDs
+ * SAPPHIRE-STYLE DROPDOWN RESET: Immediately clear dropdown selection for seamless UX
+ * This approach updates the message with fresh components immediately after selection
  * @param {import('discord.js').Interaction} interaction - The interaction to process
  * @param {Array} originalComponents - The original components to restore (optional)
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // First, acknowledge the interaction
+    // First, acknowledge the interaction to prevent timeout
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
     }
     
-    // FINAL ATTEMPT: Try to force visual reset by rebuilding the entire message
-    // This completely reconstructs all components with new IDs and fresh state
+    // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
     if (originalComponents && originalComponents.length > 0) {
       try {
-        const timestamp = Date.now();
-        const randomSuffix = Math.random().toString(36).substring(2, 8);
-        
-        // Rebuild all components with completely new IDs and reset state
+        // Rebuild components with completely fresh state and no selections
         const freshComponents = originalComponents.map(row => {
           const newRow = new ActionRowBuilder();
           
           row.components.forEach(component => {
             if (component.type === ComponentType.StringSelect) {
-              // Create a completely new dropdown with fresh ID
+              // Create a completely new dropdown with no default selections
               const newDropdown = new StringSelectMenuBuilder()
-                .setCustomId(`${component.customId}_reset_${timestamp}_${randomSuffix}`)
+                .setCustomId(component.customId) // Keep same ID for functionality
                 .setPlaceholder(component.placeholder || 'Select an option...')
                 .setMinValues(component.minValues || 1)
                 .setMaxValues(component.maxValues || 1)
@@ -367,19 +363,23 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
                   label: opt.label,
                   value: opt.value,
                   description: opt.description,
-                  emoji: opt.emoji
+                  emoji: opt.emoji,
+                  default: false // CRITICAL: Always false to clear selections
                 })));
               
               newRow.addComponents(newDropdown);
             } else if (component.type === ComponentType.Button) {
-              // Rebuild buttons with fresh IDs
+              // Rebuild buttons as-is
               const newButton = new ButtonBuilder()
-                .setCustomId(`${component.customId}_reset_${timestamp}_${randomSuffix}`)
+                .setCustomId(component.customId)
                 .setLabel(component.label)
                 .setStyle(component.style);
               
               if (component.emoji) {
                 newButton.setEmoji(component.emoji);
+              }
+              if (component.disabled !== undefined) {
+                newButton.setDisabled(component.disabled);
               }
               
               newRow.addComponents(newButton);
@@ -389,24 +389,24 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
           return newRow;
         });
         
-        // Update the message with completely fresh components
+        // IMMEDIATE UPDATE: This makes the dropdown reset instantly like Sapphire
         await interaction.editReply({
           components: freshComponents
         });
         
-        console.log("Final attempt: Rebuilt components with fresh IDs");
+        console.log("Sapphire-style dropdown reset: Components refreshed with no selections");
         return true;
       } catch (rebuildError) {
-        console.error("Error rebuilding components:", rebuildError);
-        // Fall back to no update
+        console.error("Error in Sapphire-style component rebuild:", rebuildError);
+        // Fall back to simple acknowledgment
       }
     }
     
-    // If all else fails, just acknowledge without changing anything
+    // Fallback: Just acknowledge if no components provided
     return true;
   } catch (error) {
-    console.error("Error in final dropdown reset attempt:", error);
-    // Fallback: at minimum, acknowledge the interaction if needed
+    console.error("Error in Sapphire-style dropdown reset:", error);
+    // Ultimate fallback: at minimum, acknowledge the interaction
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate();
