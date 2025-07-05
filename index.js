@@ -6508,7 +6508,7 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           try {
-            // Reset the dropdown by updating the message with fresh components
+            // Reset the dropdown by updating the message with fresh components via webhook
             const pages = db.getInfoMenuPages(infoMenuId);
             if (pages && pages.length > 0) {
               const selectMenu = new StringSelectMenuBuilder()
@@ -6525,18 +6525,21 @@ client.on("interactionCreate", async (interaction) => {
 
               const row = new ActionRowBuilder().addComponents(selectMenu);
               
-              // Update the message to reset the dropdown
-              await interaction.update({ components: [row] });
+              // Update the message to reset the dropdown via webhook (no "edited" mark)
+              const webhookSuccess = await updateDropdownViaWebhook(interaction.message, [row]);
               
-              // Send the page content as a follow-up
-              await interaction.followUp({ embeds: [embed], ephemeral: true });
+              if (webhookSuccess) {
+                // If webhook update succeeded, reply with page content
+                await interaction.reply({ embeds: [embed], ephemeral: true });
+              } else {
+                // Fallback to normal update if webhook fails
+                await interaction.update({ components: [row] });
+                await interaction.followUp({ embeds: [embed], ephemeral: true });
+              }
             } else {
               // No pages found, fallback to reply
               await interaction.reply({ embeds: [embed], ephemeral: true });
             }
-
-            // Don't update the original message components - this prevents "edited" marks
-            // The dropdown will naturally appear unselected after the interaction
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
             console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
@@ -8934,11 +8937,18 @@ async function handleRoleInteraction(interaction) {
                         components.push(...buttonRows);
                     }
 
-                    // Update the message to reset the dropdown
-                    await interaction.update({ components });
+                    // Update the message to reset the dropdown using webhook (no "edited" mark)
+                    const webhookSuccess = await updateDropdownViaWebhook(interaction.message, components);
                     
-                    // Send the role change notification as a follow-up
-                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                    if (webhookSuccess) {
+                        // If webhook update succeeded, reply with notification
+                        await interaction.reply({ ephemeral: true, content: "Processing..." });
+                        await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                    } else {
+                        // Fallback to normal update if webhook fails
+                        await interaction.update({ components });
+                        await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                    }
                 } catch (error) {
                     console.error("Error updating role menu dropdown:", error);
                     // Fallback to follow-up notification
@@ -8987,8 +8997,16 @@ async function handleRoleInteraction(interaction) {
                         }
                     }
                     
-                    await interaction.update({ components });
-                    await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                    // Still reset the dropdown even if no changes were made using webhook
+                    const webhookSuccess = await updateDropdownViaWebhook(interaction.message, components);
+                    
+                    if (webhookSuccess) {
+                        await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
+                    } else {
+                        // Fallback to normal update if webhook fails
+                        await interaction.update({ components });
+                        await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+                    }
                 } catch (error) {
                     console.error("Error updating role menu dropdown:", error);
                     await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
@@ -10355,13 +10373,19 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      // Reset the dropdown by updating the message with fresh components
+      // Reset the dropdown by updating the message with fresh components via webhook
       try {
         const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        await interaction.update({ components: updatedComponents });
+        const webhookSuccess = await updateDropdownViaWebhook(interaction.message, updatedComponents);
         
-        // Send the page content as a follow-up message
-        await interaction.followUp({ embeds: [embed], ephemeral: true });
+        if (webhookSuccess) {
+          // If webhook update succeeded, reply with page content
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+        } else {
+          // Fallback to normal update if webhook fails
+          await interaction.update({ components: updatedComponents });
+          await interaction.followUp({ embeds: [embed], ephemeral: true });
+        }
       } catch (error) {
         console.error("Error updating hybrid menu dropdown:", error);
         // Fallback to just replying with the page content
@@ -10457,13 +10481,19 @@ async function handleHybridMenuInteraction(interaction) {
         message += `\n**Removed:** ${removedRoles}`;
       }
 
-      // Reset the dropdown by updating the message with fresh components
+      // Reset the dropdown by updating the message with fresh components via webhook
       try {
         const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        await interaction.update({ components: updatedComponents });
+        const webhookSuccess = await updateDropdownViaWebhook(interaction.message, updatedComponents);
         
-        // Send the confirmation as a follow-up message
-        await interaction.followUp({ content: message, ephemeral: true });
+        if (webhookSuccess) {
+          // If webhook update succeeded, reply with confirmation
+          await interaction.reply({ content: message, ephemeral: true });
+        } else {
+          // Fallback to normal update if webhook fails
+          await interaction.update({ components: updatedComponents });
+          await interaction.followUp({ content: message, ephemeral: true });
+        }
       } catch (error) {
         console.error("Error updating hybrid menu dropdown:", error);
         // Fallback to just replying with the confirmation
