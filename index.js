@@ -8804,7 +8804,7 @@ async function handleRoleInteraction(interaction) {
         }
 
         // Update published message components to clear selections and update member counts
-        // Only update if member counts are enabled, otherwise the selections don't persist anyway
+        // Only update if member counts are enabled to avoid unnecessary "edited" marks
         if (menu.showMemberCounts) {
             await updatePublishedMessageComponents(interaction, menu, menuId, true);
         }
@@ -10153,12 +10153,15 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Clear the dropdown selection after showing the info page
       try {
-        // Get the original message to reset the dropdown state
-        const originalMessage = await interaction.message.fetch();
-        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        
-        // Update the original message to reset dropdown selections
-        await originalMessage.edit({ components: updatedComponents });
+        // Always reset dropdown selections for UX, but only if member counts are enabled
+        // to avoid unnecessary "edited" marks on the message
+        if (menu.showMemberCounts) {
+          const originalMessage = await interaction.message.fetch();
+          const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+          
+          // Update the original message to reset dropdown selections
+          await originalMessage.edit({ components: updatedComponents });
+        }
       } catch (error) {
         console.error("Error resetting hybrid menu dropdown selection:", error);
         // Continue with showing the page even if we can't reset the dropdown
