@@ -1119,26 +1119,57 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
   try {
     console.log("🔄 Starting professional hybrid info dropdown handling with reset...");
     
-    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
-    // Then edit the message separately with fresh components
+    // 🔥 HYBRID MENU SAPPHIRE APPROACH: Different handling for webhook vs bot messages
     
     // First, acknowledge the interaction without updating components
     await interaction.deferUpdate();
     console.log("✅ Hybrid info dropdown interaction deferred without showing 'edited' mark");
     
-    // Get the original message and rebuild components with fresh custom IDs
+    // Get the original message
     const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
-    if (updatedComponents && updatedComponents.length > 0) {
+    // Check if this is a webhook message (custom branding)
+    const isWebhookMessage = originalMessage.webhookId !== null;
+    
+    if (isWebhookMessage) {
+      console.log("🌐 Webhook message detected - using webhook-specific dropdown reset");
+      
+      // For webhook messages, we need to use the webhook to edit the message
       try {
-        await originalMessage.edit({
-          components: updatedComponents
-        });
-        console.log("✅ Hybrid info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit hybrid info dropdown components:", editError);
+        const webhooks = await originalMessage.channel.fetchWebhooks();
+        const webhook = webhooks.find(w => w.id === originalMessage.webhookId);
+        
+        if (webhook) {
+          // Rebuild components with completely fresh custom IDs for webhook
+          const freshComponents = await rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybridMenuId);
+          
+          if (freshComponents && freshComponents.length > 0) {
+            await webhook.editMessage(originalMessage.id, {
+              components: freshComponents
+            });
+            console.log("✅ Webhook message components refreshed with dropdown reset");
+          }
+        } else {
+          console.warn("⚠️ Webhook not found for webhook message, skipping component reset");
+        }
+      } catch (webhookError) {
+        console.error("❌ Failed to reset webhook dropdown:", webhookError);
+      }
+    } else {
+      console.log("🤖 Bot message detected - using standard dropdown reset");
+      
+      // For regular bot messages, use the standard component rebuild
+      const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
+      
+      if (updatedComponents && updatedComponents.length > 0) {
+        try {
+          await originalMessage.edit({
+            components: updatedComponents
+          });
+          console.log("✅ Bot message dropdown components refreshed without 'edited' mark");
+        } catch (editError) {
+          console.error("❌ Failed to edit bot message dropdown components:", editError);
+        }
       }
     }
     
@@ -3050,6 +3081,163 @@ async function loadHybridMenusFromLocalFile() {
       console.error('[Local Backup] Error loading hybrid menus from local file:', error);
     }
     return false;
+  }
+}
+
+/**
+ * Rebuilds hybrid menu components specifically for webhook messages
+ * This creates completely fresh components to ensure dropdown reset works properly
+ * @param {import('discord.js').Message} originalMessage - The original webhook message
+ * @param {Object} menu - The hybrid menu object
+ * @param {string} hybridMenuId - The hybrid menu ID
+ * @returns {Promise<Array>} Array of rebuilt ActionRowBuilder components
+ */
+async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybridMenuId) {
+  console.log(`[Webhook Debug] Rebuilding hybrid menu components for webhook message`);
+  
+  try {
+    // Create completely fresh components using the original menu configuration
+    // This ensures dropdowns are reset and have new custom IDs
+    const components = [];
+    const timestamp = Date.now();
+    
+    // Build info pages dropdown if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        (menu.infoSelectionType?.includes("dropdown") || !menu.infoSelectionType)) {
+      
+      const infoOptions = menu.pages.map((page, index) => ({
+        label: page.name?.slice(0, 100) || `Page ${index + 1}`,
+        value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
+        description: page.description?.slice(0, 100) || undefined,
+        emoji: page.emoji || undefined
+      }));
+
+      if (infoOptions.length > 0) {
+        const infoSelect = new StringSelectMenuBuilder()
+          .setCustomId(`hybrid-info-select:${hybridMenuId}:${timestamp}`) // Fresh timestamp
+          .setPlaceholder(menu.infoDropdownPlaceholder || "📋 Select information page...")
+          .addOptions(infoOptions.slice(0, 25)); // Discord limit
+
+        components.push(new ActionRowBuilder().addComponents(infoSelect));
+      }
+    }
+
+    // Build roles dropdown if configured
+    if ((menu.dropdownRoles && menu.dropdownRoles.length > 0) && 
+        (menu.roleSelectionType?.includes("dropdown") || !menu.roleSelectionType)) {
+      
+      const guild = originalMessage.guild;
+      if (guild) {
+        const roleOptions = menu.dropdownRoles
+          .map(roleId => {
+            const role = guild.roles.cache.get(roleId);
+            if (!role) return null;
+            
+            return {
+              label: role.name.slice(0, 100),
+              value: `hybrid-role:${hybridMenuId}:${roleId}`,
+              description: menu.dropdownRoleDescriptions?.[roleId]?.slice(0, 100) || undefined,
+              emoji: menu.dropdownEmojis?.[roleId] || undefined
+            };
+          })
+          .filter(option => option !== null);
+
+        if (roleOptions.length > 0) {
+          const roleSelect = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`) // Fresh timestamp
+            .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
+            .setMinValues(0)
+            .setMaxValues(Math.min(roleOptions.length, 25))
+            .addOptions(roleOptions.slice(0, 25)); // Discord limit
+
+          components.push(new ActionRowBuilder().addComponents(roleSelect));
+        }
+      }
+    }
+
+    // Build info page buttons if configured
+    if (menu.pages && menu.pages.length > 0 && 
+        menu.infoSelectionType?.includes("button")) {
+      
+      const infoButtonRows = [];
+      let currentRow = new ActionRowBuilder();
+      let buttonsInRow = 0;
+
+      for (const page of menu.pages.slice(0, 25)) { // Discord limits
+        if (buttonsInRow >= 5) {
+          infoButtonRows.push(currentRow);
+          currentRow = new ActionRowBuilder();
+          buttonsInRow = 0;
+        }
+
+        const button = new ButtonBuilder()
+          .setCustomId(`hybrid-info-page:${hybridMenuId}:${page.id}:${timestamp}`) // Fresh timestamp
+          .setLabel(page.name?.slice(0, 80) || `Page`)
+          .setStyle(page.buttonStyle || ButtonStyle.Secondary);
+
+        if (page.emoji) {
+          button.setEmoji(page.emoji);
+        }
+
+        currentRow.addComponents(button);
+        buttonsInRow++;
+      }
+
+      if (buttonsInRow > 0) {
+        infoButtonRows.push(currentRow);
+      }
+
+      components.push(...infoButtonRows);
+    }
+
+    // Build role buttons if configured
+    if ((menu.buttonRoles && menu.buttonRoles.length > 0) && 
+        menu.roleSelectionType?.includes("button")) {
+      
+      const guild = originalMessage.guild;
+      if (guild) {
+        const roleButtonRows = [];
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+
+        for (const roleId of menu.buttonRoles.slice(0, 25)) { // Discord limits
+          const role = guild.roles.cache.get(roleId);
+          if (!role) continue;
+
+          if (buttonsInRow >= 5) {
+            roleButtonRows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+            buttonsInRow = 0;
+          }
+
+          const buttonStyle = menu.buttonColors?.[roleId] || 'Secondary';
+          const button = new ButtonBuilder()
+            .setCustomId(`hybrid-role-button:${hybridMenuId}:${roleId}:${timestamp}`) // Fresh timestamp
+            .setLabel(role.name.slice(0, 80))
+            .setStyle(ButtonStyle[buttonStyle] || ButtonStyle.Secondary);
+
+          if (menu.buttonEmojis?.[roleId]) {
+            button.setEmoji(menu.buttonEmojis[roleId]);
+          }
+
+          currentRow.addComponents(button);
+          buttonsInRow++;
+        }
+
+        if (buttonsInRow > 0) {
+          roleButtonRows.push(currentRow);
+        }
+
+        components.push(...roleButtonRows);
+      }
+    }
+
+    console.log(`[Webhook Debug] Built ${components.length} component rows for webhook message`);
+    return components;
+
+  } catch (error) {
+    console.error(`[Webhook Debug] Error rebuilding hybrid menu components for webhook:`, error);
+    return [];
   }
 }
 
