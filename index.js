@@ -271,29 +271,68 @@ async function updateDropdownViaWebhook(message, components) {
 }
 
 /**
- * Recreates a message via webhook to completely reset components and avoid "edited" marks.
- * This is the most advanced approach to reset dropdown selections.
- * @param {import('discord.js').Message} message - The message to recreate
- * @param {Array} components - The new components to set
- * @param {Object} webhookOptions - Webhook options like name and avatar
- * @returns {Promise<boolean>} true if webhook recreation succeeded, false otherwise
+ * Enhanced menu publication function that uses webhooks for better "edited" mark avoidance
  */
-async function recreateMessageViaWebhook(message, components, webhookOptions = {}) {
+async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, components) {
   try {
-    // NOTE: Even webhook.editMessage() shows "edited" mark for webhook messages
-    // The only way to truly avoid "edited" marks is to delete and recreate the message
-    // But this breaks message history, reactions, and can cause issues with persistent menus
-    // So we'll return false to use interaction.update() instead, which is more reliable
-    return false;
+    // Check if we should use webhook for this menu
+    const useWebhook = menu.useWebhook || false;
+    
+    if (useWebhook) {
+      try {
+        const webhook = await getOrCreateWebhook(
+          interaction.channel, 
+          menu.webhookName || "Menu Webhook"
+        );
+        
+        if (webhook) {
+          // Send the message via webhook
+          const webhookMessage = await webhook.send({
+            embeds: [embed],
+            components: components,
+            username: menu.webhookName || "Menu Bot",
+            avatarURL: menu.webhookAvatar || interaction.client.user.displayAvatarURL()
+          });
+          
+          // Save the webhook message details
+          await db.saveMessageId(menuId, interaction.channelId, webhookMessage.id);
+          
+          return {
+            success: true,
+            message: webhookMessage,
+            isWebhook: true
+          };
+        }
+      } catch (webhookError) {
+        console.error("Webhook publishing failed:", webhookError);
+        // Fall through to regular message publishing
+      }
+    }
+    
+    // Fallback to regular message publishing
+    const regularMessage = await interaction.followUp({
+      embeds: [embed],
+      components: components,
+      ephemeral: false
+    });
+    
+    await db.saveMessageId(menuId, interaction.channelId, regularMessage.id);
+    
+    return {
+      success: true,
+      message: regularMessage,
+      isWebhook: false
+    };
+    
   } catch (error) {
-    console.error("Error recreating message via webhook:", error);
-    return false;
+    console.error("Error publishing menu:", error);
+    return { success: false, error };
   }
 }
 
 /**
- * Resets dropdown selections by rebuilding components and using the message update approach.
- * This is the most reliable method for ensuring dropdown selections don't persist visually.
+ * Resets dropdown selections using advanced Discord API techniques to minimize "edited" marks.
+ * This implements multiple strategies including webhook recreation and deferred responses.
  * @param {import('discord.js').Interaction} interaction - The interaction to process
  * @param {Array} originalComponents - The original components to restore (optional)
  * @returns {Promise<boolean>} true if reset succeeded, false otherwise
@@ -323,78 +362,116 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
       }
     }
 
-    // Create completely fresh components to force Discord client to re-render
-    const freshComponents = originalComponents.map(row => {
-      const newRow = new ActionRowBuilder();
-      
-      row.components.forEach(component => {
-        if (component.type === ComponentType.StringSelect) {
-          // Create fresh options with explicit default: false
-          const options = component.options.map(option => ({
-            label: option.label,
-            value: option.value,
-            description: option.description || undefined,
-            emoji: option.emoji || undefined,
-            default: false // Explicitly ensure no options are selected
-          }));
-          
-          // Add a small timestamp to the placeholder to force re-render
-          const originalPlaceholder = component.placeholder || "Select an option...";
-          const resetPlaceholder = originalPlaceholder;
-          
-          const newSelect = new StringSelectMenuBuilder()
-            .setCustomId(component.customId)
-            .setPlaceholder(resetPlaceholder)
-            .setMinValues(component.minValues || 1)
-            .setMaxValues(component.maxValues || 1)
-            .setDisabled(component.disabled || false)
-            .addOptions(options);
-          
-          newRow.addComponents(newSelect);
-        } else {
-          // For non-dropdown components, just copy them as-is
-          newRow.addComponents(component);
-        }
-      });
-      
-      return newRow;
-    });
-
-    // Strategy: Use the most compatible approach based on interaction state
-    if (!interaction.replied && !interaction.deferred) {
-      // First interaction response - use update to avoid "edited" mark
-      await interaction.update({ components: freshComponents });
-      return true;
-    } else {
-      // Try to update the original message directly to avoid "edited" marks
+    // Strategy 1: Try webhook recreation to avoid "edited" mark
+    const originalMessage = interaction.message;
+    if (originalMessage && originalMessage.webhookId) {
       try {
-        const originalMessage = interaction.message;
-        if (originalMessage && originalMessage.editable) {
-          // Update the original message components directly
-          await originalMessage.edit({ components: freshComponents });
+        const webhook = await originalMessage.channel.fetchWebhooks()
+          .then(webhooks => webhooks.find(w => w.id === originalMessage.webhookId));
+        
+        if (webhook) {
+          // For webhook messages, try to delete and recreate to avoid "edited" mark
+          const messageContent = {
+            content: originalMessage.content || null,
+            embeds: originalMessage.embeds || [],
+            components: originalComponents
+          };
           
-          // If we had a deferred interaction, we still need to acknowledge it
-          if (interaction.deferred && !interaction.replied) {
-            // Send an empty edit to acknowledge the deferred interaction
-            await interaction.editReply({}).catch(() => {
-              // If that fails, it's likely already been handled
-            });
+          // Delete the original message and recreate it
+          await originalMessage.delete();
+          await webhook.send(messageContent);
+          
+          // Acknowledge the interaction silently
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.deferUpdate();
           }
-          return true;
-        } else {
-          // Fallback to editing the reply
-          await interaction.editReply({ components: freshComponents });
+          
           return true;
         }
-      } catch (updateError) {
-        console.error("Error updating original message:", updateError);
-        // Final fallback
-        if (interaction.deferred) {
-          await interaction.editReply({ components: freshComponents });
-        }
-        return true;
+      } catch (webhookError) {
+        console.log("Webhook recreation failed, trying alternative approach:", webhookError.message);
       }
     }
+
+    // Strategy 2: Use deferUpdate for the most minimal response
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.deferUpdate();
+      
+      // Create fresh components with reset selections
+      const freshComponents = originalComponents.map(row => {
+        const newRow = new ActionRowBuilder();
+        
+        row.components.forEach(component => {
+          if (component.type === ComponentType.StringSelect) {
+            // Create fresh options with explicit default: false
+            const options = component.options.map(option => ({
+              label: option.label,
+              value: option.value,
+              description: option.description || undefined,
+              emoji: option.emoji || undefined,
+              default: false // Explicitly ensure no options are selected
+            }));
+            
+            const newSelect = new StringSelectMenuBuilder()
+              .setCustomId(component.customId)
+              .setPlaceholder(component.placeholder || "Select an option...")
+              .setMinValues(component.minValues || 1)
+              .setMaxValues(component.maxValues || 1)
+              .setDisabled(component.disabled || false)
+              .addOptions(options);
+            
+            newRow.addComponents(newSelect);
+          } else {
+            // For non-dropdown components, just copy them as-is
+            newRow.addComponents(component);
+          }
+        });
+        
+        return newRow;
+      });
+
+      // Use editReply after deferUpdate to minimize "edited" appearance
+      await interaction.editReply({ components: freshComponents });
+      return true;
+    }
+
+    // Strategy 3: Try to update the original message directly (last resort)
+    if (originalMessage && originalMessage.editable) {
+      const freshComponents = originalComponents.map(row => {
+        const newRow = new ActionRowBuilder();
+        
+        row.components.forEach(component => {
+          if (component.type === ComponentType.StringSelect) {
+            const options = component.options.map(option => ({
+              label: option.label,
+              value: option.value,
+              description: option.description || undefined,
+              emoji: option.emoji || undefined,
+              default: false
+            }));
+            
+            const newSelect = new StringSelectMenuBuilder()
+              .setCustomId(component.customId)
+              .setPlaceholder(component.placeholder || "Select an option...")
+              .setMinValues(component.minValues || 1)
+              .setMaxValues(component.maxValues || 1)
+              .setDisabled(component.disabled || false)
+              .addOptions(options);
+            
+            newRow.addComponents(newSelect);
+          } else {
+            newRow.addComponents(component);
+          }
+        });
+        
+        return newRow;
+      });
+
+      await originalMessage.edit({ components: freshComponents });
+      return true;
+    }
+
+    return true;
   } catch (error) {
     console.error("Error resetting dropdown selection:", error);
     // Fallback: at minimum, acknowledge the interaction if needed
