@@ -1490,7 +1490,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
           
           if (menuId) {
             // Find the menu configuration
-            const menu = hybridMenus.get(menuId);
+            const menu = db.hybridMenuData.get(menuId);
             if (menu) {
               // Use the webhook-specific component rebuilding
               const freshComponents = await rebuildHybridMenuComponentsForWebhook(originalMessage, menu, menuId);
