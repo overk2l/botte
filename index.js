@@ -2968,7 +2968,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Name")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(true)
-                  .setValue(page.name)
+                  .setValue(page.name || page.title || "")
                   .setMaxLength(80)
               ),
               new ActionRowBuilder().addComponents(
@@ -2977,7 +2977,7 @@ client.on("interactionCreate", async (interaction) => {
                   .setLabel("Page Content")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(true)
-                  .setValue(page.content || "")
+                  .setValue(page.content || page.description || "")
                   .setMaxLength(4000)
               )
             );
@@ -3002,7 +3002,7 @@ client.on("interactionCreate", async (interaction) => {
           const updatedPages = menu.pages.filter(p => p.id !== pageId);
           await db.updateHybridMenu(hybridMenuId, { pages: updatedPages });
 
-          await sendEphemeralEmbed(interaction, `✅ Page "${page.name}" deleted successfully!`, "#00FF00", "Success", false);
+          await sendEphemeralEmbed(interaction, `✅ Page "${page.name || page.title || 'Untitled Page'}" deleted successfully!`, "#00FF00", "Success", false);
           return showHybridInfoConfiguration(interaction, hybridMenuId);
         }
 
@@ -5859,8 +5859,8 @@ client.on("interactionCreate", async (interaction) => {
 
             // Show page management options
             const embed = new EmbedBuilder()
-              .setTitle(`📝 Manage Page: ${page.name}`)
-              .setDescription(`**Page Content:**\n${page.content.substring(0, 1000)}${page.content.length > 1000 ? '...' : ''}`)
+              .setTitle(`📝 Manage Page: ${page.name || page.title || 'Untitled Page'}`)
+              .setDescription(`**Page Content:**\n${(page.content || page.description || 'No content').substring(0, 1000)}${(page.content || page.description || '').length > 1000 ? '...' : ''}`)
               .setColor("#5865F2")
               .addFields([
                 { name: "Created", value: page.createdAt ? new Date(page.createdAt).toLocaleDateString() : "Unknown", inline: true },
@@ -8180,8 +8180,8 @@ client.on("interactionCreate", async (interaction) => {
             const pageId = generateId();
             const newPage = {
               id: pageId,
-              title: title,
-              description: description,
+              name: title,
+              content: description,
               emoji: emoji,
               displayType: displayType, // Store the display type on the page
               createdAt: new Date().toISOString()
@@ -9450,9 +9450,9 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
     // Add info pages dropdown if we have pages to show
     if (dropdownInfoPages.length > 0) {
         const infoOptions = dropdownInfoPages.slice(0, 25).map(page => ({
-            label: page.name.substring(0, 100),
+            label: (page.name || page.title || 'Untitled Page').substring(0, 100),
             value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
-            description: page.content?.substring(0, 100) || 'No description',
+            description: (page.content || page.description || 'No description').substring(0, 100),
             emoji: page.emoji || '📄'
         }));
 
@@ -9522,7 +9522,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
             const button = new ButtonBuilder()
                 .setCustomId(`hybrid-info-page:${hybridMenuId}:${page.id}`)
-                .setLabel(page.name.substring(0, 80))
+                .setLabel((page.name || page.title || 'Untitled Page').substring(0, 80))
                 .setStyle(ButtonStyle[page.buttonColor] || ButtonStyle.Primary);
 
             if (page.emoji) button.setEmoji(page.emoji);
@@ -11933,9 +11933,9 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId, successMes
   // Page management if pages exist
   if (pages.length > 0) {
     const pageOptions = pages.slice(0, 25).map((page, index) => ({
-      label: page.name.substring(0, 100),
+      label: (page.name || page.title || 'Untitled Page').substring(0, 100),
       value: page.id,
-      description: `Page ${index + 1}: ${page.content?.substring(0, 50) || 'No content'}...`
+      description: `Page ${index + 1}: ${(page.content || page.description || 'No content').substring(0, 50)}...`
     }));
 
     const pageSelectRow = new ActionRowBuilder().addComponents(
