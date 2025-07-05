@@ -13121,6 +13121,153 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
   }
 }
 
+/**
+ * Handles info menu dropdown selection with Sapphire-style reset behavior
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {Object} menu - The info menu configuration
+ * @param {Object} page - The selected page data
+ * @param {string} infoMenuId - The info menu ID
+ */
+async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
+  try {
+    console.log("🔄 Starting Sapphire-style info dropdown reset...");
+    
+    // Step 1: Rebuild the message components to clear the selection
+    const originalMessage = interaction.message;
+    if (originalMessage && originalMessage.components) {
+      try {
+        // Rebuild the components with a new timestamp to force clearing
+        const newComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
+        
+        // Update the message with fresh components (this should clear the selection)
+        await interaction.editReply({ components: newComponents });
+        console.log("✅ Info dropdown components refreshed with new timestamp");
+      } catch (rebuildError) {
+        console.error("❌ Error rebuilding info dropdown components:", rebuildError);
+        // Continue with notification anyway
+      }
+    }
+    
+    // Step 2: Create and send the page content as follow-up
+    const embed = new EmbedBuilder();
+    
+    // Helper function to validate URLs
+    const isValidUrl = (url) => {
+      if (!url || typeof url !== 'string' || url.trim() === '') return false;
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Helper function to validate color
+    const isValidColor = (color) => {
+      if (!color || typeof color !== 'string') return false;
+      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+    };
+    
+    if (page.content.title && page.content.title.trim()) {
+      embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
+    }
+    
+    if (page.content.description && page.content.description.trim()) {
+      embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
+    }
+    
+    // Handle color with validation - use custom page color if available, otherwise menu color
+    const color = page.color || page.content.color || menu.embedColor;
+    if (color && isValidColor(color)) {
+      embed.setColor(color);
+    }
+    
+    // Handle thumbnail with URL validation
+    const thumbnail = page.content.thumbnail || menu.embedThumbnail;
+    if (thumbnail && isValidUrl(thumbnail)) {
+      embed.setThumbnail(thumbnail);
+    }
+    
+    // Handle image with URL validation
+    const image = page.content.image || menu.embedImage;
+    if (image && isValidUrl(image)) {
+      embed.setImage(image);
+    }
+    
+    // Handle author with validation
+    if (page.content.author && page.content.author.name) {
+      const authorData = {
+        name: page.content.author.name.slice(0, 256) // Discord author name limit
+      };
+      if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
+        authorData.iconURL = page.content.author.iconURL;
+      }
+      embed.setAuthor(authorData);
+    } else if (menu.embedAuthorName) {
+      const authorData = {
+        name: menu.embedAuthorName.slice(0, 256)
+      };
+      if (menu.embedAuthorIconURL && isValidUrl(menu.embedAuthorIconURL)) {
+        authorData.iconURL = menu.embedAuthorIconURL;
+      }
+      embed.setAuthor(authorData);
+    }
+
+    // Handle footer with validation
+    if (page.content.footer && page.content.footer.text) {
+      const footerData = {
+        text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+      };
+      if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
+        footerData.iconURL = page.content.footer.iconURL;
+      }
+      embed.setFooter(footerData);
+    } else if (menu.embedFooterText) {
+      const footerData = {
+        text: menu.embedFooterText.slice(0, 2048)
+      };
+      if (menu.embedFooterIconURL && isValidUrl(menu.embedFooterIconURL)) {
+        footerData.iconURL = menu.embedFooterIconURL;
+      }
+      embed.setFooter(footerData);
+    }
+
+    // Handle fields with validation
+    if (page.content.fields && Array.isArray(page.content.fields)) {
+      const validFields = page.content.fields
+        .filter(field => field && field.name && field.value)
+        .slice(0, 25) // Discord field limit
+        .map(field => ({
+          name: field.name.slice(0, 256), // Discord field name limit
+          value: field.value.slice(0, 1024), // Discord field value limit
+          inline: Boolean(field.inline)
+        }));
+      
+      if (validFields.length > 0) {
+        embed.addFields(validFields);
+      }
+    }
+
+    // Send the page content as follow-up
+    await interaction.followUp({ embeds: [embed], ephemeral: true });
+    
+    console.log("✅ Sapphire-style info dropdown selection processed with reset + follow-up");
+  } catch (error) {
+    console.error("❌ Error in Sapphire-style info dropdown handling:", error);
+    
+    // Fallback error handling
+    try {
+      if (!interaction.replied) {
+        await interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
+      } else {
+        console.log("❌ Cannot send error message - interaction already replied");
+      }
+    } catch (fallbackError) {
+      console.error("❌ Fallback error handling failed:", fallbackError);
+    }
+  }
+}
+
 // Periodic member count update system
 let lastMemberCountUpdate = 0;
 const MEMBER_COUNT_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
