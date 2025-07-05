@@ -275,7 +275,8 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
   
   try {
     const newComponents = [];
-    const timestamp = Date.now();
+    const baseTimestamp = Date.now();
+    let componentCounter = 0; // Counter to ensure unique IDs
     
     // Defensive check for components
     if (!originalMessage || !originalMessage.components || !Array.isArray(originalMessage.components)) {
@@ -294,6 +295,8 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
       const newRow = new ActionRowBuilder();
       
       for (const component of originalRow.components) {
+        componentCounter++; // Increment counter for each component
+        const uniqueTimestamp = baseTimestamp + componentCounter;
         if (component.type === ComponentType.StringSelect) {
           // Rebuild dropdown with fresh timestamp and cleared selections
           const options = component.options.map(option => ({
@@ -304,11 +307,11 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
             default: false // Explicitly clear all selections
           }));
           
-          // Create new custom ID with timestamp to force Discord to treat it as a new component
+          // Create new custom ID with unique timestamp to force Discord to treat it as a new component
           const baseParts = component.customId.split(':');
           const newCustomId = baseParts.length >= 3 
-            ? `${baseParts[0]}:${baseParts[1]}:${timestamp}` 
-            : `${component.customId}:${timestamp}`;
+            ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+            : `${component.customId}:${uniqueTimestamp}`;
           
           const newSelect = new StringSelectMenuBuilder()
             .setCustomId(newCustomId)
@@ -321,11 +324,11 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
           newRow.addComponents(newSelect);
           console.log(`[Debug] Rebuilt dropdown with ID: ${newCustomId}`);
         } else if (component.type === ComponentType.Button) {
-          // Rebuild buttons with fresh timestamp if needed
+          // Rebuild buttons with fresh unique timestamp
           const baseParts = component.customId?.split(':') || [];
           const newCustomId = baseParts.length >= 3 
-            ? `${baseParts[0]}:${baseParts[1]}:${timestamp}` 
-            : component.customId || `button:${timestamp}`;
+            ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+            : component.customId ? `${component.customId}:${uniqueTimestamp}` : `button:${uniqueTimestamp}`;
           
           const newButton = new ButtonBuilder()
             .setCustomId(newCustomId)
@@ -338,9 +341,23 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
           }
           
           newRow.addComponents(newButton);
+          console.log(`[Debug] Rebuilt button with ID: ${newCustomId}`);
         } else {
-          // For other component types, just copy them
-          newRow.addComponents(component);
+          // For other component types, try to ensure unique IDs if they have custom IDs
+          if (component.customId) {
+            const baseParts = component.customId.split(':');
+            const newCustomId = baseParts.length >= 3 
+              ? `${baseParts[0]}:${baseParts[1]}:${uniqueTimestamp}` 
+              : `${component.customId}:${uniqueTimestamp}`;
+            
+            // Create a copy of the component with new custom ID
+            const newComponent = { ...component, customId: newCustomId };
+            newRow.addComponents(newComponent);
+            console.log(`[Debug] Rebuilt component with ID: ${newCustomId}`);
+          } else {
+            // Component has no custom ID, safe to copy as-is
+            newRow.addComponents(component);
+          }
         }
       }
       
@@ -351,6 +368,25 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
     }
     
     console.log(`[Debug] Successfully rebuilt ${newComponents.length} component rows`);
+    
+    // Debug: Log all custom IDs to check for duplicates
+    const allCustomIds = [];
+    for (const row of newComponents) {
+      for (const component of row.components) {
+        if (component.data && component.data.custom_id) {
+          allCustomIds.push(component.data.custom_id);
+        }
+      }
+    }
+    
+    console.log(`[Debug] All custom IDs in rebuilt components:`, allCustomIds);
+    
+    // Check for duplicates
+    const duplicates = allCustomIds.filter((id, index) => allCustomIds.indexOf(id) !== index);
+    if (duplicates.length > 0) {
+      console.error(`[Error] Found duplicate custom IDs:`, duplicates);
+    }
+    
     return newComponents;
   } catch (error) {
     console.error(`[Error] Failed to rebuild dropdown components:`, error);
