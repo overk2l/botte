@@ -10062,7 +10062,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     let currentRow = new ActionRowBuilder();
     let buttonsInRow = 0;
 
-    for (const page of infoPages.slice(0, 20)) { // Limit to 20 items
+    for (const page of infoPages.slice(0, 10)) { // Limit to 10 items to stay within Discord's 5 action row limit
       if (buttonsInRow >= 5) {
         infoRows.push(currentRow);
         currentRow = new ActionRowBuilder();
@@ -10108,7 +10108,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     let currentRow = new ActionRowBuilder();
     let buttonsInRow = 0;
 
-    for (const roleId of allRoles.slice(0, 20)) { // Limit to 20 items
+    for (const roleId of allRoles.slice(0, 10)) { // Limit to 10 items to stay within Discord's 5 action row limit
       if (buttonsInRow >= 5) {
         roleRows.push(currentRow);
         currentRow = new ActionRowBuilder();
@@ -10155,6 +10155,12 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   );
 
   components.push(backRow);
+
+  // Discord limits components to 5 action rows maximum
+  if (components.length > 5) {
+    components.splice(5); // Keep only first 5 rows
+    embed.setFooter({ text: "⚠️ Showing first 10 items only due to Discord limits. Use Display Types Configuration for overview." });
+  }
 
   await interaction.editReply({
     embeds: [embed],
@@ -12202,9 +12208,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId, successMes
       },
       { 
         name: "🎯 Display Options", 
-        value: menu.infoSelectionType?.length > 0 
-          ? menu.infoSelectionType.join(', ')
-          : "Not configured", 
+        value: `Info Pages: ${menu.defaultInfoDisplayType || 'dropdown'}\nRoles: ${menu.defaultRoleDisplayType || 'dropdown'}`, 
         inline: true 
       }
     ]);
@@ -12309,9 +12313,7 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId, successMe
       },
       { 
         name: "🎯 Display Options", 
-        value: menu.roleSelectionType?.length > 0 
-          ? menu.roleSelectionType.join(', ')
-          : "Not configured", 
+        value: `Info Pages: ${menu.defaultInfoDisplayType || 'dropdown'}\nRoles: ${menu.defaultRoleDisplayType || 'dropdown'}`, 
         inline: true 
       }
     ]);
