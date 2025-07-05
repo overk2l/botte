@@ -4123,6 +4123,12 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("hybrid:customize_dropdown_text:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:webhook_branding:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:toggle_member_counts:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:regional_limits:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:max_role_limit:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role_added_message:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role_removed_message:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_info_page_message:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid:select_page_display_type:")) ||
     // Scheduled messages modal triggers
     (interaction.isButton() && interaction.customId === "schedule:new") ||
@@ -4494,9 +4500,6 @@ client.on("interactionCreate", async (interaction) => {
             action === "toggle_member_counts" ||
             action === "configure_regional_limits" ||
             action === "configure_max_roles" ||
-            action === "edit_role_add_message" ||
-            action === "edit_role_remove_message" ||
-            action === "edit_info_page_message" ||
             action === "edit_role" ||
             action === "regional_limits" ||
             action === "max_role_limit" ||
@@ -4507,9 +4510,12 @@ client.on("interactionCreate", async (interaction) => {
 
           // Defer all non-modal interactions
           if (!isModalTrigger) {
+            console.log(`[Hybrid Debug] Deferring interaction for action: ${action}`);
             if (!interaction.deferred && !interaction.replied) {
               await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             }
+          } else {
+            console.log(`[Hybrid Debug] NOT deferring interaction for modal trigger action: ${action}`);
           }
 
         if (action === "create") {
@@ -4657,12 +4663,17 @@ client.on("interactionCreate", async (interaction) => {
           const roleId = parts[4];
           
           console.log(`[Hybrid Debug] Edit role button clicked for menu: ${hybridMenuId}, role: ${roleId}, type: ${roleType}`);
+          console.log(`[Hybrid Debug] Interaction deferred: ${interaction.deferred}, replied: ${interaction.replied}`);
           
           try {
             return await showRoleEditModal(interaction, hybridMenuId, roleType, roleId);
           } catch (error) {
             console.error(`[Hybrid Debug] Error in edit_role: ${error.message}`);
-            return sendEphemeralEmbed(interaction, "❌ Error opening role editor.", "#FF0000", "Error", false);
+            console.error(`[Hybrid Debug] Full error:`, error);
+            // Don't try to send error message if already replied/deferred
+            if (!interaction.replied && !interaction.deferred) {
+              return sendEphemeralEmbed(interaction, "❌ Error opening role editor.", "#FF0000", "Error", false);
+            }
           }
         }
 
@@ -5796,79 +5807,6 @@ client.on("interactionCreate", async (interaction) => {
 
           await sendEphemeralEmbed(interaction, `✅ Timestamps ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
           return showVisualSettings(interaction, hybridMenuId);
-        }
-
-        // Message Settings Handlers
-        if (action === "edit_role_add_message") {
-          const hybridMenuId = parts[2];
-          
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-          }
-
-          const modal = new ModalBuilder()
-            .setCustomId(`hybrid:modal:role_add_message:${hybridMenuId}`)
-            .setTitle("Edit Role Add Message")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("message")
-                  .setLabel("Role Add Success Message")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
-                  .setValue(menu.customSuccessMessages?.roleAdd || "✅ You now have the role <@&{roleId}>!")
-                  .setMaxLength(2000)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("variables")
-                  .setLabel("Available Variables (Read-Only)")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(false)
-                  .setValue("{roleId} - Role mention")
-                  .setMaxLength(100)
-              )
-            );
-
-          return interaction.showModal(modal);
-        }
-
-        if (action === "edit_role_remove_message") {
-          const hybridMenuId = parts[2];
-          
-          const menu = db.getHybridMenu(hybridMenuId);
-          if (!menu) {
-            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-          }
-
-          const modal = new ModalBuilder()
-            .setCustomId(`hybrid:modal:role_remove_message:${hybridMenuId}`)
-            .setTitle("Edit Role Remove Message")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("message")
-                  .setLabel("Role Remove Success Message")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
-                  .setValue(menu.customSuccessMessages?.roleRemove || "✅ You removed the role <@&{roleId}>!")
-                  .setMaxLength(2000)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("variables")
-                  .setLabel("Available Variables (Read-Only)")
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(false)
-                  .setValue("{roleId} - Role mention")
-                  .setMaxLength(100)
-              )
-            );
-
-          return interaction.showModal(modal);
         }
 
         if (action === "edit_info_page_message") {
@@ -15951,6 +15889,8 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
  * @param {string} roleId - The ID of the role to edit
  */
 async function showRoleEditModal(interaction, hybridMenuId, roleType, roleId) {
+  console.log(`[Hybrid Debug] showRoleEditModal called - deferred: ${interaction.deferred}, replied: ${interaction.replied}`);
+  
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
     throw new Error("Hybrid menu not found.");
@@ -16009,6 +15949,7 @@ async function showRoleEditModal(interaction, hybridMenuId, roleType, roleId) {
 
   modal.addComponents(row1, row2, row3);
 
+  console.log(`[Hybrid Debug] About to show modal - deferred: ${interaction.deferred}, replied: ${interaction.replied}`);
   return interaction.showModal(modal);
 }
 
