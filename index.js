@@ -666,7 +666,6 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
     }
   }
 }
-}
 
 /**
  * Helper function to get or create a webhook for a given channel.
