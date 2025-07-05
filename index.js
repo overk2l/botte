@@ -5369,10 +5369,7 @@ client.on("interactionCreate", async (interaction) => {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_all_dropdown for menu: ${hybridMenuId}`);
           
-          try {
-            // Clear any existing timeout immediately
-            if (timeoutId) clearTimeout(timeoutId);
-            
+          return await clearTimeoutAndProcess(async () => {
             console.log(`[Bulk Debug] Getting menu from database...`);
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
@@ -5404,20 +5401,14 @@ client.on("interactionCreate", async (interaction) => {
             console.log(`[Bulk Debug] Success response sent. Result:`, result);
             
             return result;
-          } catch (error) {
-            console.error("[Bulk Debug] Error in bulk_all_dropdown:", error);
-            console.error("[Bulk Debug] Error stack:", error.stack);
-            return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
-          }
+          });
         }
 
         if (action === "bulk_all_buttons") {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_all_buttons for menu: ${hybridMenuId}`);
           
-          try {
-            // Clear any existing timeout immediately
-            if (timeoutId) clearTimeout(timeoutId);
+          return await clearTimeoutAndProcess(async () => {
             
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
@@ -5442,20 +5433,14 @@ client.on("interactionCreate", async (interaction) => {
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
-          } catch (error) {
-            console.error("Error in bulk_all_buttons:", error);
-            return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
-          }
+          });
         }
 
         if (action === "bulk_all_both") {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_all_both for menu: ${hybridMenuId}`);
           
-          try {
-            // Clear any existing timeout immediately
-            if (timeoutId) clearTimeout(timeoutId);
-            
+          return await clearTimeoutAndProcess(async () => {
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
               return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -5479,20 +5464,14 @@ client.on("interactionCreate", async (interaction) => {
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
-          } catch (error) {
-            console.error("Error in bulk_all_both:", error);
-            return sendEphemeralEmbed(interaction, "❌ Error setting bulk both. Please try again.", "#FF0000", "Error", false);
-          }
+          });
         }
 
         if (action === "bulk_info_dropdown_roles_button") {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_info_dropdown_roles_button for menu: ${hybridMenuId}`);
           
-          try {
-            // Clear any existing timeout immediately
-            if (timeoutId) clearTimeout(timeoutId);
-            
+          return await clearTimeoutAndProcess(async () => {
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
               return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -5516,20 +5495,14 @@ client.on("interactionCreate", async (interaction) => {
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
-          } catch (error) {
-            console.error("Error in bulk_info_dropdown_roles_button:", error);
-            return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
-          }
+          });
         }
 
         if (action === "bulk_info_button_roles_dropdown") {
           const hybridMenuId = parts[2];
           console.log(`[Bulk Debug] Starting bulk_info_button_roles_dropdown for menu: ${hybridMenuId}`);
           
-          try {
-            // Clear any existing timeout immediately
-            if (timeoutId) clearTimeout(timeoutId);
-            
+          return await clearTimeoutAndProcess(async () => {
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
               return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
@@ -5553,10 +5526,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
-          } catch (error) {
-            console.error("Error in bulk_info_button_roles_dropdown:", error);
-            return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
-          }
+          });
         }
 
         if (action === "toggle_page_display") {
