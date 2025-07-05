@@ -347,11 +347,17 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
     // SAPPHIRE-STYLE APPROACH: Immediately update with fresh components
     if (originalComponents && originalComponents.length > 0) {
       try {
+        console.log(`[Dropdown Reset] Starting with ${originalComponents.length} original component rows`);
+        
         // Rebuild components with completely fresh state and no selections
-        const freshComponents = originalComponents.map(row => {
+        const freshComponents = originalComponents.map((row, index) => {
           const newRow = new ActionRowBuilder();
           
-          row.components.forEach(component => {
+          console.log(`[Dropdown Reset] Processing row ${index} with ${row.components.length} components`);
+          
+          row.components.forEach((component, compIndex) => {
+            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${component.type}`);
+            
             if (component.type === ComponentType.StringSelect) {
               // Create a completely new dropdown with no default selections
               const newDropdown = new StringSelectMenuBuilder()
@@ -368,6 +374,7 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
                 })));
               
               newRow.addComponents(newDropdown);
+              console.log(`[Dropdown Reset] Added dropdown to row ${index}`);
             } else if (component.type === ComponentType.Button) {
               // Rebuild buttons as-is
               const newButton = new ButtonBuilder()
@@ -383,19 +390,32 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
               }
               
               newRow.addComponents(newButton);
+              console.log(`[Dropdown Reset] Added button to row ${index}`);
             }
           });
           
+          console.log(`[Dropdown Reset] Row ${index} rebuilt with ${newRow.components.length} components`);
           return newRow;
+        }).filter(row => row.components.length > 0); // CRITICAL FIX: Remove empty rows
+        
+        console.log(`[Dropdown Reset] Final component structure: ${freshComponents.length} rows`);
+        freshComponents.forEach((row, index) => {
+          console.log(`[Dropdown Reset] Final row ${index}: ${row.components.length} components`);
         });
         
-        // IMMEDIATE UPDATE: This makes the dropdown reset instantly like Sapphire
-        await interaction.editReply({
-          components: freshComponents
-        });
-        
-        console.log("Sapphire-style dropdown reset: Components refreshed with no selections");
-        return true;
+        // Only update if we have valid components
+        if (freshComponents.length > 0) {
+          // IMMEDIATE UPDATE: This makes the dropdown reset instantly like Sapphire
+          await interaction.editReply({
+            components: freshComponents
+          });
+          
+          console.log("Sapphire-style dropdown reset: Components refreshed with no selections");
+          return true;
+        } else {
+          console.log("No valid components to update, skipping refresh");
+          return true;
+        }
       } catch (rebuildError) {
         console.error("Error in Sapphire-style component rebuild:", rebuildError);
         // Fall back to simple acknowledgment
