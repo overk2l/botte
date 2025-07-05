@@ -9472,16 +9472,36 @@ client.on("interactionCreate", async (interaction) => {
     }
 });
 
+/**
+ * Safely sends a followUp message, ensuring the interaction is properly deferred for dropdowns
+ * @param {import('discord.js').Interaction} interaction - The interaction object
+ * @param {Object} messageOptions - The message options to send
+ * @returns {Promise<void>}
+ */
+async function safeFollowUp(interaction, messageOptions) {
+  if (interaction.isStringSelectMenu()) {
+    // Ensure the interaction is deferred before followUp
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.deferUpdate();
+    }
+  }
+  return interaction.followUp(messageOptions);
+}
+
 async function handleRoleInteraction(interaction) {
     // Deferring is now handled at the main interaction level
-    // TRUE Sapphire approach: Dropdown interactions use deferReply (ephemeral), button interactions use deferReply
+    // TRUE Sapphire approach: Dropdown interactions use deferUpdate(), button interactions use deferReply
 
     try {
-        // Check rate limiting
+        // Check rate limiting BEFORE deferring to avoid interaction issues
         if (isOnRoleInteractionCooldown(interaction.user.id)) {
             const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+            
+            // For dropdown interactions, we need to defer first, then followUp
             if (interaction.isStringSelectMenu()) {
-                // For dropdown interactions, use followUp since they are already deferred
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.deferUpdate();
+                }
                 return interaction.followUp({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
@@ -9496,6 +9516,10 @@ async function handleRoleInteraction(interaction) {
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
+                // Ensure the interaction is deferred before followUp
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.deferUpdate();
+                }
                 return interaction.followUp({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
@@ -9513,6 +9537,10 @@ async function handleRoleInteraction(interaction) {
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
             if (interaction.isStringSelectMenu()) {
+                // Ensure the interaction is deferred before followUp
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.deferUpdate();
+                }
                 return interaction.followUp({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
@@ -9526,6 +9554,10 @@ async function handleRoleInteraction(interaction) {
         if (!interaction.guild || !interaction.member) {
             console.error(`[Error] Invalid guild or member for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
+                // Ensure the interaction is deferred before followUp
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.deferUpdate();
+                }
                 return interaction.followUp({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
@@ -9536,6 +9568,10 @@ async function handleRoleInteraction(interaction) {
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
+                // Ensure the interaction is deferred before followUp
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.deferUpdate();
+                }
                 return interaction.followUp({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
@@ -9565,7 +9601,7 @@ async function handleRoleInteraction(interaction) {
             
             if (validSelectedValues.length === 0) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.followUp({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
+                    return safeFollowUp(interaction, { content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
                 } else {
                     return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
                 }
@@ -9602,7 +9638,7 @@ async function handleRoleInteraction(interaction) {
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
+                return safeFollowUp(interaction, { content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
             } else {
                 return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
             }
@@ -9649,7 +9685,7 @@ async function handleRoleInteraction(interaction) {
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
             if (interaction.isStringSelectMenu()) {
-                return interaction.followUp({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+                return safeFollowUp(interaction, { content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
             } else {
                 await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
             }
@@ -9660,7 +9696,7 @@ async function handleRoleInteraction(interaction) {
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
                 if (interaction.isStringSelectMenu()) {
-                    return interaction.followUp({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                    return safeFollowUp(interaction, { content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
                 } else {
                     await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
                 }
