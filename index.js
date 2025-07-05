@@ -611,14 +611,20 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire hybrid info dropdown handling with ephemeral reposting...");
+    console.log("🔄 Starting TRUE Sapphire hybrid info dropdown reset...");
     
-    // Defer the interaction first
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.deferUpdate();
-    }
+    // Build fresh components with reset state (no selections shown)
+    const updatedComponents = buildHybridMenuComponents(hybridMenuId, menu);
     
-    // Create and send the page content as ephemeral followUp
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
+    // This keeps the same message but resets the dropdown visual state
+    await interaction.update({
+      components: updatedComponents
+    });
+    
+    console.log("✅ Hybrid dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
+    
+    // Build and send page content as ephemeral followUp
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -956,7 +962,7 @@ async function buildEphemeralDropdown({
 }
 
 /**
- * Sapphire-style dropdown handler - TRUE ephemeral reposting approach
+ * TRUE Sapphire-style dropdown reset - refreshes original message components
  * @param {import('discord.js').Interaction} interaction - The dropdown interaction
  * @param {Array} addedRoles - Roles that were added
  * @param {Array} removedRoles - Roles that were removed  
@@ -965,29 +971,52 @@ async function buildEphemeralDropdown({
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting TRUE Sapphire dropdown handling with ephemeral reposting...");
+    console.log("🔄 Starting TRUE Sapphire dropdown reset...");
     
-    // Defer the interaction first
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.deferUpdate();
+    // Extract menu ID from interaction
+    const parts = interaction.customId.split(':');
+    const menuId = parts[1];
+    
+    // Get menu data
+    let menu = db.getMenu(menuId);
+    const isHybridMenu = !menu;
+    if (isHybridMenu) {
+      menu = db.getHybridMenu(menuId);
     }
     
-    // Send role change feedback as ephemeral message
+    if (!menu) {
+      console.error(`Menu not found: ${menuId}`);
+      return interaction.reply({ content: "❌ Menu not found.", ephemeral: true });
+    }
+    
+    // Build fresh components with reset state (no selections shown)
+    let updatedComponents;
+    if (isHybridMenu) {
+      updatedComponents = buildHybridMenuComponents(menuId, menu);
+    } else {
+      updatedComponents = [buildRoleSelectMenu(menuId, menu.dropdownRoles || [])];
+      if (menu.buttonRoles && menu.buttonRoles.length > 0) {
+        const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
+        updatedComponents.push(...buttonRows);
+      }
+    }
+    
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
+    // This keeps the same message but resets the dropdown visual state
+    await interaction.update({
+      components: updatedComponents
+    });
+    
+    console.log("✅ Dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
+    
+    // Send role change feedback as ephemeral followUp
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     }
     
-    // TRUE SAPPHIRE APPROACH: Send fresh ephemeral dropdown
-    await buildEphemeralDropdown({
-      interaction,
-      feedback: addedRoles.length > 0 || removedRoles.length > 0 ? 
-        '✅ Roles updated! Select again if you wish.' : 
-        'No changes made. Select again if you wish.',
-    });
-    
-    console.log("✅ TRUE Sapphire dropdown handling completed with ephemeral reposting");
+    console.log("✅ TRUE Sapphire dropdown handling completed");
   } catch (error) {
-    console.error("❌ Error in Sapphire dropdown handling:", error);
+    console.error("❌ Error in TRUE Sapphire dropdown handling:", error);
     
     // Fallback error handling
     try {
@@ -13932,14 +13961,27 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  * @param {Object} page - The selected page data
  * @param {string} infoMenuId - The info menu ID
  */
+/**
+ * TRUE Sapphire-style info dropdown reset - refreshes original message components
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {Object} menu - The info menu configuration
+ * @param {Object} page - The selected page data
+ * @param {string} infoMenuId - The info menu ID
+ */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire info dropdown handling with ephemeral reposting...");
+    console.log("🔄 Starting TRUE Sapphire info dropdown reset...");
     
-    // Defer the interaction first
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.deferUpdate();
-    }
+    // Build fresh components with reset state (no selections shown)
+    const updatedComponents = [buildInfoSelectMenu(infoMenuId, menu.pages || [])];
+    
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to refresh the original message
+    // This keeps the same message but resets the dropdown visual state
+    await interaction.update({
+      components: updatedComponents
+    });
+    
+    console.log("✅ Info dropdown visually reset - TRUE Sapphire style (same message, no 'edited' mark)");
     
     // Build and send page content as ephemeral followUp
     const embed = new EmbedBuilder();
@@ -13962,14 +14004,14 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     };
     
     if (page.content.title && page.content.title.trim()) {
-      embed.setTitle(page.content.title.slice(0, 256)); // Discord title limit
+      embed.setTitle(page.content.title.slice(0, 256));
     }
     
     if (page.content.description && page.content.description.trim()) {
-      embed.setDescription(page.content.description.slice(0, 4096)); // Discord description limit
+      embed.setDescription(page.content.description.slice(0, 4096));
     }
     
-    // Handle color with validation - use custom page color if available, otherwise menu color
+    // Handle color with validation
     const color = page.color || page.content.color || menu.embedColor;
     if (color && isValidColor(color)) {
       embed.setColor(color);
@@ -13990,7 +14032,7 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     // Handle author with validation
     if (page.content.author && page.content.author.name) {
       const authorData = {
-        name: page.content.author.name.slice(0, 256) // Discord author name limit
+        name: page.content.author.name.slice(0, 256)
       };
       if (page.content.author.iconURL && isValidUrl(page.content.author.iconURL)) {
         authorData.iconURL = page.content.author.iconURL;
@@ -14009,7 +14051,7 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     // Handle footer with validation
     if (page.content.footer && page.content.footer.text) {
       const footerData = {
-        text: page.content.footer.text.slice(0, 2048) // Discord footer text limit
+        text: page.content.footer.text.slice(0, 2048)
       };
       if (page.content.footer.iconURL && isValidUrl(page.content.footer.iconURL)) {
         footerData.iconURL = page.content.footer.iconURL;
@@ -14028,8 +14070,8 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     // Handle fields with validation
     if (page.content.fields && Array.isArray(page.content.fields)) {
       const validFields = page.content.fields.slice(0, 25).map(field => ({
-        name: (field.name || 'Field').slice(0, 256), // Discord field name limit
-        value: (field.value || 'Value').slice(0, 1024), // Discord field value limit
+        name: (field.name || 'Field').slice(0, 256),
+        value: (field.value || 'Value').slice(0, 1024),
         inline: Boolean(field.inline)
       }));
       
@@ -14041,15 +14083,9 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
     // Send page content as ephemeral followUp
     await interaction.followUp({ embeds: [embed], ephemeral: true });
     
-    // TRUE SAPPHIRE APPROACH: Send fresh ephemeral dropdown for info menu
-    await buildEphemeralDropdown({
-      interaction,
-      feedback: '✅ Page displayed! Select another page if you wish.',
-    });
-    
-    console.log("✅ TRUE Sapphire info dropdown handling completed with ephemeral reposting");
+    console.log("✅ TRUE Sapphire info dropdown handling completed");
   } catch (error) {
-    console.error("❌ Error in Sapphire info dropdown handling:", error);
+    console.error("❌ Error in TRUE Sapphire info dropdown handling:", error);
     
     // Fallback error handling
     try {
