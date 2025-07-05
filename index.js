@@ -2841,19 +2841,19 @@ client.on("interactionCreate", async (interaction) => {
                     .setCustomId(`hybrid:bulk_all_both:${hybridMenuId}`)
                     .setLabel("All Both")
                     .setStyle(ButtonStyle.Primary)
-                    .setEmoji("📋🔘")
+                    .setEmoji("�")
                 ),
                 new ActionRowBuilder().addComponents(
                   new ButtonBuilder()
                     .setCustomId(`hybrid:bulk_info_dropdown_roles_button:${hybridMenuId}`)
                     .setLabel("Info: Dropdown, Roles: Buttons")
                     .setStyle(ButtonStyle.Secondary)
-                    .setEmoji("📋🔘"),
+                    .setEmoji("📋"),
                   new ButtonBuilder()
                     .setCustomId(`hybrid:bulk_info_button_roles_dropdown:${hybridMenuId}`)
                     .setLabel("Info: Buttons, Roles: Dropdown")
                     .setStyle(ButtonStyle.Secondary)
-                    .setEmoji("🔘📋")
+                    .setEmoji("🔘")
                 ),
                 new ActionRowBuilder().addComponents(
                   new ButtonBuilder()
@@ -5558,6 +5558,114 @@ client.on("interactionCreate", async (interaction) => {
             } catch (error) {
               console.error("Error in bulk_info_button_roles_dropdown:", error);
               return sendEphemeralEmbed(interaction, "❌ Error setting bulk preferences. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "toggle_page_display") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const page = menu.pages?.find(p => p.id === pageId);
+              if (!page) {
+                return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+              }
+
+              const currentOverrides = menu.displayTypes || {};
+              const currentOverride = currentOverrides[pageId];
+              const defaultType = menu.defaultInfoDisplayType || 'dropdown';
+              const currentType = currentOverride || defaultType;
+
+              // Cycle through: dropdown -> button -> both -> hidden -> (remove override/use default)
+              let newType;
+              if (currentType === 'dropdown') {
+                newType = 'button';
+              } else if (currentType === 'button') {
+                newType = 'both';
+              } else if (currentType === 'both') {
+                newType = 'hidden';
+              } else if (currentType === 'hidden') {
+                // Remove override (use default)
+                newType = null;
+              } else {
+                newType = 'dropdown';
+              }
+
+              const updates = { displayTypes: { ...currentOverrides } };
+              if (newType === null) {
+                delete updates.displayTypes[pageId];
+              } else {
+                updates.displayTypes[pageId] = newType;
+              }
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+
+              const displayText = newType || `${defaultType} (default)`;
+              await sendEphemeralEmbed(interaction, `✅ **${page.name}** display type set to: **${displayText}**`, "#00FF00", "Success", false);
+              return showIndividualItemConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error toggling page display:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error updating page display type. Please try again.", "#FF0000", "Error", false);
+            }
+          });
+        }
+
+        if (action === "toggle_role_display") {
+          const hybridMenuId = parts[2];
+          const roleId = parts[3];
+          return await clearTimeoutAndProcess(async () => {
+            try {
+              const menu = db.getHybridMenu(hybridMenuId);
+              if (!menu) {
+                return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+              }
+
+              const role = interaction.guild.roles.cache.get(roleId);
+              if (!role) {
+                return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+              }
+
+              const currentOverrides = menu.roleDisplayTypes || {};
+              const currentOverride = currentOverrides[roleId];
+              const defaultType = menu.defaultRoleDisplayType || 'dropdown';
+              const currentType = currentOverride || defaultType;
+
+              // Cycle through: dropdown -> button -> both -> hidden -> (remove override/use default)
+              let newType;
+              if (currentType === 'dropdown') {
+                newType = 'button';
+              } else if (currentType === 'button') {
+                newType = 'both';
+              } else if (currentType === 'both') {
+                newType = 'hidden';
+              } else if (currentType === 'hidden') {
+                // Remove override (use default)
+                newType = null;
+              } else {
+                newType = 'dropdown';
+              }
+
+              const updates = { roleDisplayTypes: { ...currentOverrides } };
+              if (newType === null) {
+                delete updates.roleDisplayTypes[roleId];
+              } else {
+                updates.roleDisplayTypes[roleId] = newType;
+              }
+
+              await db.updateHybridMenu(hybridMenuId, updates);
+
+              const displayText = newType || `${defaultType} (default)`;
+              await sendEphemeralEmbed(interaction, `✅ **${role.name}** display type set to: **${displayText}**`, "#00FF00", "Success", false);
+              return showIndividualItemConfiguration(interaction, hybridMenuId);
+            } catch (error) {
+              console.error("Error toggling role display:", error);
+              return sendEphemeralEmbed(interaction, "❌ Error updating role display type. Please try again.", "#FF0000", "Error", false);
             }
           });
         }
