@@ -3006,6 +3006,67 @@ client.on("interactionCreate", async (interaction) => {
           return showHybridInfoConfiguration(interaction, hybridMenuId);
         }
 
+        if (action === "change_page_display_type") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const page = menu.pages?.find(p => p.id === pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          const currentDisplayType = page.displayType || 'dropdown';
+          const newDisplayType = currentDisplayType === 'dropdown' ? 'button' : 'dropdown';
+          
+          // Update the page display type
+          const updatedPages = menu.pages.map(p => 
+            p.id === pageId ? { ...p, displayType: newDisplayType } : p
+          );
+          
+          await db.updateHybridMenu(hybridMenuId, { pages: updatedPages });
+          
+          await sendEphemeralEmbed(interaction, `✅ Page display type changed from **${currentDisplayType}** to **${newDisplayType}**!`, "#00FF00", "Success", false);
+          return showHybridInfoConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "change_page_button_color") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const page = menu.pages?.find(p => p.id === pageId);
+          if (!page) {
+            return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          }
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:set_page_button_color:${hybridMenuId}:${pageId}`)
+            .setPlaceholder("Choose button color...")
+            .addOptions([
+              { label: "Primary (Blue)", value: "Primary", emoji: "🔵" },
+              { label: "Secondary (Gray)", value: "Secondary", emoji: "⚪" },
+              { label: "Success (Green)", value: "Success", emoji: "🟢" },
+              { label: "Danger (Red)", value: "Danger", emoji: "🔴" }
+            ]);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          await interaction.editReply({
+            content: `🎨 **Change Button Color for "${page.name || page.title || 'Untitled Page'}"**\n\nCurrent color: **${page.buttonColor || 'Primary'}**`,
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         if (action === "remove_role") {
           const hybridMenuId = parts[2];
           const roleType = parts[3]; // "dropdown" or "button"
@@ -3922,6 +3983,48 @@ client.on("interactionCreate", async (interaction) => {
             );
           }
           return interaction.showModal(modal);
+        }
+
+        if (action === "simple_button_colors") {
+          if (!menuId) return interaction.editReply({ content: "Menu ID missing.", flags: MessageFlags.Ephemeral });
+          const menu = db.getMenu(menuId);
+          if (!menu) return interaction.editReply({ content: "Menu not found.", flags: MessageFlags.Ephemeral });
+
+          const buttonRoles = menu.buttonRoles || [];
+          if (buttonRoles.length === 0) {
+            return interaction.editReply({ content: "No button roles configured for this menu.", flags: MessageFlags.Ephemeral });
+          }
+
+          // Create role options
+          const roleOptions = buttonRoles.slice(0, 25).map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) return null;
+            
+            const currentColor = menu.buttonColors?.[roleId] || 'Primary';
+            return {
+              label: role.name.substring(0, 100),
+              value: roleId,
+              description: `Current: ${currentColor}`,
+              emoji: '🎨'
+            };
+          }).filter(Boolean);
+
+          if (roleOptions.length === 0) {
+            return interaction.editReply({ content: "No valid button roles found.", flags: MessageFlags.Ephemeral });
+          }
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`rr:select_role_for_color:${menuId}`)
+            .setPlaceholder("Select a role to change its button color...")
+            .addOptions(roleOptions);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          await interaction.editReply({
+            content: "🎨 **Simple Button Colors**\n\nSelect a role to change its button color:",
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
         }
 
         if (action === "save_as_template") {
@@ -5140,6 +5243,38 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.showModal(modal);
         }
 
+        if (action === "select_role_for_color") {
+          const roleId = interaction.values[0];
+          const menuId = parts[2];
+          const menu = db.getMenu(menuId);
+          if (!menu) {
+              return sendEphemeralEmbed(interaction, "Menu not found.", "#FF0000", "Error", false);
+          }
+          
+          const role = interaction.guild.roles.cache.get(roleId);
+          if (!role) {
+              return sendEphemeralEmbed(interaction, "Role not found.", "#FF0000", "Error", false);
+          }
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`rr:set_role_button_color:${menuId}:${roleId}`)
+            .setPlaceholder("Choose button color...")
+            .addOptions([
+              { label: "Primary (Blue)", value: "Primary", emoji: "🔵" },
+              { label: "Secondary (Gray)", value: "Secondary", emoji: "⚪" },
+              { label: "Success (Green)", value: "Success", emoji: "🟢" },
+              { label: "Danger (Red)", value: "Danger", emoji: "🔴" }
+            ]);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+          
+          await interaction.editReply({
+            content: `🎨 **Change Button Color for ${role.name}**\n\nCurrent color: **${menu.buttonColors?.[roleId] || 'Primary'}**`,
+            components: [row],
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         // Bulk setup handlers - simplified
         if (action === "bulk_all_dropdown") {
           const hybridMenuId = parts[2];
@@ -5838,6 +5973,71 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
+        if (action === "set_role_button_color") {
+          const menuId = parts[2];
+          const roleId = parts[3];
+          const buttonColor = interaction.values[0];
+          
+          console.log(`[RR Debug] Setting button color for role ${roleId} to ${buttonColor}`);
+          
+          try {
+            const menu = db.getMenu(menuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Menu not found.", "#FF0000", "Error", false);
+            }
+
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) {
+              return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+            }
+
+            // Update the role button color
+            const buttonColors = menu.buttonColors || {};
+            buttonColors[roleId] = buttonColor;
+            
+            await db.updateMenu(menuId, { buttonColors: buttonColors });
+            
+            await sendEphemeralEmbed(interaction, `✅ Button color for **${role.name}** set to **${buttonColor}**!`, "#00FF00", "Success", false);
+            return showMenuConfiguration(interaction, menuId);
+          } catch (error) {
+            console.error(`[RR Debug] Error setting button color:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting button color. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "set_page_button_color") {
+          const hybridMenuId = parts[2];
+          const pageId = parts[3];
+          const buttonColor = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Setting button color for page ${pageId} to ${buttonColor}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const page = menu.pages?.find(p => p.id === pageId);
+            if (!page) {
+              return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+            }
+
+            // Update the page button color
+            const updatedPages = menu.pages.map(p => 
+              p.id === pageId ? { ...p, buttonColor: buttonColor } : p
+            );
+            
+            await db.updateHybridMenu(hybridMenuId, { pages: updatedPages });
+            
+            await sendEphemeralEmbed(interaction, `✅ Button color for "${page.name || page.title || 'Untitled Page'}" set to **${buttonColor}**!`, "#00FF00", "Success", false);
+            return showHybridInfoConfiguration(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error setting button color:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error setting button color. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
         if (action === "manage_info_page") {
           const hybridMenuId = parts[2];
           const pageId = interaction.values[0];
@@ -5863,17 +6063,33 @@ client.on("interactionCreate", async (interaction) => {
               .setDescription(`**Page Content:**\n${(page.content || page.description || 'No content').substring(0, 1000)}${(page.content || page.description || '').length > 1000 ? '...' : ''}`)
               .setColor("#5865F2")
               .addFields([
+                { name: "Display Type", value: page.displayType || 'dropdown', inline: true },
+                { name: "Button Color", value: page.buttonColor || 'Primary', inline: true },
+                { name: "Emoji", value: page.emoji || 'None', inline: true },
                 { name: "Created", value: page.createdAt ? new Date(page.createdAt).toLocaleDateString() : "Unknown", inline: true },
                 { name: "Updated", value: page.updatedAt ? new Date(page.updatedAt).toLocaleDateString() : "Not updated", inline: true },
                 { name: "Page ID", value: page.id, inline: true }
               ]);
 
-            const actionRow = new ActionRowBuilder().addComponents(
+            const actionRow1 = new ActionRowBuilder().addComponents(
               new ButtonBuilder()
                 .setCustomId(`hybrid:edit_info_page:${hybridMenuId}:${pageId}`)
                 .setLabel("Edit Page")
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji("✏️"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:change_page_display_type:${hybridMenuId}:${pageId}`)
+                .setLabel("Change Display Type")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("🔄"),
+              new ButtonBuilder()
+                .setCustomId(`hybrid:change_page_button_color:${hybridMenuId}:${pageId}`)
+                .setLabel("Button Color")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("🎨")
+            );
+
+            const actionRow2 = new ActionRowBuilder().addComponents(
               new ButtonBuilder()
                 .setCustomId(`hybrid:delete_info_page:${hybridMenuId}:${pageId}`)
                 .setLabel("Delete Page")
@@ -5886,7 +6102,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setEmoji("⬅️")
             );
 
-            const responseData = { embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral };
+            const responseData = { embeds: [embed], components: [actionRow1, actionRow2], flags: MessageFlags.Ephemeral };
             
             if (interaction.deferred || interaction.replied) {
               await interaction.editReply(responseData);
@@ -9937,13 +10153,15 @@ async function handleHybridMenuInteraction(interaction) {
 
       // Clear the dropdown selection after showing the info page
       try {
-        // Only update if member counts are enabled to avoid unnecessary "edited" marks
-        if (menu.showMemberCounts) {
-          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, true);
-        }
+        // Get the original message to reset the dropdown state
+        const originalMessage = await interaction.message.fetch();
+        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
+        
+        // Update the original message to reset dropdown selections
+        await originalMessage.edit({ components: updatedComponents });
       } catch (error) {
-        console.error("Error updating hybrid menu components after info selection:", error);
-        // Continue with showing the page even if we can't update the components
+        console.error("Error resetting hybrid menu dropdown selection:", error);
+        // Continue with showing the page even if we can't reset the dropdown
       }
 
       return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -10361,8 +10579,13 @@ async function showMenuConfiguration(interaction, menuId) {
         .setDisabled(menu.buttonRoles.length <= 1),
       new ButtonBuilder()
         .setCustomId(`rr:configure_button_colors:${menuId}`)
-        .setLabel("Button Colors")
+        .setLabel("Button Colors (Bulk)")
         .setStyle(ButtonStyle.Primary)
+        .setDisabled(!menu.buttonRoles.length),
+      new ButtonBuilder()
+        .setCustomId(`rr:simple_button_colors:${menuId}`)
+        .setLabel("Simple Button Colors")
+        .setStyle(ButtonStyle.Secondary)
         .setDisabled(!menu.buttonRoles.length)
     );
 
