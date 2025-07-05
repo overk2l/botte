@@ -339,54 +339,17 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function resetDropdownSelection(interaction, originalComponents = null) {
   try {
-    // For single-selection dropdowns, we need to rebuild the components with no default selection
-    // This will reset the dropdown visually while avoiding the "edited" label
-    
+    // Make dropdowns behave like buttons: just acknowledge the interaction
+    // without changing the message at all. This prevents the "edited" label.
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
     }
-
-    // If we have original components, rebuild them to reset the selection
-    if (originalComponents) {
-      const freshComponents = originalComponents.map(row => {
-        const newRow = new ActionRowBuilder();
-        
-        row.components.forEach(component => {
-          if (component.type === ComponentType.StringSelect) {
-            const options = component.options.map(option => ({
-              label: option.label,
-              value: option.value,
-              description: option.description || undefined,
-              emoji: option.emoji || undefined,
-              default: false // Ensure no option is selected by default
-            }));
-            
-            const newSelect = new StringSelectMenuBuilder()
-              .setCustomId(component.customId)
-              .setPlaceholder(component.placeholder || "Select an option...")
-              .setMinValues(component.minValues || 1)
-              .setMaxValues(component.maxValues || 1)
-              .setDisabled(component.disabled || false)
-              .addOptions(options);
-            
-            newRow.addComponents(newSelect);
-          } else {
-            // Keep other components (buttons, etc.) as-is
-            newRow.addComponents(component);
-          }
-        });
-        
-        return newRow;
-      });
-
-      // Update the interaction with fresh components (this resets the dropdown)
-      await interaction.editReply({ components: freshComponents });
-      return true;
-    }
     
+    // Don't update components - let the dropdown keep its selection
+    // The user gets feedback via ephemeral follow-up, just like buttons
     return true;
   } catch (error) {
-    console.error("Error resetting dropdown selection:", error);
+    console.error("Error acknowledging dropdown interaction:", error);
     // Fallback: at minimum, acknowledge the interaction if needed
     try {
       if (!interaction.replied && !interaction.deferred) {
@@ -9437,21 +9400,15 @@ async function handleRoleInteraction(interaction) {
                         components.push(...buttonRows);
                     }
 
-                    // Process the selection invisibly - reset dropdown with fresh components
+                    // Process the selection like a button - just acknowledge and send feedback
                     try {
-                        const resetSuccess = await resetDropdownSelection(interaction, components);
+                        const resetSuccess = await resetDropdownSelection(interaction);
                         
                         if (resetSuccess) {
-                            // Send notification as follow-up after successful reset
-                            setTimeout(async () => {
-                                try {
-                                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
-                                } catch (followUpError) {
-                                    console.error("Error sending follow-up:", followUpError);
-                                }
-                            }, 300); // Increased delay to let reset complete
+                            // Send notification as ephemeral follow-up (like buttons do)
+                            await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
                         } else {
-                            // Fallback to notification if reset fails
+                            // Fallback to notification if acknowledgment fails
                             await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
                         }
                     } catch (error) {
@@ -9507,13 +9464,13 @@ async function handleRoleInteraction(interaction) {
                         }
                     }
                     
-                    // Process the selection invisibly even if no changes were made
-                    const resetSuccess = await resetDropdownSelection(interaction, components);
+                    // Process like a button - acknowledge and give feedback
+                    const resetSuccess = await resetDropdownSelection(interaction);
                     
                     if (resetSuccess) {
                         await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
                     } else {
-                        // If reset failed, we need to handle the interaction state properly
+                        // If acknowledgment failed, try to reply properly
                         if (!interaction.replied && !interaction.deferred) {
                             await interaction.reply({ content: "No changes made to your roles.", ephemeral: true });
                         } else {
@@ -10993,26 +10950,19 @@ async function handleHybridMenuInteraction(interaction) {
         await member.roles.remove(rolesToRemove);
       }
 
-      // Reset the dropdown to clear visual selection, then send response
+      // Process like a button - acknowledge and send feedback
       try {
-        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        const resetSuccess = await resetDropdownSelection(interaction, updatedComponents);
+        const resetSuccess = await resetDropdownSelection(interaction);
         
         if (resetSuccess) {
-          // Wait a moment then send notification 
-          setTimeout(async () => {
-            try {
-              await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
-            } catch (followUpError) {
-              console.error("Error sending follow-up:", followUpError);
-            }
-          }, 300); // Increased delay to let webhook message reset fully
+          // Send notification as ephemeral follow-up (like buttons do)
+          await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
         } else {
-          // Fallback to notification if reset fails
+          // Fallback to notification if acknowledgment fails
           await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
         }
       } catch (error) {
-        console.error("Error resetting hybrid menu dropdown:", error);
+        console.error("Error processing hybrid menu dropdown:", error);
         // Fallback to notification
         await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
       }
