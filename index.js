@@ -353,44 +353,68 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
         const freshComponents = originalComponents.map((row, index) => {
           const newRow = new ActionRowBuilder();
           
-          console.log(`[Dropdown Reset] Processing row ${index} with ${row.components.length} components`);
+          // Handle both Discord.js ActionRow objects and raw component data
+          const components = row.components || row;
+          console.log(`[Dropdown Reset] Processing row ${index} with ${components.length} components`);
           
-          row.components.forEach((component, compIndex) => {
-            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${component.type}`);
+          components.forEach((component, compIndex) => {
+            // Check both Discord.js enum and raw API values
+            const componentType = component.type || component.component_type;
+            console.log(`[Dropdown Reset] Row ${index}, Component ${compIndex}: type=${componentType}, data=`, {
+              customId: component.customId || component.custom_id,
+              placeholder: component.placeholder,
+              options: component.options?.length
+            });
             
-            if (component.type === ComponentType.StringSelect) {
+            // StringSelectMenu is type 3 in Discord API
+            if (componentType === ComponentType.StringSelect || componentType === 3) {
               // Create a completely new dropdown with no default selections
-              const newDropdown = new StringSelectMenuBuilder()
-                .setCustomId(component.customId) // Keep same ID for functionality
-                .setPlaceholder(component.placeholder || 'Select an option...')
-                .setMinValues(component.minValues || 1)
-                .setMaxValues(component.maxValues || 1)
-                .addOptions(component.options.map(opt => ({
-                  label: opt.label,
-                  value: opt.value,
-                  description: opt.description,
-                  emoji: opt.emoji,
-                  default: false // CRITICAL: Always false to clear selections
-                })));
+              const customId = component.customId || component.custom_id;
+              const placeholder = component.placeholder || 'Select an option...';
+              const minValues = component.minValues || component.min_values || 1;
+              const maxValues = component.maxValues || component.max_values || 1;
+              const options = component.options || [];
               
-              newRow.addComponents(newDropdown);
-              console.log(`[Dropdown Reset] Added dropdown to row ${index}`);
-            } else if (component.type === ComponentType.Button) {
-              // Rebuild buttons as-is
-              const newButton = new ButtonBuilder()
-                .setCustomId(component.customId)
-                .setLabel(component.label)
-                .setStyle(component.style);
-              
-              if (component.emoji) {
-                newButton.setEmoji(component.emoji);
+              if (options.length > 0) {
+                const newDropdown = new StringSelectMenuBuilder()
+                  .setCustomId(customId)
+                  .setPlaceholder(placeholder)
+                  .setMinValues(minValues)
+                  .setMaxValues(maxValues)
+                  .addOptions(options.map(opt => ({
+                    label: opt.label,
+                    value: opt.value,
+                    description: opt.description,
+                    emoji: opt.emoji,
+                    default: false // CRITICAL: Always false to clear selections
+                  })));
+                
+                newRow.addComponents(newDropdown);
+                console.log(`[Dropdown Reset] Added dropdown to row ${index}`);
               }
-              if (component.disabled !== undefined) {
-                newButton.setDisabled(component.disabled);
-              }
+            } 
+            // Button is type 2 in Discord API
+            else if (componentType === ComponentType.Button || componentType === 2) {
+              const customId = component.customId || component.custom_id;
+              const label = component.label;
+              const style = component.style;
               
-              newRow.addComponents(newButton);
-              console.log(`[Dropdown Reset] Added button to row ${index}`);
+              if (customId && label && style) {
+                const newButton = new ButtonBuilder()
+                  .setCustomId(customId)
+                  .setLabel(label)
+                  .setStyle(style);
+                
+                if (component.emoji) {
+                  newButton.setEmoji(component.emoji);
+                }
+                if (component.disabled !== undefined) {
+                  newButton.setDisabled(component.disabled);
+                }
+                
+                newRow.addComponents(newButton);
+                console.log(`[Dropdown Reset] Added button to row ${index}`);
+              }
             }
           });
           
@@ -418,6 +442,7 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
         }
       } catch (rebuildError) {
         console.error("Error in Sapphire-style component rebuild:", rebuildError);
+        console.error("Original components structure:", JSON.stringify(originalComponents, null, 2));
         // Fall back to simple acknowledgment
       }
     }
