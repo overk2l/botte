@@ -2841,7 +2841,7 @@ client.on("interactionCreate", async (interaction) => {
                     .setCustomId(`hybrid:bulk_all_both:${hybridMenuId}`)
                     .setLabel("All Both")
                     .setStyle(ButtonStyle.Primary)
-                    .setEmoji("�")
+                    .setEmoji("🔗")
                 ),
                 new ActionRowBuilder().addComponents(
                   new ButtonBuilder()
@@ -9655,7 +9655,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
             label: page.name.substring(0, 100),
             value: `hybrid-info-page:${hybridMenuId}:${page.id}`,
             description: page.content?.substring(0, 100) || 'No description',
-            emoji: page.emoji || '📋'
+            emoji: page.emoji || '📄'
         }));
 
         const infoDropdown = new StringSelectMenuBuilder()
@@ -9687,7 +9687,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
             return {
                 label: labelText.substring(0, 100),
                 value: role.id,
-                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]),
+                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || '🎭',
                 description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
                 default: false
             };
@@ -9778,6 +9778,9 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
             if (menu.buttonEmojis?.[role.id]) {
                 button.setEmoji(parseEmoji(menu.buttonEmojis[role.id]));
+            } else {
+                // Add fallback emoji for role buttons to differentiate from info pages
+                button.setEmoji('🎭');
             }
 
             currentRow.addComponents(button);
