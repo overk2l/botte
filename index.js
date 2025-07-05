@@ -2517,23 +2517,32 @@ client.on("interactionCreate", async (interaction) => {
 
         if (action === "preview") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
+          try {
             return previewHybridMenu(interaction, hybridMenuId);
-          });
+          } catch (error) {
+            console.error("Error in preview:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error loading preview.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "back_to_config") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
+          try {
             return showHybridMenuConfiguration(interaction, hybridMenuId);
-          });
+          } catch (error) {
+            console.error("Error in back_to_config:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error navigating back to config.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "back_to_info_config") {
           const hybridMenuId = parts[2];
-          return await clearTimeoutAndProcess(async () => {
+          try {
             return showHybridInfoConfiguration(interaction, hybridMenuId);
-          });
+          } catch (error) {
+            console.error("Error in back_to_info_config:", error);
+            return sendEphemeralEmbed(interaction, "❌ Error navigating back to info config.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "back_to_roles_config") {
