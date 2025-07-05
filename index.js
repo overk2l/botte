@@ -8033,6 +8033,47 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to create menu from template. Please try again.", "#FF0000", "Error", false);
           }
         }
+
+        if (modalType === "configure_member_counts") {
+          try {
+            const menuId = parts[3];
+            const showInDropdowns = interaction.fields.getTextInputValue("show_in_dropdowns").toLowerCase().trim();
+            const showInButtons = interaction.fields.getTextInputValue("show_in_buttons").toLowerCase().trim();
+            
+            console.log(`[Member Counts] Raw input values - dropdowns: "${showInDropdowns}", buttons: "${showInButtons}"`);
+            
+            const dropdownsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInDropdowns);
+            const buttonsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInButtons);
+            
+            console.log(`[Member Counts] Parsed values - dropdowns: ${dropdownsEnabled}, buttons: ${buttonsEnabled}`);
+            console.log(`[Member Counts] Updating reaction role menu: ${menuId}`);
+            
+            // Update reaction role menu settings
+            await db.updateMenu(menuId, {
+              showMemberCounts: dropdownsEnabled || buttonsEnabled,
+              memberCountOptions: {
+                showInDropdowns: dropdownsEnabled,
+                showInButtons: buttonsEnabled
+              }
+            });
+            
+            console.log(`[Member Counts] Reaction role menu updated successfully`);
+            
+            // Force update the published message if it exists
+            const menu = db.getMenu(menuId);
+            if (menu && menu.channelId && menu.messageId) {
+              const guild = interaction.guild;
+              const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
+              await updatePublishedMessageComponents(mockInteraction, menu, menuId, true);
+            }
+            
+            await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
+            return showMenuConfiguration(interaction, menuId);
+          } catch (error) {
+            console.error(`[RR] Error configuring member counts:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure member count settings. Please try again.", "#FF0000", "Error", false);
+          }
+        }
       }
 
       if (ctx === "info" && action === "modal") {
@@ -9054,6 +9095,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (modalType === "configure_member_counts") {
           try {
+            const hybridMenuId = parts[3];
             const showInDropdowns = interaction.fields.getTextInputValue("show_in_dropdowns").toLowerCase().trim();
             const showInButtons = interaction.fields.getTextInputValue("show_in_buttons").toLowerCase().trim();
             
@@ -9063,63 +9105,31 @@ client.on("interactionCreate", async (interaction) => {
             const buttonsEnabled = ['yes', 'y', 'true', '1', 'on'].includes(showInButtons);
             
             console.log(`[Member Counts] Parsed values - dropdowns: ${dropdownsEnabled}, buttons: ${buttonsEnabled}`);
+            console.log(`[Member Counts] Updating hybrid menu: ${hybridMenuId}`);
             
-            if (ctx === "hybrid") {
-              const hybridMenuId = parts[3];
-              
-              console.log(`[Member Counts] Updating hybrid menu: ${hybridMenuId}`);
-              
-              // Update hybrid menu settings
-              await db.updateHybridMenu(hybridMenuId, {
-                showMemberCounts: dropdownsEnabled || buttonsEnabled,
-                memberCountOptions: {
-                  showInDropdowns: dropdownsEnabled,
-                  showInButtons: buttonsEnabled
-                }
-              });
-              
-              console.log(`[Member Counts] Hybrid menu updated successfully`);
-              
-              // Force update the published message if it exists
-              const menu = db.getHybridMenu(hybridMenuId);
-              if (menu && menu.channelId && menu.messageId) {
-                const guild = interaction.guild;
-                const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
-                await updatePublishedHybridMenuComponents(mockInteraction, menu, hybridMenuId, true);
+            // Update hybrid menu settings
+            await db.updateHybridMenu(hybridMenuId, {
+              showMemberCounts: dropdownsEnabled || buttonsEnabled,
+              memberCountOptions: {
+                showInDropdowns: dropdownsEnabled,
+                showInButtons: buttonsEnabled
               }
-              
-              await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
-              return showHybridMenuConfiguration(interaction, hybridMenuId);
-              
-            } else if (ctx === "rr") {
-              const menuId = parts[3];
-              
-              console.log(`[Member Counts] Updating reaction role menu: ${menuId}`);
-              
-              // Update reaction role menu settings
-              await db.updateMenu(menuId, {
-                showMemberCounts: dropdownsEnabled || buttonsEnabled,
-                memberCountOptions: {
-                  showInDropdowns: dropdownsEnabled,
-                  showInButtons: buttonsEnabled
-                }
-              });
-              
-              console.log(`[Member Counts] Reaction role menu updated successfully`);
-              
-              // Force update the published message if it exists
-              const menu = db.getMenu(menuId);
-              if (menu && menu.channelId && menu.messageId) {
-                const guild = interaction.guild;
-                const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
-                await updatePublishedMessageComponents(mockInteraction, menu, menuId, true);
-              }
-              
-              await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
-              return showMenuConfiguration(interaction, menuId);
+            });
+            
+            console.log(`[Member Counts] Hybrid menu updated successfully`);
+            
+            // Force update the published message if it exists
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (menu && menu.channelId && menu.messageId) {
+              const guild = interaction.guild;
+              const mockInteraction = { guild: guild, user: client.user, member: guild.members.me };
+              await updatePublishedHybridMenuComponents(mockInteraction, menu, hybridMenuId, true);
             }
+            
+            await sendEphemeralEmbed(interaction, `✅ Member count display configured!\nDropdowns: ${dropdownsEnabled ? 'Enabled' : 'Disabled'}\nButtons: ${buttonsEnabled ? 'Enabled' : 'Disabled'}`, "#00FF00", "Success", false);
+            return showHybridMenuConfiguration(interaction, hybridMenuId);
           } catch (error) {
-            console.error(`[${ctx}] Error configuring member counts:`, error);
+            console.error(`[Hybrid] Error configuring member counts:`, error);
             return sendEphemeralEmbed(interaction, "❌ Failed to configure member count settings. Please try again.", "#FF0000", "Error", false);
           }
         }
