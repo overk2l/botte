@@ -645,7 +645,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
       // No changes case - send ephemeral followUp
-      await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
     }
     
     console.log("✅ TRUE Sapphire-style dropdown selection processed with ephemeral followUp only");
@@ -919,13 +919,13 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
 
     // Send ephemeral followUp - this is the TRUE Sapphire approach
     try {
-        await interaction.followUp({ embeds: [embed], ephemeral: true });
+        await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
         console.log("✅ Sent ephemeral role change notification (TRUE Sapphire style)");
     } catch (error) {
         console.error("❌ Error sending ephemeral role notification:", error);
         // Fallback to simple text ephemeral followUp
         try {
-            await interaction.followUp({ content: "✅ Your roles have been updated!", ephemeral: true });
+            await interaction.followUp({ content: "✅ Your roles have been updated!", flags: MessageFlags.Ephemeral });
         } catch (fallbackError) {
             console.error("❌ Fallback ephemeral followUp failed:", fallbackError);
         }
@@ -2982,7 +2982,7 @@ client.on("interactionCreate", async (interaction) => {
     try {
       // ✅ TRUE SAPPHIRE APPROACH: Always use deferReply for dropdown interactions
       // This allows us to send ephemeral replies without editing the original message
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       console.log("✅ Deferred interaction with ephemeral reply (TRUE Sapphire style)");
     } catch (e) {
       console.error("Error deferring reply:", e);
