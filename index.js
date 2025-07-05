@@ -424,28 +424,39 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting professional hybrid info dropdown handling with reset...");
+    console.log("🔄 Starting TRUE Sapphire hybrid info dropdown handling...");
     
-    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
-    // Then edit the message separately with fresh components
-    
-    // First, acknowledge the interaction without updating components
-    await interaction.deferUpdate();
-    console.log("✅ Hybrid info dropdown interaction deferred without showing 'edited' mark");
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to modify the original message in place
+    // This prevents "edited" marks and provides seamless component refresh
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
     const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
+    // Use interaction.update() to refresh the components seamlessly (TRUE Sapphire style)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await originalMessage.edit({
+        await interaction.update({
           components: updatedComponents
         });
-        console.log("✅ Hybrid info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit hybrid info dropdown components:", editError);
+        console.log("✅ Hybrid components updated seamlessly - TRUE Sapphire style (no 'edited' mark)");
+      } catch (updateError) {
+        console.error("❌ Failed to update hybrid components, falling back to deferUpdate:", updateError);
+        // Fallback to deferUpdate approach if update fails
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate();
+          try {
+            await originalMessage.edit({ components: updatedComponents });
+            console.log("✅ Fallback: Hybrid components updated via message edit");
+          } catch (editError) {
+            console.error("❌ Fallback hybrid edit also failed:", editError);
+          }
+        }
+      }
+    } else {
+      // No components to update, use fallback
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
       }
     }
     
@@ -723,32 +734,43 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting professional dropdown reset handling...");
+    console.log("🔄 Starting TRUE Sapphire dropdown handling...");
     
-    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
-    // Then edit the message separately with fresh components
-    
-    // First, acknowledge the interaction without updating components
-    await interaction.deferUpdate();
-    console.log("✅ Interaction deferred without showing 'edited' mark");
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to modify the original message in place
+    // This prevents "edited" marks and provides seamless component refresh
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
     const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
+    // Use interaction.update() to refresh the components seamlessly (TRUE Sapphire style)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await originalMessage.edit({
+        await interaction.update({
           components: updatedComponents
         });
-        console.log("✅ Message components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit message components:", editError);
+        console.log("✅ Components updated seamlessly - TRUE Sapphire style (no 'edited' mark)");
+      } catch (updateError) {
+        console.error("❌ Failed to update components, falling back to deferUpdate:", updateError);
+        // Fallback to deferUpdate approach if update fails
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate();
+          try {
+            await originalMessage.edit({ components: updatedComponents });
+            console.log("✅ Fallback: Components updated via message edit");
+          } catch (editError) {
+            console.error("❌ Fallback edit also failed:", editError);
+          }
+        }
+      }
+    } else {
+      // No components to update, use fallback
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
       }
     }
     
-    // Send role change notification as ephemeral followUp
+    // Send role change notification as ephemeral followUp (TRUE Sapphire pattern)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
@@ -756,7 +778,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
     }
     
-    console.log("✅ Professional dropdown reset completed with component refresh");
+    console.log("✅ TRUE Sapphire dropdown handling completed");
   } catch (error) {
     console.error("❌ Error in professional dropdown handling:", error);
     
@@ -13705,28 +13727,39 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting professional info dropdown handling with reset...");
+    console.log("🔄 Starting TRUE Sapphire info dropdown handling...");
     
-    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
-    // Then edit the message separately with fresh components
-    
-    // First, acknowledge the interaction without updating components
-    await interaction.deferUpdate();
-    console.log("✅ Info dropdown interaction deferred without showing 'edited' mark");
+    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to modify the original message in place
+    // This prevents "edited" marks and provides seamless component refresh
     
     // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
     const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
     
-    // Edit the message separately to refresh components (this won't show "edited" mark)
+    // Use interaction.update() to refresh the components seamlessly (TRUE Sapphire style)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await originalMessage.edit({
+        await interaction.update({
           components: updatedComponents
         });
-        console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
-      } catch (editError) {
-        console.error("❌ Failed to edit info dropdown components:", editError);
+        console.log("✅ Info components updated seamlessly - TRUE Sapphire style (no 'edited' mark)");
+      } catch (updateError) {
+        console.error("❌ Failed to update info components, falling back to deferUpdate:", updateError);
+        // Fallback to deferUpdate approach if update fails
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate();
+          try {
+            await originalMessage.edit({ components: updatedComponents });
+            console.log("✅ Fallback: Info components updated via message edit");
+          } catch (editError) {
+            console.error("❌ Fallback info edit also failed:", editError);
+          }
+        }
+      }
+    } else {
+      // No components to update, use fallback
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
       }
     }
     
