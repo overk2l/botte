@@ -270,6 +270,121 @@ function validateMenu(menuId, type = 'menu') {
  * @param {string} menuId - The menu ID
  * @returns {Promise<Array>} Array of rebuilt ActionRowBuilder components
  */
+/**
+ * Creates role button rows for menus (Sapphire-style)
+ * @param {string} menuId - The menu ID
+ * @param {Array} roles - Array of role objects
+ * @returns {Array<ActionRowBuilder>} Array of button rows
+ */
+function createRoleButtonRows(menuId, roles) {
+  const rows = [];
+  let currentRow = new ActionRowBuilder();
+  let buttonsInRow = 0;
+  
+  for (const role of roles) {
+    if (buttonsInRow >= 5) {
+      rows.push(currentRow);
+      currentRow = new ActionRowBuilder();
+      buttonsInRow = 0;
+    }
+    
+    const button = new ButtonBuilder()
+      .setCustomId(`rr-role-button:${menuId}:${role.id}`) // Stable format
+      .setLabel(role.name)
+      .setStyle(role.buttonStyle || ButtonStyle.Secondary);
+    
+    if (role.emoji) {
+      button.setEmoji(role.emoji);
+    }
+    
+    currentRow.addComponents(button);
+    buttonsInRow++;
+  }
+  
+  if (buttonsInRow > 0) {
+    rows.push(currentRow);
+  }
+  
+  return rows;
+}
+
+/**
+ * Builds role selection dropdown with clean reset (Sapphire-style)
+ * @param {string} menuId - The menu ID
+ * @param {Array} roles - Array of role objects
+ * @param {Array} selectedValues - Currently selected values (for maintaining state)
+ * @returns {ActionRowBuilder} The dropdown component
+ */
+function buildRoleSelectMenu(menuId, roles = [], selectedValues = []) {
+  const options = roles.map(role => ({
+    label: role.name,
+    value: role.id,
+    description: role.description || undefined,
+    emoji: role.emoji || undefined,
+    default: false // Always reset visual selection (Sapphire way)
+  }));
+
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`rr-role-select:${menuId}`) // Stable custom ID
+      .setPlaceholder("Select roles...")
+      .setMinValues(0)
+      .setMaxValues(Math.min(options.length, 25))
+      .addOptions(options)
+  );
+}
+
+/**
+ * Builds info dropdown with clean reset (Sapphire-style)
+ * @param {string} menuId - The menu ID
+ * @param {Array} pages - Array of page objects
+ * @returns {ActionRowBuilder} The dropdown component
+ */
+function buildInfoSelectMenu(menuId, pages = []) {
+  const options = pages.map(page => ({
+    label: page.title,
+    value: page.id,
+    description: page.description || undefined,
+    emoji: page.emoji || undefined,
+    default: false // Always reset visual selection (Sapphire way)
+  }));
+
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`info-menu-select:${menuId}`) // Stable custom ID
+      .setPlaceholder("Select information...")
+      .addOptions(options)
+  );
+}
+
+/**
+ * Builds hybrid menu components with clean reset (Sapphire-style)
+ * @param {string} hybridMenuId - The hybrid menu ID
+ * @param {Object} menu - The hybrid menu object
+ * @returns {Array<ActionRowBuilder>} Array of component rows
+ */
+function buildHybridMenuComponents(hybridMenuId, menu) {
+  const components = [];
+  
+  // Info dropdown (if has info pages)
+  if (menu.infoPages && menu.infoPages.length > 0) {
+    components.push(buildInfoSelectMenu(hybridMenuId, menu.infoPages));
+  }
+  
+  // Role dropdown (if has roles)
+  if (menu.dropdownRoles && menu.dropdownRoles.length > 0) {
+    components.push(buildRoleSelectMenu(hybridMenuId, menu.dropdownRoles));
+  }
+  
+  // Role buttons (if any)
+  if (menu.buttonRoles && menu.buttonRoles.length > 0) {
+    const buttonRows = createRoleButtonRows(hybridMenuId, menu.buttonRoles);
+    components.push(...buttonRows);
+  }
+  
+  return components;
+}
+
 async function rebuildDropdownComponents(originalMessage, menu, menuId) {
   console.log(`[Debug] Rebuilding dropdown components for menu ${menuId}`);
   
@@ -736,46 +851,61 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
   try {
     console.log("🔄 Starting TRUE Sapphire dropdown handling...");
     
-    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to modify the original message in place
-    // This prevents "edited" marks and provides seamless component refresh
+    // 🔥 SAPPHIRE WAY: Rebuild components with stable IDs, reset visual state
+    // Extract menu ID from stable custom ID
+    const parts = interaction.customId.split(':');
+    const menuId = parts[1];
     
-    // Get the original message and rebuild components with fresh custom IDs
-    const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
+    // Get menu data to rebuild components
+    let menu = db.getMenu(menuId);
+    const isHybridMenu = !menu;
+    if (isHybridMenu) {
+      menu = db.getHybridMenu(menuId);
+    }
     
-    // Use interaction.update() to refresh the components seamlessly (TRUE Sapphire style)
-    if (updatedComponents && updatedComponents.length > 0) {
-      try {
-        await interaction.update({
-          components: updatedComponents
-        });
-        console.log("✅ Components updated seamlessly - TRUE Sapphire style (no 'edited' mark)");
-      } catch (updateError) {
-        console.error("❌ Failed to update components, falling back to deferUpdate:", updateError);
-        // Fallback to deferUpdate approach if update fails
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-          try {
-            await originalMessage.edit({ components: updatedComponents });
-            console.log("✅ Fallback: Components updated via message edit");
-          } catch (editError) {
-            console.error("❌ Fallback edit also failed:", editError);
-          }
-        }
-      }
+    // Build fresh components with reset state (Sapphire pattern)
+    let updatedComponents;
+    if (isHybridMenu) {
+      updatedComponents = buildHybridMenuComponents(menuId, menu);
     } else {
-      // No components to update, use fallback
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+      // For regular role menus, rebuild the dropdown
+      updatedComponents = [buildRoleSelectMenu(menuId, menu.dropdownRoles || [])];
+      
+      // Add button rows if they exist
+      if (menu.buttonRoles && menu.buttonRoles.length > 0) {
+        const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
+        updatedComponents.push(...buttonRows);
       }
     }
     
-    // Send role change notification as ephemeral followUp (TRUE Sapphire pattern)
+    // 🔥 SAPPHIRE APPROACH: Use interaction.update() with fresh components
+    try {
+      await interaction.update({
+        components: updatedComponents
+      });
+      console.log("✅ Dropdown reset with stable IDs - TRUE Sapphire style");
+    } catch (updateError) {
+      console.error("❌ Failed to update components:", updateError);
+      // Fallback: defer and try message edit
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+        try {
+          await interaction.message.edit({ components: updatedComponents });
+          console.log("✅ Fallback: Components updated via message edit");
+        } catch (editError) {
+          console.error("❌ Fallback edit also failed:", editError);
+        }
+      }
+    }
+    
+    // Send ephemeral feedback (Sapphire pattern)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
-      // No changes case - send ephemeral followUp
-      await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ 
+        content: "No changes made to your roles.", 
+        flags: MessageFlags.Ephemeral 
+      });
     }
     
     console.log("✅ TRUE Sapphire dropdown handling completed");
@@ -13729,41 +13859,29 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
   try {
     console.log("🔄 Starting TRUE Sapphire info dropdown handling...");
     
-    // 🔥 TRUE SAPPHIRE APPROACH: Use interaction.update() to modify the original message in place
-    // This prevents "edited" marks and provides seamless component refresh
+    // 🔥 SAPPHIRE WAY: Rebuild components with stable ID and reset state
+    const updatedComponents = [buildInfoSelectMenu(infoMenuId, menu.pages || [])];
     
-    // Get the original message and rebuild components with fresh custom IDs
-    const originalMessage = interaction.message;
-    const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
-    
-    // Use interaction.update() to refresh the components seamlessly (TRUE Sapphire style)
-    if (updatedComponents && updatedComponents.length > 0) {
-      try {
-        await interaction.update({
-          components: updatedComponents
-        });
-        console.log("✅ Info components updated seamlessly - TRUE Sapphire style (no 'edited' mark)");
-      } catch (updateError) {
-        console.error("❌ Failed to update info components, falling back to deferUpdate:", updateError);
-        // Fallback to deferUpdate approach if update fails
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-          try {
-            await originalMessage.edit({ components: updatedComponents });
-            console.log("✅ Fallback: Info components updated via message edit");
-          } catch (editError) {
-            console.error("❌ Fallback info edit also failed:", editError);
-          }
-        }
-      }
-    } else {
-      // No components to update, use fallback
+    // Use interaction.update() to reset dropdown seamlessly (Sapphire style)
+    try {
+      await interaction.update({
+        components: updatedComponents
+      });
+      console.log("✅ Info dropdown reset with stable ID - TRUE Sapphire style");
+    } catch (updateError) {
+      console.error("❌ Failed to update info components:", updateError);
+      // Fallback
       if (!interaction.replied && !interaction.deferred) {
         await interaction.deferUpdate();
+        try {
+          await interaction.message.edit({ components: updatedComponents });
+        } catch (editError) {
+          console.error("❌ Fallback info edit failed:", editError);
+        }
       }
     }
     
-    // Create and send the page content as ephemeral followUp
+    // Send page content as ephemeral followUp
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
