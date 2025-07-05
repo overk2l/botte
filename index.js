@@ -316,10 +316,46 @@ function createRoleButtonRows(menuId, roles) {
  * @returns {ActionRowBuilder} The dropdown component
  */
 function buildRoleSelectMenu(menuId, roles = [], selectedValues = []) {
-  const options = roles.map(role => ({
-    label: role.name,
+  // Filter and validate roles to prevent Discord.js validation errors
+  const validRoles = roles.filter(role => {
+    if (!role || typeof role !== 'object') {
+      console.warn('[buildRoleSelectMenu] Invalid role object:', role);
+      return false;
+    }
+    
+    if (!role.id || typeof role.id !== 'string') {
+      console.warn('[buildRoleSelectMenu] Role missing valid ID:', role);
+      return false;
+    }
+    
+    if (!role.name || typeof role.name !== 'string') {
+      console.warn('[buildRoleSelectMenu] Role missing valid name:', role);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  if (validRoles.length === 0) {
+    console.warn('[buildRoleSelectMenu] No valid roles found for menu:', menuId);
+    // Return a placeholder dropdown
+    return new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`rr-role-select:${menuId}`)
+        .setPlaceholder("No roles available")
+        .setDisabled(true)
+        .addOptions([{
+          label: "No roles configured",
+          value: "none",
+          description: "This menu has no valid roles configured"
+        }])
+    );
+  }
+  
+  const options = validRoles.map(role => ({
+    label: role.name.substring(0, 100), // Discord limit is 100 characters
     value: role.id,
-    description: role.description || undefined,
+    description: role.description ? role.description.substring(0, 100) : undefined,
     emoji: role.emoji || undefined,
     default: false // Always reset visual selection (Sapphire way)
   }));
@@ -341,10 +377,46 @@ function buildRoleSelectMenu(menuId, roles = [], selectedValues = []) {
  * @returns {ActionRowBuilder} The dropdown component
  */
 function buildInfoSelectMenu(menuId, pages = []) {
-  const options = pages.map(page => ({
-    label: page.title,
+  // Filter and validate pages to prevent Discord.js validation errors
+  const validPages = pages.filter(page => {
+    if (!page || typeof page !== 'object') {
+      console.warn('[buildInfoSelectMenu] Invalid page object:', page);
+      return false;
+    }
+    
+    if (!page.id || typeof page.id !== 'string') {
+      console.warn('[buildInfoSelectMenu] Page missing valid ID:', page);
+      return false;
+    }
+    
+    if (!page.title || typeof page.title !== 'string') {
+      console.warn('[buildInfoSelectMenu] Page missing valid title:', page);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  if (validPages.length === 0) {
+    console.warn('[buildInfoSelectMenu] No valid pages found for menu:', menuId);
+    // Return a placeholder dropdown
+    return new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`info-menu-select:${menuId}`)
+        .setPlaceholder("No information available")
+        .setDisabled(true)
+        .addOptions([{
+          label: "No pages configured",
+          value: "none",
+          description: "This menu has no valid pages configured"
+        }])
+    );
+  }
+  
+  const options = validPages.map(page => ({
+    label: page.title.substring(0, 100), // Discord limit is 100 characters
     value: page.id,
-    description: page.description || undefined,
+    description: page.description ? page.description.substring(0, 100) : undefined,
     emoji: page.emoji || undefined,
     default: false // Always reset visual selection (Sapphire way)
   }));
@@ -863,19 +935,50 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       menu = db.getHybridMenu(menuId);
     }
     
+    if (!menu) {
+      console.error(`[handleDropdownSelection] Menu not found: ${menuId}`);
+      // Fallback: just defer the interaction
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+      }
+      return;
+    }
+    
+    console.log(`[handleDropdownSelection] Processing menu: ${menuId}, isHybrid: ${isHybridMenu}`);
+    
     // Build fresh components with reset state (Sapphire pattern)
     let updatedComponents;
-    if (isHybridMenu) {
-      updatedComponents = buildHybridMenuComponents(menuId, menu);
-    } else {
-      // For regular role menus, rebuild the dropdown
-      updatedComponents = [buildRoleSelectMenu(menuId, menu.dropdownRoles || [])];
-      
-      // Add button rows if they exist
-      if (menu.buttonRoles && menu.buttonRoles.length > 0) {
-        const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
-        updatedComponents.push(...buttonRows);
+    try {
+      if (isHybridMenu) {
+        updatedComponents = buildHybridMenuComponents(menuId, menu);
+      } else {
+        // For regular role menus, rebuild the dropdown
+        const dropdownRoles = menu.dropdownRoles || [];
+        console.log(`[handleDropdownSelection] Building dropdown with ${dropdownRoles.length} roles`);
+        
+        updatedComponents = [buildRoleSelectMenu(menuId, dropdownRoles)];
+        
+        // Add button rows if they exist
+        if (menu.buttonRoles && menu.buttonRoles.length > 0) {
+          const buttonRows = createRoleButtonRows(menuId, menu.buttonRoles);
+          updatedComponents.push(...buttonRows);
+        }
       }
+      
+      if (!updatedComponents || updatedComponents.length === 0) {
+        console.warn(`[handleDropdownSelection] No components generated for menu: ${menuId}`);
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate();
+        }
+        return;
+      }
+    } catch (componentError) {
+      console.error(`[handleDropdownSelection] Error building components for menu ${menuId}:`, componentError);
+      // Fallback: just defer the interaction
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
+      }
+      return;
     }
     
     // 🔥 SAPPHIRE APPROACH: Use interaction.update() with fresh components
