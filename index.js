@@ -15070,3 +15070,38 @@ setInterval(() => {
         logger.error("Error in periodic cleanup:", error);
     }
 }, 300000); // Every 5 minutes
+
+// Comprehensive health check function
+async function performHealthCheck(client) {
+  try {
+    const diagnostics = await generateSystemDiagnostics(client);
+    
+    logger.info('Health Check Results:', {
+      status: diagnostics.health.status,
+      issues: diagnostics.health.issues.length,
+      memory: `${diagnostics.performance.memory.used}MB`,
+      uptime: diagnostics.discord.uptime,
+      interactions: `${diagnostics.performance.interactions.successful}/${diagnostics.performance.interactions.total}`
+    });
+    
+    // Auto-recovery for critical issues
+    if (diagnostics.health.status === 'critical') {
+      logger.warn('Critical health status detected, initiating auto-recovery...');
+      await performAutoRecovery(client);
+    }
+    
+    // Performance warnings
+    if (diagnostics.performance.memory.used > 512) {
+      logger.warn(`High memory usage: ${diagnostics.performance.memory.used}MB`);
+    }
+    
+    if (diagnostics.performance.interactions.avgResponseTime > 3000) {
+      logger.warn(`Slow interaction response time: ${diagnostics.performance.interactions.avgResponseTime}ms`);
+    }
+    
+    return diagnostics;
+  } catch (error) {
+    logger.error('Health check failed:', error);
+    return null;
+  }
+}
