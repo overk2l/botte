@@ -2138,6 +2138,14 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))
   );
 
+  // Check if it's a published dropdown interaction (should use deferUpdate to prevent "edited" marks)
+  const isPublishedDropdownInteraction = (
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("info-menu-select:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:"))
+  );
+
   // Check if it's a configuration interaction that should not be deferred
   const isConfigurationInteraction = (
     (interaction.isButton() && interaction.customId.startsWith("info:configure_display:")) ||
@@ -2153,11 +2161,16 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("dynamic:"))
   );
 
-  // Defer non-modal-trigger interactions, but handle dashboard navigation differently
+  // Defer non-modal-trigger interactions, but handle dropdown interactions differently
   if (!interaction.replied && !interaction.deferred && !isModalTrigger && !isModalSubmission && !isConfigurationInteraction) {
     try {
-      // Always defer interactions that need responses
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      // Use deferUpdate for published dropdown interactions to prevent "edited" marks
+      if (isPublishedDropdownInteraction) {
+        await interaction.deferUpdate();
+      } else {
+        // Always defer interactions that need responses
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      }
     } catch (e) {
       console.error("Error deferring reply:", e);
     }
@@ -6497,46 +6510,21 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           try {
-            // Since published menu interactions are always deferred, use editReply
-            await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            // Since published dropdown interactions use deferUpdate, use followUp
+            await interaction.followUp({ embeds: [embed], ephemeral: true });
 
-            // Update the original message to reset the dropdown so users can select again
-            try {
-              const pages = db.getInfoMenuPages(infoMenuId);
-              if (pages && pages.length > 0) {
-                const selectMenu = new StringSelectMenuBuilder()
-                  .setCustomId(`info-menu-select:${infoMenuId}`)
-                  .setPlaceholder(menu.dropdownPlaceholder || '📚 Select a page to view...')
-                  .addOptions(
-                    pages.map(page => ({
-                      label: page.name.slice(0, 100),
-                      value: page.id,
-                      description: page.dropdownDescription || (page.content.description ? page.content.description.slice(0, 100) : undefined),
-                      emoji: page.emoji || '📄'
-                    }))
-                  );
-
-                const row = new ActionRowBuilder().addComponents(selectMenu);
-                
-                // Update the original message to refresh the dropdown
-                await interaction.message.edit({
-                  components: [row]
-                });
-              }
-            } catch (updateError) {
-              console.error("Error updating dropdown after selection:", updateError);
-              // Don't fail the whole interaction if we can't update the dropdown
-            }
+            // Don't update the original message components - this prevents "edited" marks
+            // The dropdown will naturally appear unselected after the interaction
           } catch (replyError) {
             console.error("Error sending embed reply:", replyError);
             console.error("Embed data:", JSON.stringify({ embeds: [embed] }, null, 2));
-            return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+            return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
           }
         } catch (error) {
           console.error("Error displaying info page from dropdown:", error);
           console.error("Page data:", JSON.stringify(page, null, 2));
           console.error("Menu data:", JSON.stringify(menu, null, 2));
-          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+          return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
         }
       } else if (interaction.customId.startsWith("info-page:")) {
         // Handle user selecting a page from published info menu button
@@ -8634,15 +8622,19 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 async function handleRoleInteraction(interaction) {
-    if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring reply for role interaction:", e));
-    }
+    // Deferring is now handled at the main interaction level
+    // Dropdown interactions use deferUpdate, button interactions use deferReply
 
     try {
         // Check rate limiting
         if (isOnRoleInteractionCooldown(interaction.user.id)) {
             const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-            return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
+            if (interaction.isStringSelectMenu()) {
+                // For dropdown interactions, send a follow-up message
+                return interaction.followUp({ content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, "#FFAA00", "Rate Limited");
+            }
         }
 
         const parts = interaction.customId.split(":");
@@ -8652,14 +8644,22 @@ async function handleRoleInteraction(interaction) {
         
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", "#FF0000", "Error");
+            }
         }
         
         const menu = db.getMenu(menuId);
         
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
-            return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", "#FF0000", "Error");
+            }
         }
 
         // Set cooldown
@@ -8668,13 +8668,21 @@ async function handleRoleInteraction(interaction) {
         // Validate guild and member
         if (!interaction.guild || !interaction.member) {
             console.error(`[Error] Invalid guild or member for menu ${menuId}`);
-            return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: "❌ Unable to process role interaction. Please try again.", ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction. Please try again.", "#FF0000", "Error");
+            }
         }
 
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
-            return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: "❌ Unable to fetch your member information. Please try again.", ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, "❌ Unable to fetch your member information. Please try again.", "#FF0000", "Error");
+            }
         }
 
         const currentRoles = new Set(member.roles.cache.map(r => r.id));
@@ -8699,7 +8707,11 @@ async function handleRoleInteraction(interaction) {
             });
             
             if (validSelectedValues.length === 0) {
-                return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
+                if (interaction.isStringSelectMenu()) {
+                    return interaction.followUp({ content: "❌ None of the selected roles exist anymore. Please contact an administrator.", ephemeral: true });
+                } else {
+                    return sendEphemeralEmbed(interaction, "❌ None of the selected roles exist anymore. Please contact an administrator.", "#FF0000", "Error");
+                }
             }
             
             // Toggle each selected role individually
@@ -8732,7 +8744,11 @@ async function handleRoleInteraction(interaction) {
             }
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
-            return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: "❌ Unexpected interaction type. Please try again.", ephemeral: true });
+            } else {
+                return sendEphemeralEmbed(interaction, "❌ Unexpected interaction type. Please try again.", "#FF0000", "Error");
+            }
         }
 
         console.log(`[DEBUG] New roles after interaction logic:`, Array.from(newRoles));
@@ -8764,18 +8780,22 @@ async function handleRoleInteraction(interaction) {
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
-            await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
-            // Always update to reset dropdown selections
-            await updatePublishedMessageComponents(interaction, menu, menuId, false);
+            if (interaction.isStringSelectMenu()) {
+                return interaction.followUp({ content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, ephemeral: true });
+            } else {
+                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, "#FF0000", "Limit Exceeded");
+            }
             return;
         }
 
         // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
-                await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
-                // Always update to reset dropdown selections
-                await updatePublishedMessageComponents(interaction, menu, menuId, false);
+                if (interaction.isStringSelectMenu()) {
+                    return interaction.followUp({ content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, ephemeral: true });
+                } else {
+                    await sendEphemeralEmbed(interaction, menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, "#FF0000", "Limit Exceeded");
+                }
                 return;
             }
         }
@@ -8800,14 +8820,24 @@ async function handleRoleInteraction(interaction) {
 
         // Send rich embed notification for role changes
         if (validRolesToAdd.length > 0 || validRolesToRemove.length > 0) {
-            await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
+            if (interaction.isStringSelectMenu()) {
+                await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+            } else {
+                await sendRoleChangeNotification(interaction, validRolesToAdd, validRolesToRemove, member);
+            }
         } else {
-            await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
+            if (interaction.isStringSelectMenu()) {
+                await interaction.followUp({ content: "No changes made to your roles.", ephemeral: true });
+            } else {
+                await sendEphemeralEmbed(interaction, "No changes made to your roles.", "#FFFF00", "No Change");
+            }
         }
 
-        // Update published message components to clear selections and update member counts
-        // Always update to reset dropdown selections (components only if member counts disabled)
-        await updatePublishedMessageComponents(interaction, menu, menuId, false);
+        // Update published message components only if member counts are enabled
+        // This prevents "edited" marks while still allowing role functionality
+        if (menu.showMemberCounts) {
+            await updatePublishedMessageComponents(interaction, menu, menuId, false);
+        }
 
     } catch (error) {
         console.error("Error in handleRoleInteraction:", error);
@@ -8822,7 +8852,11 @@ async function handleRoleInteraction(interaction) {
             errorMessage = "❌ I don't have access to manage roles in this server. Please check my permissions.";
         }
         
-        await sendEphemeralEmbed(interaction, errorMessage, "#FF0000", "Error");
+        if (interaction.isStringSelectMenu()) {
+            await interaction.followUp({ content: errorMessage, ephemeral: true });
+        } else {
+            await sendEphemeralEmbed(interaction, errorMessage, "#FF0000", "Error");
+        }
     }
 }
 
@@ -10103,9 +10137,8 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
  * @param {import('discord.js').Interaction} interaction - The interaction to handle
  */
 async function handleHybridMenuInteraction(interaction) {
-  if (!interaction.replied && !interaction.deferred) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(e => console.error("Error deferring hybrid menu interaction:", e));
-  }
+  // Deferring is now handled at the main interaction level
+  // Dropdown interactions use deferUpdate, button interactions use deferReply
 
   try {
     const parts = interaction.customId.split(":");
@@ -10113,12 +10146,20 @@ async function handleHybridMenuInteraction(interaction) {
     const hybridMenuId = parts[1];
     
     if (!hybridMenuId) {
-      return sendEphemeralEmbed(interaction, "❌ Invalid hybrid menu configuration.", "#FF0000", "Error", false);
+      if (interaction.isStringSelectMenu()) {
+        return interaction.followUp({ content: "❌ Invalid hybrid menu configuration.", ephemeral: true });
+      } else {
+        return sendEphemeralEmbed(interaction, "❌ Invalid hybrid menu configuration.", "#FF0000", "Error", false);
+      }
     }
 
     const menu = db.getHybridMenu(hybridMenuId);
     if (!menu) {
-      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+      if (interaction.isStringSelectMenu()) {
+        return interaction.followUp({ content: "❌ Hybrid menu not found.", ephemeral: true });
+      } else {
+        return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+      }
     }
 
     // Handle info page interactions
@@ -10127,7 +10168,7 @@ async function handleHybridMenuInteraction(interaction) {
       const page = menu.pages?.find(p => p.id === selectedPageId);
       
       if (!page) {
-        return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Page not found.", ephemeral: true });
       }
 
       const embed = new EmbedBuilder()
@@ -10156,19 +10197,10 @@ async function handleHybridMenuInteraction(interaction) {
       }
 
       // Clear the dropdown selection after showing the info page
-      try {
-        // Always reset dropdown selections for better UX
-        const originalMessage = await interaction.message.fetch();
-        const updatedComponents = await buildHybridMenuComponents(interaction, menu, hybridMenuId);
-        
-        // Update the original message to reset dropdown selections
-        await originalMessage.edit({ components: updatedComponents });
-      } catch (error) {
-        console.error("Error resetting hybrid menu dropdown selection:", error);
-        // Continue with showing the page even if we can't reset the dropdown
-      }
+      // For dropdown interactions, don't update the message to prevent "edited" marks
+      // The dropdown selection will naturally reset since we used deferUpdate()
 
-      return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      return interaction.followUp({ embeds: [embed], ephemeral: true });
     }
 
     if (type === "hybrid-info-page") {
@@ -10212,12 +10244,12 @@ async function handleHybridMenuInteraction(interaction) {
       const selectedRoleIds = interaction.values;
       
       if (!interaction.guild || !interaction.member) {
-        return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Unable to process role interaction.", ephemeral: true });
       }
 
       const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
       if (!member) {
-        return sendEphemeralEmbed(interaction, "❌ Unable to fetch member information.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Unable to fetch member information.", ephemeral: true });
       }
 
       const currentRoles = new Set(member.roles.cache.map(r => r.id));
@@ -10247,13 +10279,8 @@ async function handleHybridMenuInteraction(interaction) {
       }
 
       // Update the published message components to clear selections and update member counts
-      try {
-        // Always update to reset dropdown selections (components only if member counts disabled)
-        await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, false);
-      } catch (error) {
-        console.error("Error updating hybrid menu components:", error);
-        // Continue with sending the confirmation message even if we can't update the components
-      }
+      // For dropdown interactions, don't update the message to prevent "edited" marks
+      // The dropdown selection will naturally reset since we used deferUpdate()
 
       // Send confirmation
       let message = "✅ Roles updated successfully!";
@@ -10266,7 +10293,16 @@ async function handleHybridMenuInteraction(interaction) {
         message += `\n**Removed:** ${removedRoles}`;
       }
 
-      return sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+      // Update member counts only if enabled
+      if (menu.showMemberCounts) {
+        try {
+          await updatePublishedHybridMenuComponents(interaction, menu, hybridMenuId, false);
+        } catch (error) {
+          console.error("Error updating hybrid menu components:", error);
+        }
+      }
+
+      return interaction.followUp({ content: message, ephemeral: true });
     }
 
     if (type === "hybrid-role-button") {
