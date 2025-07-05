@@ -15257,12 +15257,12 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 async function showRoleEditModal(interaction, hybridMenuId, roleType, roleId) {
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
-    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    throw new Error("Hybrid menu not found.");
   }
 
   const role = interaction.guild.roles.cache.get(roleId);
   if (!role) {
-    return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+    throw new Error("Role not found.");
   }
 
   // Get current values
