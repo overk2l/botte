@@ -9891,8 +9891,6 @@ if (action === "back_to_config") {
   });
 }
 
-// ...existing code...
-
 // Add timeout handling for hybrid menu interactions to prevent infinite thinking
 function addHybridMenuTimeout(interaction, timeoutMs = 2900) {
   return setTimeout(async () => {
