@@ -10000,7 +10000,8 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
       .setCustomId(`hybrid:configure_individual:${hybridMenuId}`)
       .setLabel("Configure Individual Items")
       .setStyle(ButtonStyle.Success)
-      .setEmoji("⚙️"),
+      .setEmoji("⚙️")
+      .setDisabled(true), // Temporarily disabled to prevent Discord API errors
     new ButtonBuilder()
       .setCustomId(`hybrid:clear_all_overrides:${hybridMenuId}`)
       .setLabel("Clear All Overrides")
