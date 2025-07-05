@@ -362,54 +362,92 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
       }
     }
 
-    // Strategy 1: Try webhook recreation to avoid "edited" mark
+    // For webhook messages, we need to handle them differently
     const originalMessage = interaction.message;
-    if (originalMessage && originalMessage.webhookId) {
-      try {
-        const webhook = await originalMessage.channel.fetchWebhooks()
-          .then(webhooks => webhooks.find(w => w.id === originalMessage.webhookId));
-        
-        if (webhook) {
-          // For webhook messages, try to delete and recreate to avoid "edited" mark
-          const messageContent = {
-            content: originalMessage.content || null,
-            embeds: originalMessage.embeds || [],
-            components: originalComponents
-          };
-          
-          // Delete the original message and recreate it
-          await originalMessage.delete();
-          await webhook.send(messageContent);
-          
-          // Acknowledge the interaction silently
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.deferUpdate();
-          }
-          
-          return true;
-        }
-      } catch (webhookError) {
-        console.log("Webhook recreation failed, trying alternative approach:", webhookError.message);
+    const isWebhookMessage = originalMessage && originalMessage.webhookId;
+
+    if (isWebhookMessage) {
+      // For webhook messages, we MUST acknowledge the interaction first
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.deferUpdate();
       }
+
+      // For webhook messages, we'll use a different approach:
+      // We'll create a small delay to let the interaction settle, then update
+      setTimeout(async () => {
+        try {
+          const freshComponents = originalComponents.map(row => {
+            const newRow = new ActionRowBuilder();
+            
+            row.components.forEach(component => {
+              if (component.type === ComponentType.StringSelect) {
+                const options = component.options.map(option => ({
+                  label: option.label,
+                  value: option.value,
+                  description: option.description || undefined,
+                  emoji: option.emoji || undefined,
+                  default: false
+                }));
+                
+                const newSelect = new StringSelectMenuBuilder()
+                  .setCustomId(component.customId)
+                  .setPlaceholder(component.placeholder || "Select an option...")
+                  .setMinValues(component.minValues || 1)
+                  .setMaxValues(component.maxValues || 1)
+                  .setDisabled(component.disabled || false)
+                  .addOptions(options);
+                
+                newRow.addComponents(newSelect);
+              } else {
+                newRow.addComponents(component);
+              }
+            });
+            
+            return newRow;
+          });
+
+          // Try to get the webhook and update the message
+          const webhook = await originalMessage.channel.fetchWebhooks()
+            .then(webhooks => webhooks.find(w => w.id === originalMessage.webhookId))
+            .catch(() => null);
+          
+          if (webhook) {
+            await webhook.editMessage(originalMessage.id, {
+              components: freshComponents
+            });
+          } else {
+            // Fallback to direct message edit if webhook not found
+            await originalMessage.edit({ components: freshComponents });
+          }
+        } catch (webhookError) {
+          console.error("Error updating webhook message:", webhookError);
+          // Fallback to direct message edit
+          try {
+            await originalMessage.edit({ components: originalComponents });
+          } catch (fallbackError) {
+            console.error("Fallback message edit failed:", fallbackError);
+          }
+        }
+      }, 200); // Small delay to let interaction settle
+      
+      return true;
     }
 
-    // Strategy 2: Use deferUpdate for the most minimal response
+    // For non-webhook messages, use standard approach
     if (!interaction.replied && !interaction.deferred) {
       await interaction.deferUpdate();
       
-      // Create fresh components with reset selections
       const freshComponents = originalComponents.map(row => {
         const newRow = new ActionRowBuilder();
         
         row.components.forEach(component => {
           if (component.type === ComponentType.StringSelect) {
-            // Create fresh options with explicit default: false
             const options = component.options.map(option => ({
               label: option.label,
               value: option.value,
               description: option.description || undefined,
               emoji: option.emoji || undefined,
-              default: false // Explicitly ensure no options are selected
+              default: false
             }));
             
             const newSelect = new StringSelectMenuBuilder()
@@ -422,7 +460,6 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
             
             newRow.addComponents(newSelect);
           } else {
-            // For non-dropdown components, just copy them as-is
             newRow.addComponents(component);
           }
         });
@@ -430,12 +467,11 @@ async function resetDropdownSelection(interaction, originalComponents = null) {
         return newRow;
       });
 
-      // Use editReply after deferUpdate to minimize "edited" appearance
       await interaction.editReply({ components: freshComponents });
       return true;
     }
 
-    // Strategy 3: Try to update the original message directly (last resort)
+    // Final fallback: try to update the original message directly
     if (originalMessage && originalMessage.editable) {
       const freshComponents = originalComponents.map(row => {
         const newRow = new ActionRowBuilder();
@@ -538,6 +574,9 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
     embed.setDescription(description.trim()).setColor(color);
 
     try {
+        // Check if this is a webhook message interaction
+        const isWebhookMessage = interaction.message && interaction.message.webhookId;
+        
         // Try to get the menu to check webhook settings
         let useWebhook = false;
         let webhookName = null;
@@ -563,72 +602,143 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
             }
         }
 
-        // If webhook is enabled, try webhook first
-        if (useWebhook) {
+        // For webhook messages, we need to handle notifications differently
+        if (isWebhookMessage) {
+            // For webhook messages, we'll send a new message (not a follow-up)
+            // because follow-ups on webhook messages can be problematic
             try {
-                const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
-                if (webhook) {
-                    // Set webhook avatar if specified
-                    if (webhookAvatar && webhookAvatar !== webhook.avatar) {
-                        try {
-                            await webhook.edit({ avatar: webhookAvatar });
-                        } catch (avatarError) {
-                            console.log("Could not update webhook avatar:", avatarError.message);
+                if (useWebhook) {
+                    // Try to use the same webhook for consistency
+                    const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
+                    if (webhook) {
+                        // Set webhook avatar if specified
+                        if (webhookAvatar && webhookAvatar !== webhook.avatar) {
+                            try {
+                                await webhook.edit({ avatar: webhookAvatar });
+                            } catch (avatarError) {
+                                console.log("Could not update webhook avatar:", avatarError.message);
+                            }
                         }
+
+                        // Send via webhook
+                        const message = await webhook.send({ 
+                            embeds: [embed],
+                            username: webhookName || webhook.name,
+                            avatarURL: webhookAvatar || webhook.avatar
+                        });
+
+                        // Auto-delete if requested
+                        if (autoDelete && message) {
+                            setTimeout(async () => {
+                                try {
+                                    await message.delete();
+                                } catch (deleteError) {
+                                    console.log("Could not delete webhook message:", deleteError.message);
+                                }
+                            }, 6000);
+                        }
+                        return message;
                     }
-
-                    // Send via webhook
-                    const message = await webhook.send({ 
-                        embeds: [embed],
-                        username: webhookName || webhook.name,
-                        avatarURL: webhookAvatar || webhook.avatar
-                    });
-
+                } else {
+                    // Send as a regular message in the channel
+                    const message = await interaction.channel.send({ embeds: [embed] });
+                    
                     // Auto-delete if requested
                     if (autoDelete && message) {
                         setTimeout(async () => {
                             try {
                                 await message.delete();
                             } catch (deleteError) {
-                                console.log("Could not delete webhook message:", deleteError.message);
+                                console.log("Could not delete channel message:", deleteError.message);
                             }
                         }, 6000);
                     }
                     return message;
                 }
-            } catch (webhookError) {
-                console.log("Webhook failed, falling back to follow-up:", webhookError.message);
-            }
-        }
-
-        // Fallback to regular follow-up
-        const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
-        
-        // Auto-delete ephemeral message
-        if (message && autoDelete) {
-            const timeoutId = setTimeout(async () => {
+            } catch (webhookChannelError) {
+                console.log("Webhook channel message failed:", webhookChannelError.message);
+                // Final fallback: try follow-up anyway
                 try {
-                    await message.delete().catch(() => {
-                        // Silently fail if already deleted
-                    });
-                } catch (e) {
-                    // Silently fail if message is already deleted or no permission
+                    const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
+                    return message;
+                } catch (followUpError) {
+                    console.log("Follow-up also failed:", followUpError.message);
                 }
-                
-                // Clean up timeout reference
-                if (ephemeralTimeouts.has(interaction.id)) {
-                    ephemeralTimeouts.delete(interaction.id);
-                }
-            }, 6000);
+            }
+        } else {
+            // For non-webhook messages, use the standard approach
+            // If webhook is enabled, try webhook first
+            if (useWebhook) {
+                try {
+                    const webhook = await getOrCreateWebhook(interaction.channel, webhookName || "Role Menu Webhook");
+                    if (webhook) {
+                        // Set webhook avatar if specified
+                        if (webhookAvatar && webhookAvatar !== webhook.avatar) {
+                            try {
+                                await webhook.edit({ avatar: webhookAvatar });
+                            } catch (avatarError) {
+                                console.log("Could not update webhook avatar:", avatarError.message);
+                            }
+                        }
 
-            // Store timeout reference
-            ephemeralTimeouts.set(interaction.id, timeoutId);
+                        // Send via webhook
+                        const message = await webhook.send({ 
+                            embeds: [embed],
+                            username: webhookName || webhook.name,
+                            avatarURL: webhookAvatar || webhook.avatar
+                        });
+
+                        // Auto-delete if requested
+                        if (autoDelete && message) {
+                            setTimeout(async () => {
+                                try {
+                                    await message.delete();
+                                } catch (deleteError) {
+                                    console.log("Could not delete webhook message:", deleteError.message);
+                                }
+                            }, 6000);
+                        }
+                        return message;
+                    }
+                } catch (webhookError) {
+                    console.log("Webhook failed, falling back to follow-up:", webhookError.message);
+                }
+            }
+
+            // Fallback to regular follow-up
+            const message = await interaction.followUp({ embeds: [embed], ephemeral: true });
+            
+            // Auto-delete ephemeral message (note: ephemeral messages auto-delete anyway)
+            if (message && autoDelete) {
+                const timeoutId = setTimeout(async () => {
+                    try {
+                        await message.delete().catch(() => {
+                            // Silently fail if already deleted
+                        });
+                    } catch (e) {
+                        // Silently fail if message is already deleted or no permission
+                    }
+                    
+                    // Clean up timeout reference
+                    if (ephemeralTimeouts.has(interaction.id)) {
+                        ephemeralTimeouts.delete(interaction.id);
+                    }
+                }, 6000);
+
+                // Store timeout reference
+                ephemeralTimeouts.set(interaction.id, timeoutId);
+            }
+            
+            return message;
         }
-        
-        return message;
-    } catch (followUpError) {
-        console.error("Error sending follow-up role notification:", followUpError);
-        return;
+    } catch (error) {
+        console.error("Error sending role change notification:", error);
+        // Ultimate fallback: try basic follow-up
+        try {
+            return await interaction.followUp({ embeds: [embed], ephemeral: true });
+        } catch (finalError) {
+            console.error("Final fallback failed:", finalError);
+        }
     }
 }
 
@@ -9476,7 +9586,13 @@ async function handleRoleInteraction(interaction) {
                         
                         if (resetSuccess) {
                             // Send notification as follow-up after successful invisible processing
-                            await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                            setTimeout(async () => {
+                                try {
+                                    await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
+                                } catch (followUpError) {
+                                    console.error("Error sending follow-up:", followUpError);
+                                }
+                            }, 300); // Increased delay to let webhook message reset fully
                         } else {
                             // Fallback to notification follow-up if defer fails
                             await sendRoleChangeNotificationFollowUp(interaction, validRolesToAdd, validRolesToRemove, member);
@@ -11026,21 +11142,21 @@ async function handleHybridMenuInteraction(interaction) {
         const resetSuccess = await resetDropdownSelection(interaction, updatedComponents);
         
         if (resetSuccess) {
-          // Wait a moment then send notification as follow-up
+          // Wait a moment then send notification 
           setTimeout(async () => {
             try {
               await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
             } catch (followUpError) {
               console.error("Error sending follow-up:", followUpError);
             }
-          }, 150);
+          }, 300); // Increased delay to let webhook message reset fully
         } else {
-          // Fallback to notification follow-up if reset fails
+          // Fallback to notification if reset fails
           await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
         }
       } catch (error) {
         console.error("Error resetting hybrid menu dropdown:", error);
-        // Fallback to notification follow-up
+        // Fallback to notification
         await sendRoleChangeNotificationFollowUp(interaction, rolesToAdd, rolesToRemove, member);
       }
 
