@@ -3486,6 +3486,9 @@ async function createReactionRoleEmbed(guild, menu) {
 // Map to store timeout references for cleanup
 const ephemeralTimeouts = new Map();
 
+// Map to store auto-save queue for menu updates
+const autoSaveQueue = new Map();
+
 // Simple rate limiting for role interactions
 const roleInteractionCooldowns = new Map();
 const ROLE_INTERACTION_COOLDOWN = 3000; // 3 seconds cooldown
@@ -4488,7 +4491,12 @@ client.on("interactionCreate", async (interaction) => {
             action.startsWith("edit_info_page") ||
             action === "customize_dropdown_text" ||
             action === "webhook_branding" ||
-            action === "toggle_member_counts"
+            action === "toggle_member_counts" ||
+            action === "configure_regional_limits" ||
+            action === "configure_max_roles" ||
+            action === "edit_role_add_message" ||
+            action === "edit_role_remove_message" ||
+            action === "edit_info_page_message"
           );
 
           // Defer all non-modal interactions
@@ -5423,6 +5431,494 @@ client.on("interactionCreate", async (interaction) => {
           console.log(`[Hybrid Debug] Returning to main config for menu: ${hybridMenuId}`);
           
           return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
+
+        if (action === "advanced_role_settings") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing advanced role settings for menu: ${hybridMenuId}`);
+          
+          return showAdvancedRoleSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "visual_settings") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing visual settings for menu: ${hybridMenuId}`);
+          
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "message_settings") {
+          const hybridMenuId = parts[2];
+          
+          console.log(`[Hybrid Debug] Showing message settings for menu: ${hybridMenuId}`);
+          
+          return showMessageSettings(interaction, hybridMenuId);
+        }
+
+        // Advanced Settings Button Handlers
+        if (action === "regional_limits") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:regional_limits:${hybridMenuId}`)
+            .setTitle("Configure Regional Limits")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("au_limit")
+                  .setLabel("Australia (AU) Region Limit")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Enter max roles for AU region (e.g., 2)")
+                  .setValue(String(menu.regionalLimits?.AU?.limit || ""))
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("eu_limit")
+                  .setLabel("Europe (EU) Region Limit")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Enter max roles for EU region (e.g., 3)")
+                  .setValue(String(menu.regionalLimits?.EU?.limit || ""))
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("na_limit")
+                  .setLabel("North America (NA) Region Limit")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Enter max roles for NA region (e.g., 1)")
+                  .setValue(String(menu.regionalLimits?.NA?.limit || ""))
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "role_exclusions") {
+          const hybridMenuId = parts[2];
+          
+          return sendEphemeralEmbed(interaction, "🚧 Role exclusions configuration will be available via role editing interface.", "#FFA500", "Info", false);
+        }
+
+        if (action === "max_role_limit") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:max_roles:${hybridMenuId}`)
+            .setTitle("Configure Maximum Roles")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("max_roles")
+                  .setLabel("Maximum Roles Per User")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setPlaceholder("Enter max roles (leave empty for unlimited)")
+                  .setValue(String(menu.maxRoleLimit || ""))
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("enable_limit")
+                  .setLabel("Enable Max Role Limit")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setPlaceholder("true or false")
+                  .setValue(String(menu.maxRoleLimit > 0 ? "true" : "false"))
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "toggle_user_count") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const newValue = !menu.showUserCount;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            showUserCount: newValue
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ User count ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_role_icons") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const newValue = !menu.showRoleIcons;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            showRoleIcons: newValue
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Role icons ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_statistics") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const newValue = !menu.showStatistics;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            showStatistics: newValue
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Statistics ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "edit_role_added_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:role_added_message:${hybridMenuId}`)
+            .setTitle("Edit Role Added Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Role Added Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Enter custom message for when a role is added")
+                  .setValue(menu.customSuccessMessages?.roleAdded || "")
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "edit_role_removed_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:role_removed_message:${hybridMenuId}`)
+            .setTitle("Edit Role Removed Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Role Removed Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Enter custom message for when a role is removed")
+                  .setValue(menu.customSuccessMessages?.roleRemoved || "")
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "edit_info_page_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:info_page_message:${hybridMenuId}`)
+            .setTitle("Edit Info Page Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Info Page Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("Enter custom message for info page views")
+                  .setValue(menu.customSuccessMessages?.infoPageView || "")
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "config_back") {
+          const hybridMenuId = parts[2];
+          
+          return showHybridMenuConfiguration(interaction, hybridMenuId);
+        }
+
+        // Visual Settings Toggle Handlers
+        if (action === "toggle_custom_emojis") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentValue = menu.visualEnhancements?.useCustomEmojis !== false;
+          const newValue = !currentValue;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            visualEnhancements: {
+              ...menu.visualEnhancements,
+              useCustomEmojis: newValue
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Custom emojis ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_role_colors") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentValue = menu.visualEnhancements?.showRoleColors || false;
+          const newValue = !currentValue;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            visualEnhancements: {
+              ...menu.visualEnhancements,
+              showRoleColors: newValue
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Role colors ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_compact_layout") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentValue = menu.visualEnhancements?.compactLayout || false;
+          const newValue = !currentValue;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            visualEnhancements: {
+              ...menu.visualEnhancements,
+              compactLayout: newValue
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Compact layout ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_animated_components") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentValue = menu.visualEnhancements?.animatedComponents || false;
+          const newValue = !currentValue;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            visualEnhancements: {
+              ...menu.visualEnhancements,
+              animatedComponents: newValue
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Animated components ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        if (action === "toggle_timestamps") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const currentValue = menu.visualEnhancements?.showTimestamp || false;
+          const newValue = !currentValue;
+          
+          await db.updateHybridMenu(hybridMenuId, {
+            visualEnhancements: {
+              ...menu.visualEnhancements,
+              showTimestamp: newValue
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, `✅ Timestamps ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          return showVisualSettings(interaction, hybridMenuId);
+        }
+
+        // Message Settings Handlers
+        if (action === "edit_role_add_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:role_add_message:${hybridMenuId}`)
+            .setTitle("Edit Role Add Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Role Add Success Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("✅ You now have the role <@&{roleId}>!")
+                  .setValue(menu.customSuccessMessages?.roleAdd || "✅ You now have the role <@&{roleId}>!")
+                  .setMaxLength(2000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("variables")
+                  .setLabel("Available Variables (Read-Only)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue("{roleId} - Role mention")
+                  .setMaxLength(100)
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "edit_role_remove_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:role_remove_message:${hybridMenuId}`)
+            .setTitle("Edit Role Remove Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Role Remove Success Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("✅ You removed the role <@&{roleId}>!")
+                  .setValue(menu.customSuccessMessages?.roleRemove || "✅ You removed the role <@&{roleId}>!")
+                  .setMaxLength(2000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("variables")
+                  .setLabel("Available Variables (Read-Only)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue("{roleId} - Role mention")
+                  .setMaxLength(100)
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "edit_info_page_message") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:info_page_message:${hybridMenuId}`)
+            .setTitle("Edit Info Page Message")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("message")
+                  .setLabel("Info Page View Message")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setPlaceholder("📋 Viewing: {pageName}")
+                  .setValue(menu.customSuccessMessages?.infoPageView || "📋 Viewing: {pageName}")
+                  .setMaxLength(2000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("variables")
+                  .setLabel("Available Variables (Read-Only)")
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setValue("{pageName} - Page name")
+                  .setMaxLength(100)
+              )
+            );
+
+          return interaction.showModal(modal);
+        }
+
+        if (action === "reset_messages") {
+          const hybridMenuId = parts[2];
+          
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          await db.updateHybridMenu(hybridMenuId, {
+            customSuccessMessages: {
+              roleAdd: "✅ You now have the role <@&{roleId}>!",
+              roleRemove: "✅ You removed the role <@&{roleId}>!",
+              infoPageView: "📋 Viewing: {pageName}"
+            }
+          });
+
+          await sendEphemeralEmbed(interaction, "✅ Messages reset to default values!", "#00FF00", "Success", false);
+          return showMessageSettings(interaction, hybridMenuId);
         }
         } catch (error) {
           console.error(`[Hybrid Debug] Unexpected error in hybrid menu handler:`, error);
@@ -10535,6 +11031,182 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Failed to configure member count settings. Please try again.", "#FF0000", "Error", false);
           }
         }
+
+        // Advanced Settings Modal Handlers
+        if (modalType === "regional_limits") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const auLimit = parseInt(interaction.fields.getTextInputValue("au_limit").trim()) || 0;
+            const euLimit = parseInt(interaction.fields.getTextInputValue("eu_limit").trim()) || 0;
+            const naLimit = parseInt(interaction.fields.getTextInputValue("na_limit").trim()) || 0;
+
+            const newRegionalLimits = {};
+            if (auLimit > 0) newRegionalLimits.AU = { limit: auLimit };
+            if (euLimit > 0) newRegionalLimits.EU = { limit: euLimit };
+            if (naLimit > 0) newRegionalLimits.NA = { limit: naLimit };
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              regionalLimits: newRegionalLimits,
+              'advancedRoleSettings.enableRegionalLimits': Object.keys(newRegionalLimits).length > 0
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Regional limits configured successfully!", "#00FF00", "Success", false);
+            return showAdvancedRoleSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error configuring regional limits:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure regional limits.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "max_roles") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const maxRoles = parseInt(interaction.fields.getTextInputValue("max_roles").trim()) || null;
+            const enableLimit = interaction.fields.getTextInputValue("enable_limit").trim().toLowerCase() === 'true';
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'advancedRoleSettings.maxRolesLimit': maxRoles,
+              'advancedRoleSettings.enableMaxRoleLimit': enableLimit
+            });
+
+            const message = enableLimit 
+              ? `✅ Max roles limit set to ${maxRoles || 'unlimited'}!`
+              : "✅ Max roles limit disabled!";
+              
+            await sendEphemeralEmbed(interaction, message, "#00FF00", "Success", false);
+            return showAdvancedRoleSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error configuring max roles:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure max roles limit.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "role_add_message") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const message = interaction.fields.getTextInputValue("message").trim();
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'customSuccessMessages.roleAdd': message
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Role add message updated successfully!", "#00FF00", "Success", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error updating role add message:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to update role add message.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "role_remove_message") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const message = interaction.fields.getTextInputValue("message").trim();
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'customSuccessMessages.roleRemove': message
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Role remove message updated successfully!", "#00FF00", "Success", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error updating role remove message:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to update role remove message.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "role_added_message") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const message = interaction.fields.getTextInputValue("message").trim();
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'customSuccessMessages.roleAdded': message
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Role added message updated successfully!", "#00FF00", "Success", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error updating role added message:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to update role added message.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "role_removed_message") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const message = interaction.fields.getTextInputValue("message").trim();
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'customSuccessMessages.roleRemoved': message
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Role removed message updated successfully!", "#00FF00", "Success", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error updating role removed message:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to update role removed message.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (modalType === "info_page_message") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const message = interaction.fields.getTextInputValue("message").trim();
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              'customSuccessMessages.infoPageView': message
+            });
+
+            await sendEphemeralEmbed(interaction, "✅ Info page message updated successfully!", "#00FF00", "Success", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error updating info page message:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to update info page message.", "#FF0000", "Error", false);
+          }
+        }
       }
 
       // Handle hybrid role edit modal submission
@@ -13909,6 +14581,24 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
 
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
+      .setCustomId(`hybrid:advanced_role_settings:${hybridMenuId}`)
+      .setLabel("Advanced Role Settings")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("⚙️"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:visual_settings:${hybridMenuId}`)
+      .setLabel("Visual Settings")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🎨"),
+    new ButtonBuilder()
+      .setCustomId(`hybrid:message_settings:${hybridMenuId}`)
+      .setLabel("Message Settings")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("💬")
+  );
+
+  const row4 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
       .setCustomId(`hybrid:toggle_webhook:${hybridMenuId}`)
       .setLabel(menu.useWebhook ? "Disable Webhook" : "Enable Webhook")
       .setStyle(menu.useWebhook ? ButtonStyle.Danger : ButtonStyle.Success)
@@ -13930,7 +14620,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("👀")
   );
 
-  const row4 = new ActionRowBuilder().addComponents(
+  const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("dash:hybrid-menus")
       .setLabel("Back to Dashboard")
@@ -13938,7 +14628,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
       .setEmoji("⬅️")
   );
 
-  const components = [row1, row2, row3, row4];
+  const components = [row1, row2, row3, row4, row5];
 
   try {
     const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
@@ -15542,5 +16232,167 @@ async function performHealthCheck(client) {
   } catch (error) {
     logger.error('Health check failed:', error);
     return null;
+  }
+}
+
+// ===== ADVANCED SETTINGS FUNCTIONS =====
+
+async function showAdvancedRoleSettings(interaction, hybridMenuId) {
+  try {
+    const menu = db.getHybridMenu(hybridMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle("⚙️ Advanced Role Settings")
+      .setDescription("Configure advanced role behavior and restrictions")
+      .setColor("#3498db")
+      .addFields(
+        { name: "🌍 Regional Limits", value: menu.regionalLimits?.enabled ? `Enabled (${menu.regionalLimits.regions?.join(", ") || "None"})` : "Disabled", inline: true },
+        { name: "🚫 Role Exclusions", value: menu.exclusions?.length ? `${menu.exclusions.length} exclusions` : "None", inline: true },
+        { name: "📊 Max Role Limit", value: menu.maxRoleLimit ? `${menu.maxRoleLimit} roles` : "No limit", inline: true }
+      );
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:regional_limits:${hybridMenuId}`)
+          .setLabel("Regional Limits")
+          .setEmoji("🌍")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:role_exclusions:${hybridMenuId}`)
+          .setLabel("Role Exclusions")
+          .setEmoji("🚫")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:max_role_limit:${hybridMenuId}`)
+          .setLabel("Max Role Limit")
+          .setEmoji("📊")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:config_back:${hybridMenuId}`)
+          .setLabel("Back")
+          .setEmoji("⬅️")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+  } catch (error) {
+    console.error(`[Hybrid] Error showing advanced role settings:`, error);
+    return sendEphemeralEmbed(interaction, "❌ Failed to show advanced role settings.", "#FF0000", "Error", false);
+  }
+}
+
+async function showVisualSettings(interaction, hybridMenuId) {
+  try {
+    const menu = db.getHybridMenu(hybridMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle("🎨 Visual Settings")
+      .setDescription("Configure menu appearance and visual elements")
+      .setColor("#9b59b6")
+      .addFields(
+        { name: "🎭 Show User Count", value: menu.showUserCount ? "Enabled" : "Disabled", inline: true },
+        { name: "🎨 Custom Color", value: menu.embedColor || "Default", inline: true },
+        { name: "🖼️ Custom Thumbnail", value: menu.thumbnailUrl ? "Set" : "Not set", inline: true },
+        { name: "🌟 Show Role Icons", value: menu.showRoleIcons ? "Enabled" : "Disabled", inline: true },
+        { name: "📊 Show Statistics", value: menu.showStatistics ? "Enabled" : "Disabled", inline: true }
+      );
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:toggle_user_count:${hybridMenuId}`)
+          .setLabel("Toggle User Count")
+          .setEmoji("🎭")
+          .setStyle(menu.showUserCount ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:toggle_role_icons:${hybridMenuId}`)
+          .setLabel("Toggle Role Icons")
+          .setEmoji("🌟")
+          .setStyle(menu.showRoleIcons ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:toggle_statistics:${hybridMenuId}`)
+          .setLabel("Toggle Statistics")
+          .setEmoji("📊")
+          .setStyle(menu.showStatistics ? ButtonStyle.Success : ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:config_back:${hybridMenuId}`)
+          .setLabel("Back")
+          .setEmoji("⬅️")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+  } catch (error) {
+    console.error(`[Hybrid] Error showing visual settings:`, error);
+    return sendEphemeralEmbed(interaction, "❌ Failed to show visual settings.", "#FF0000", "Error", false);
+  }
+}
+
+async function showMessageSettings(interaction, hybridMenuId) {
+  try {
+    const menu = db.getHybridMenu(hybridMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    }
+
+    const customMessages = menu.customSuccessMessages || {};
+    
+    const embed = new EmbedBuilder()
+      .setTitle("💬 Message Settings")
+      .setDescription("Configure custom messages for different actions")
+      .setColor("#e74c3c")
+      .addFields(
+        { name: "✅ Role Added", value: customMessages.roleAdded || "Default message", inline: false },
+        { name: "❌ Role Removed", value: customMessages.roleRemoved || "Default message", inline: false },
+        { name: "ℹ️ Info Page View", value: customMessages.infoPageView || "Default message", inline: false }
+      );
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:edit_role_added_message:${hybridMenuId}`)
+          .setLabel("Edit Role Added Message")
+          .setEmoji("✅")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:edit_role_removed_message:${hybridMenuId}`)
+          .setLabel("Edit Role Removed Message")
+          .setEmoji("❌")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`hybrid:edit_info_page_message:${hybridMenuId}`)
+          .setLabel("Edit Info Page Message")
+          .setEmoji("ℹ️")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:config_back:${hybridMenuId}`)
+          .setLabel("Back")
+          .setEmoji("⬅️")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+  } catch (error) {
+    console.error(`[Hybrid] Error showing message settings:`, error);
+    return sendEphemeralEmbed(interaction, "❌ Failed to show message settings.", "#FF0000", "Error", false);
   }
 }
