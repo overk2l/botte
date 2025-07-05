@@ -408,33 +408,26 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
   try {
     console.log("🔄 Starting professional hybrid info dropdown handling with reset...");
     
-    // 🔥 PROFESSIONAL APPROACH: Force dropdown reset by updating components with new custom IDs
-    // This ensures the dropdown selection is visually cleared for professional UX
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
     
-    // First, rebuild the dropdown components with fresh custom IDs to force reset
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Hybrid info dropdown interaction deferred without showing 'edited' mark");
+    
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    
-    // Clone and update components with new custom IDs (adding timestamp)
     const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
     
-    // Use interaction.update() to refresh the components (forces selection reset)
+    // Edit the message separately to refresh components (this won't show "edited" mark)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await interaction.update({
+        await originalMessage.edit({
           components: updatedComponents
         });
-        console.log("✅ Hybrid info dropdown components updated with fresh IDs - selection should be reset");
-      } catch (updateError) {
-        console.error("❌ Failed to update hybrid info dropdown components, falling back to deferUpdate:", updateError);
-        // Fallback to old method if update fails
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-        }
-      }
-    } else {
-      // No components to update, use fallback
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+        console.log("✅ Hybrid info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit hybrid info dropdown components:", editError);
       }
     }
     
@@ -714,33 +707,26 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
   try {
     console.log("🔄 Starting professional dropdown reset handling...");
     
-    // 🔥 PROFESSIONAL APPROACH: Force dropdown reset by updating components with new custom IDs
-    // This simulates what happens when Discord refreshes components (like on restart)
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
     
-    // First, rebuild the dropdown components with fresh custom IDs to force reset
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Interaction deferred without showing 'edited' mark");
+    
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    
-    // Clone and update components with new custom IDs (adding timestamp)
     const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
     
-    // Use interaction.update() to refresh the components (forces selection reset)
+    // Edit the message separately to refresh components (this won't show "edited" mark)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await interaction.update({
+        await originalMessage.edit({
           components: updatedComponents
         });
-        console.log("✅ Dropdown components updated with fresh IDs - selection should be reset");
-      } catch (updateError) {
-        console.error("❌ Failed to update components, falling back to deferUpdate:", updateError);
-        // Fallback to old method if update fails
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-        }
-      }
-    } else {
-      // No components to update, use fallback
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+        console.log("✅ Message components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit message components:", editError);
       }
     }
     
@@ -13601,33 +13587,26 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
   try {
     console.log("🔄 Starting professional info dropdown handling with reset...");
     
-    // 🔥 PROFESSIONAL APPROACH: Force dropdown reset by updating components with new custom IDs
-    // This ensures the dropdown selection is visually cleared for professional UX
+    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
+    // Then edit the message separately with fresh components
     
-    // First, rebuild the dropdown components with fresh custom IDs to force reset
+    // First, acknowledge the interaction without updating components
+    await interaction.deferUpdate();
+    console.log("✅ Info dropdown interaction deferred without showing 'edited' mark");
+    
+    // Get the original message and rebuild components with fresh custom IDs
     const originalMessage = interaction.message;
-    
-    // Clone and update components with new custom IDs (adding timestamp)
     const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
     
-    // Use interaction.update() to refresh the components (forces selection reset)
+    // Edit the message separately to refresh components (this won't show "edited" mark)
     if (updatedComponents && updatedComponents.length > 0) {
       try {
-        await interaction.update({
+        await originalMessage.edit({
           components: updatedComponents
         });
-        console.log("✅ Info dropdown components updated with fresh IDs - selection should be reset");
-      } catch (updateError) {
-        console.error("❌ Failed to update info dropdown components, falling back to deferUpdate:", updateError);
-        // Fallback to old method if update fails
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate();
-        }
-      }
-    } else {
-      // No components to update, use fallback
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+        console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
+      } catch (editError) {
+        console.error("❌ Failed to edit info dropdown components:", editError);
       }
     }
     
