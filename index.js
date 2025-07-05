@@ -277,8 +277,20 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
     const newComponents = [];
     const timestamp = Date.now();
     
+    // Defensive check for components
+    if (!originalMessage || !originalMessage.components || !Array.isArray(originalMessage.components)) {
+      console.warn(`[Warning] Invalid or missing components in message for menu ${menuId}`);
+      return [];
+    }
+    
     // Process each component row from the original message
     for (const originalRow of originalMessage.components) {
+      // Defensive check for row components
+      if (!originalRow || !originalRow.components || !Array.isArray(originalRow.components)) {
+        console.warn(`[Warning] Invalid or missing components in row for menu ${menuId}`);
+        continue;
+      }
+      
       const newRow = new ActionRowBuilder();
       
       for (const component of originalRow.components) {
@@ -342,7 +354,10 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
     return newComponents;
   } catch (error) {
     console.error(`[Error] Failed to rebuild dropdown components:`, error);
-    throw error;
+    
+    // Fallback: return empty array to prevent crashes
+    console.warn(`[Warning] Returning empty components array as fallback for menu ${menuId}`);
+    return [];
   }
 }
 
@@ -668,10 +683,9 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     
     // First, rebuild the dropdown components with fresh custom IDs to force reset
     const originalMessage = interaction.message;
-    const originalComponents = originalMessage.components;
     
     // Clone and update components with new custom IDs (adding timestamp)
-    const updatedComponents = await rebuildDropdownComponents(originalComponents, interaction);
+    const updatedComponents = await rebuildDropdownComponents(originalMessage, null, "dropdown");
     
     // Use interaction.update() to refresh the components (forces selection reset)
     if (updatedComponents && updatedComponents.length > 0) {
