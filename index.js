@@ -10032,16 +10032,21 @@ async function showHybridDisplayTypesConfiguration(interaction, hybridMenuId) {
 
 // Show individual item configuration for fine-grained control
 async function showIndividualItemConfiguration(interaction, hybridMenuId) {
-  const menu = db.getHybridMenu(hybridMenuId);
-  if (!menu) {
-    return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
-  }
+  try {
+    console.log(`[Individual Config Debug] Starting configuration for menu: ${hybridMenuId}`);
+    
+    const menu = db.getHybridMenu(hybridMenuId);
+    if (!menu) {
+      return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+    }
 
-  const embed = new EmbedBuilder()
-    .setTitle(`⚙️ Individual Item Configuration: ${menu.name}`)
-    .setDescription(`**Configure display types for individual items:**\n\n` +
-      `Click any item to cycle through: Dropdown → Button → Both → Hidden → Default`)
-    .setColor("#5865F2");
+    console.log(`[Individual Config Debug] Menu found: ${menu.name}, Pages: ${menu.pages?.length || 0}, Roles: ${[...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])].length}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`⚙️ Individual Item Configuration: ${menu.name}`)
+      .setDescription(`**Configure display types for individual items:**\n\n` +
+        `Click any item to cycle through: Dropdown → Button → Both → Hidden → Default`)
+      .setColor("#5865F2");
 
   const components = [];
 
@@ -10053,6 +10058,33 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
 
   // Info Pages
   const infoPages = menu.pages || [];
+  const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+  
+  // Conservative limit: max 10 items total (2 rows of 5 buttons each = 10 buttons + 1 back button row = 3 total rows)
+  const maxItems = 10;
+  const totalItems = infoPages.length + allRoles.length;
+  
+  if (totalItems > maxItems) {
+    embed.setDescription(`**Too many items to configure individually (${totalItems} items).**\n\n` +
+      `Please use the **Display Types Configuration** page instead for:\n` +
+      `• Menu-wide defaults\n` +
+      `• Bulk setup wizard\n` +
+      `• Overview of all items`);
+    
+    const backRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
+        .setLabel("← Back to Display Types")
+        .setStyle(ButtonStyle.Primary)
+    );
+    
+    return interaction.editReply({
+      embeds: [embed],
+      components: [backRow],
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
   if (infoPages.length > 0) {
     embed.addFields([
       { name: "📋 Info Pages", value: "Click to configure each page:", inline: false }
@@ -10062,7 +10094,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     let currentRow = new ActionRowBuilder();
     let buttonsInRow = 0;
 
-    for (const page of infoPages.slice(0, 10)) { // Limit to 10 items to stay within Discord's 5 action row limit
+    for (const page of infoPages.slice(0, 5)) { // Limit to 5 items to stay well within Discord's limits
       if (buttonsInRow >= 5) {
         infoRows.push(currentRow);
         currentRow = new ActionRowBuilder();
@@ -10098,7 +10130,6 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   }
 
   // Roles
-  const allRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
   if (allRoles.length > 0) {
     embed.addFields([
       { name: "🎭 Reaction Roles", value: "Click to configure each role:", inline: false }
@@ -10108,7 +10139,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     let currentRow = new ActionRowBuilder();
     let buttonsInRow = 0;
 
-    for (const roleId of allRoles.slice(0, 10)) { // Limit to 10 items to stay within Discord's 5 action row limit
+    for (const roleId of allRoles.slice(0, 5)) { // Limit to 5 items to stay well within Discord's limits
       if (buttonsInRow >= 5) {
         roleRows.push(currentRow);
         currentRow = new ActionRowBuilder();
@@ -10147,6 +10178,17 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   }
 
   // Back button
+  // Discord limits components to 5 action rows maximum
+  // Reserve 1 row for the back button
+  const maxContentRows = 4;
+  
+  if (components.length > maxContentRows) {
+    // Keep only the first maxContentRows, then add back button
+    components.splice(maxContentRows);
+    embed.setFooter({ text: "⚠️ Showing first few items only due to Discord limits. Use Display Types Configuration for overview." });
+  }
+
+  // Always add the back button last
   const backRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`hybrid:back_to_display_types:${hybridMenuId}`)
@@ -10156,10 +10198,14 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
 
   components.push(backRow);
 
-  // Discord limits components to 5 action rows maximum
+  // Debug logging to understand component structure
+  console.log(`[Individual Config Debug] Total components: ${components.length}`);
+  console.log(`[Individual Config Debug] Component types:`, components.map(c => c.components?.length || 0));
+
+  // Validate components before sending
   if (components.length > 5) {
-    components.splice(5); // Keep only first 5 rows
-    embed.setFooter({ text: "⚠️ Showing first 10 items only due to Discord limits. Use Display Types Configuration for overview." });
+    console.error(`[Individual Config Error] Too many components: ${components.length}, Discord limit is 5`);
+    return sendEphemeralEmbed(interaction, "❌ Too many items to configure at once. Please use the Display Types Configuration page instead.", "#FF0000", "Error", false);
   }
 
   await interaction.editReply({
@@ -10167,6 +10213,11 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     components,
     flags: MessageFlags.Ephemeral
   });
+  
+  } catch (error) {
+    console.error(`[Individual Config Error] Error in showIndividualItemConfiguration:`, error);
+    return sendEphemeralEmbed(interaction, "❌ Error loading individual item configuration. Please try again.", "#FF0000", "Error", false);
+  }
 }
 
 // Add timeout handling for hybrid menu interactions to prevent infinite thinking
