@@ -5366,11 +5366,14 @@ client.on("interactionCreate", async (interaction) => {
           console.log(`[Bulk Debug] Starting bulk_all_dropdown for menu: ${hybridMenuId}`);
           
           try {
+            console.log(`[Bulk Debug] Getting menu from database...`);
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
+              console.log(`[Bulk Debug] Menu not found!`);
               return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
 
+            console.log(`[Bulk Debug] Menu found: ${menu.name}`);
             const updates = {
               defaultInfoDisplayType: 'dropdown',
               defaultRoleDisplayType: 'dropdown',
@@ -5378,17 +5381,24 @@ client.on("interactionCreate", async (interaction) => {
               roleDisplayTypes: {}
             };
 
+            console.log(`[Bulk Debug] About to update database...`);
             await db.updateHybridMenu(hybridMenuId, updates);
+            console.log(`[Bulk Debug] Database updated successfully`);
             
-            return await interaction.editReply({
+            console.log(`[Bulk Debug] About to send response...`);
+            const result = await interaction.editReply({
               embeds: [new EmbedBuilder()
                 .setTitle("✅ Success")
                 .setDescription("All items set to dropdown display! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
+            console.log(`[Bulk Debug] Response sent successfully:`, result);
+            
+            return result;
           } catch (error) {
             console.error("Error in bulk_all_dropdown:", error);
+            console.error("Error stack:", error.stack);
             return sendEphemeralEmbed(interaction, "❌ Error setting bulk dropdown. Please try again.", "#FF0000", "Error", false);
           }
         }
@@ -5398,11 +5408,14 @@ client.on("interactionCreate", async (interaction) => {
           console.log(`[Bulk Debug] Starting bulk_all_buttons for menu: ${hybridMenuId}`);
           
           try {
+            console.log(`[Bulk Debug] Getting menu from database...`);
             const menu = db.getHybridMenu(hybridMenuId);
             if (!menu) {
+              console.log(`[Bulk Debug] Menu not found!`);
               return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
             }
 
+            console.log(`[Bulk Debug] Menu found: ${menu.name}`);
             const updates = {
               defaultInfoDisplayType: 'button',
               defaultRoleDisplayType: 'button',
@@ -5410,17 +5423,24 @@ client.on("interactionCreate", async (interaction) => {
               roleDisplayTypes: {}
             };
 
+            console.log(`[Bulk Debug] About to update database...`);
             await db.updateHybridMenu(hybridMenuId, updates);
+            console.log(`[Bulk Debug] Database updated successfully`);
             
-            return await interaction.editReply({
+            console.log(`[Bulk Debug] About to send response...`);
+            const result = await interaction.editReply({
               embeds: [new EmbedBuilder()
                 .setTitle("✅ Success")
                 .setDescription("All items set to button display! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
               flags: MessageFlags.Ephemeral
             });
+            console.log(`[Bulk Debug] Response sent successfully:`, result);
+            
+            return result;
           } catch (error) {
             console.error("Error in bulk_all_buttons:", error);
+            console.error("Error stack:", error.stack);
             return sendEphemeralEmbed(interaction, "❌ Error setting bulk buttons. Please try again.", "#FF0000", "Error", false);
           }
         }
