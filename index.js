@@ -137,14 +137,19 @@ function trackInteractionPerformance(interaction, startTime, success) {
   
   performanceMetrics.interactions.responseTimes.push(responseTime);
   
-  // Keep only last 100 response times to prevent memory issues
-  if (performanceMetrics.interactions.responseTimes.length > 100) {
+  // Keep only last 50 response times to prevent memory issues (reduced from 100)
+  if (performanceMetrics.interactions.responseTimes.length > 50) {
     performanceMetrics.interactions.responseTimes.shift();
   }
   
-  // Calculate average response time
-  const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
-  performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
+  // Calculate average response time with error handling
+  try {
+    const sum = performanceMetrics.interactions.responseTimes.reduce((a, b) => a + b, 0);
+    performanceMetrics.interactions.averageResponseTime = sum / performanceMetrics.interactions.responseTimes.length;
+  } catch (error) {
+    console.error("Error calculating average response time:", error);
+    performanceMetrics.interactions.averageResponseTime = 0;
+  }
 }
 
 // Track menu usage
@@ -169,6 +174,309 @@ function updateBotHealth() {
 // Get performance metrics
 function getPerformanceMetrics() {
   return performanceMetrics;
+}
+
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Log the error but don't crash the bot
+    if (reason && reason.stack) {
+        console.error('Stack trace:', reason.stack);
+    }
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    if (error.stack) {
+        console.error('Stack trace:', error.stack);
+    }
+    
+    // For critical errors, we should restart
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+        console.error('Critical network error detected, restarting...');
+        process.exit(1);
+    }
+});
+
+/**
+ * Safely parses a custom ID to extract menu ID and other parts
+ * @param {string} customId - The custom ID to parse
+ * @returns {Object} Object containing parsed parts
+ */
+function parseCustomId(customId) {
+  try {
+    if (!customId || typeof customId !== 'string') {
+      return { isValid: false, error: 'Invalid custom ID' };
+    }
+    
+    const parts = customId.split(':');
+    if (parts.length < 2) {
+      return { isValid: false, error: 'Custom ID too short' };
+    }
+    
+    return {
+      isValid: true,
+      prefix: parts[0],
+      menuId: parts[1],
+      timestamp: parts[2] || null, // Optional timestamp
+      additionalParts: parts.slice(3)
+    };
+  } catch (error) {
+    console.error('Error parsing custom ID:', error);
+    return { isValid: false, error: 'Parse error' };
+  }
+}
+
+/**
+ * Validates that a menu exists and is accessible
+ * @param {string} menuId - The menu ID to validate
+ * @param {string} type - The type of menu ('menu', 'info', 'hybrid')
+ * @returns {Object|null} The menu object if valid, null otherwise
+ */
+function validateMenu(menuId, type = 'menu') {
+  try {
+    if (!menuId || typeof menuId !== 'string') {
+      return null;
+    }
+    
+    let menu = null;
+    switch (type) {
+      case 'menu':
+        menu = db.getMenu(menuId);
+        break;
+      case 'info':
+        menu = db.getInfoMenu(menuId);
+        break;
+      case 'hybrid':
+        menu = db.getHybridMenu(menuId);
+        break;
+      default:
+        // Try all types
+        menu = db.getMenu(menuId) || db.getInfoMenu(menuId) || db.getHybridMenu(menuId);
+        break;
+    }
+    
+    return menu;
+  } catch (error) {
+    console.error('Error validating menu:', error);
+    return null;
+  }
+}
+
+/**
+ * Rebuilds dropdown components with fresh timestamps to clear selections
+ * @param {import('discord.js').Message} originalMessage - The original message with components
+ * @param {Object} menu - The menu object (reaction role or hybrid menu)
+ * @param {string} menuId - The menu ID
+ * @returns {Promise<Array>} Array of rebuilt ActionRowBuilder components
+ */
+async function rebuildDropdownComponents(originalMessage, menu, menuId) {
+  console.log(`[Debug] Rebuilding dropdown components for menu ${menuId}`);
+  
+  try {
+    const newComponents = [];
+    const timestamp = Date.now();
+    
+    // Process each component row from the original message
+    for (const originalRow of originalMessage.components) {
+      const newRow = new ActionRowBuilder();
+      
+      for (const component of originalRow.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // Rebuild dropdown with fresh timestamp and cleared selections
+          const options = component.options.map(option => ({
+            label: option.label,
+            value: option.value,
+            description: option.description || undefined,
+            emoji: option.emoji || undefined,
+            default: false // Explicitly clear all selections
+          }));
+          
+          // Create new custom ID with timestamp to force Discord to treat it as a new component
+          const baseParts = component.customId.split(':');
+          const newCustomId = baseParts.length >= 3 
+            ? `${baseParts[0]}:${baseParts[1]}:${timestamp}` 
+            : `${component.customId}:${timestamp}`;
+          
+          const newSelect = new StringSelectMenuBuilder()
+            .setCustomId(newCustomId)
+            .setPlaceholder(component.placeholder || "Select an option...")
+            .setMinValues(component.minValues || 1)
+            .setMaxValues(component.maxValues || 1)
+            .setDisabled(component.disabled || false)
+            .addOptions(options);
+          
+          newRow.addComponents(newSelect);
+          console.log(`[Debug] Rebuilt dropdown with ID: ${newCustomId}`);
+        } else if (component.type === ComponentType.Button) {
+          // Rebuild buttons with fresh timestamp if needed
+          const baseParts = component.customId?.split(':') || [];
+          const newCustomId = baseParts.length >= 3 
+            ? `${baseParts[0]}:${baseParts[1]}:${timestamp}` 
+            : component.customId || `button:${timestamp}`;
+          
+          const newButton = new ButtonBuilder()
+            .setCustomId(newCustomId)
+            .setLabel(component.label || "Button")
+            .setStyle(component.style || ButtonStyle.Secondary)
+            .setDisabled(component.disabled || false);
+          
+          if (component.emoji) {
+            newButton.setEmoji(component.emoji);
+          }
+          
+          newRow.addComponents(newButton);
+        } else {
+          // For other component types, just copy them
+          newRow.addComponents(component);
+        }
+      }
+      
+      // Only add rows that have components
+      if (newRow.components.length > 0) {
+        newComponents.push(newRow);
+      }
+    }
+    
+    console.log(`[Debug] Successfully rebuilt ${newComponents.length} component rows`);
+    return newComponents;
+  } catch (error) {
+    console.error(`[Error] Failed to rebuild dropdown components:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Handles hybrid info dropdown selection with Sapphire-style reset behavior
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {Object} menu - The hybrid menu configuration
+ * @param {Object} page - The selected page data
+ * @param {string} hybridMenuId - The hybrid menu ID
+ */
+async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
+  try {
+    console.log("🔄 Starting Sapphire-style hybrid info dropdown reset...");
+    
+    // Step 1: Defer the interaction to prevent timeout
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
+    
+    // Step 2: Rebuild the message components to clear the selection
+    const originalMessage = interaction.message;
+    if (originalMessage && originalMessage.components) {
+      try {
+        // Rebuild the components with a new timestamp to force clearing
+        const newComponents = await rebuildDropdownComponents(originalMessage, menu, hybridMenuId);
+        
+        // Update the message with fresh components (this should clear the selection)
+        await interaction.editReply({ components: newComponents });
+        console.log("✅ Hybrid info dropdown components refreshed with new timestamp");
+      } catch (rebuildError) {
+        console.error("❌ Error rebuilding hybrid info dropdown components:", rebuildError);
+        // Continue with notification anyway
+      }
+    }
+    
+    // Step 3: Create and send the page content as follow-up
+    const embed = new EmbedBuilder();
+    
+    // Helper function to validate URLs
+    const isValidUrl = (url) => {
+      if (!url || typeof url !== 'string' || url.trim() === '') return false;
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Helper function to validate color
+    const isValidColor = (color) => {
+      if (!color || typeof color !== 'string') return false;
+      return /^#[0-9A-F]{6}$/i.test(color) || /^[0-9A-F]{6}$/i.test(color);
+    };
+    
+    // Build embed from page data
+    if (page.name && page.name.trim()) {
+      embed.setTitle(page.name.slice(0, 256));
+    }
+    
+    if (page.content && page.content.trim()) {
+      embed.setDescription(page.content.slice(0, 4096));
+    }
+    
+    // Handle color with validation
+    const color = page.color || menu.embedColor || "#5865F2";
+    if (isValidColor(color)) {
+      embed.setColor(color);
+    }
+    
+    // Handle thumbnail with URL validation
+    if (page.thumbnail && isValidUrl(page.thumbnail)) {
+      embed.setThumbnail(page.thumbnail);
+    }
+    
+    // Handle image with URL validation
+    if (page.image && isValidUrl(page.image)) {
+      embed.setImage(page.image);
+    }
+    
+    // Handle author
+    if (page.author && page.author.name) {
+      const author = { name: page.author.name.slice(0, 256) };
+      if (page.author.iconURL && isValidUrl(page.author.iconURL)) {
+        author.iconURL = page.author.iconURL;
+      }
+      if (page.author.url && isValidUrl(page.author.url)) {
+        author.url = page.author.url;
+      }
+      embed.setAuthor(author);
+    }
+    
+    // Handle footer
+    if (page.footer && page.footer.text) {
+      const footer = { text: page.footer.text.slice(0, 2048) };
+      if (page.footer.iconURL && isValidUrl(page.footer.iconURL)) {
+        footer.iconURL = page.footer.iconURL;
+      }
+      embed.setFooter(footer);
+    }
+    
+    // Handle fields
+    if (page.fields && Array.isArray(page.fields)) {
+      const validFields = page.fields.slice(0, 25).map(field => ({
+        name: (field.name || 'Field').slice(0, 256),
+        value: (field.value || 'Value').slice(0, 1024),
+        inline: Boolean(field.inline)
+      }));
+      
+      if (validFields.length > 0) {
+        embed.addFields(validFields);
+      }
+    }
+
+    // Send the page content as follow-up
+    await interaction.followUp({ embeds: [embed], ephemeral: true });
+    
+    console.log("✅ Sapphire-style hybrid info dropdown selection processed with reset + follow-up");
+  } catch (error) {
+    console.error("❌ Error in Sapphire-style hybrid info dropdown handling:", error);
+    
+    // Fallback error handling
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      } else if (interaction.deferred) {
+        await interaction.editReply({ content: "❌ An error occurred processing your selection." });
+      } else {
+        await interaction.followUp({ content: "❌ An error occurred processing your selection.", ephemeral: true });
+      }
+    } catch (fallbackError) {
+      console.error("❌ Fallback error handling failed:", fallbackError);
+    }
+  }
 }
 
 /**
@@ -461,7 +769,11 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
         // Extract menu ID from interaction if available
         const customId = interaction.customId || "";
         if (customId.includes("rr-role-select:") || customId.includes("rr-role-button:")) {
-            const menuId = customId.split(":")[1];
+            // Parse menuId from custom ID, handling both old and new timestamp formats
+            const parts = customId.split(":");
+            const menuId = parts[1]; // This remains the same for both formats
+            
+            console.log(`[Debug] Parsed RR menuId: ${menuId} from customId: ${customId}`);
             const menu = db.getMenu(menuId);
             if (menu) {
                 useWebhook = menu.useWebhook || false;
@@ -469,7 +781,11 @@ async function sendRoleChangeNotificationFollowUp(interaction, addedRoles, remov
                 webhookAvatar = menu.webhookAvatar || null;
             }
         } else if (customId.includes("hybrid-role-select:") || customId.includes("hybrid-role-button:")) {
-            const menuId = customId.split(":")[1];
+            // Parse menuId from custom ID, handling both old and new timestamp formats
+            const parts = customId.split(":");
+            const menuId = parts[1]; // This remains the same for both formats
+            
+            console.log(`[Debug] Parsed Hybrid menuId: ${menuId} from customId: ${customId}`);
             const menu = db.getHybridMenu(menuId);
             if (menu) {
                 useWebhook = menu.useWebhook || false;
@@ -13570,8 +13886,37 @@ client.on('guildMemberRemove', async (member) => {
     }
 });
 
-// Bot login
+// Bot login with enhanced error handling
 client.login(process.env.TOKEN).catch(error => {
     console.error("Failed to login:", error);
+    
+    // Log specific error details to help with debugging
+    if (error.code === 'TOKEN_INVALID') {
+        console.error("❌ Invalid bot token. Please check your TOKEN environment variable.");
+    } else if (error.code === 'DISALLOWED_INTENTS') {
+        console.error("❌ Missing required intents. Please enable necessary intents in Discord Developer Portal.");
+    } else if (error.code === 'SHARDING_REQUIRED') {
+        console.error("❌ Bot is in too many servers and requires sharding.");
+    } else {
+        console.error("❌ Unknown login error:", error.message);
+    }
+    
     process.exit(1);
 });
+
+// Add periodic cleanup to prevent memory leaks
+setInterval(() => {
+    try {
+        // Clean up old performance metrics
+        updateBotHealth();
+        
+        // Clean up any stale interaction timeouts
+        if (performanceMetrics.interactions.responseTimes.length > 100) {
+            performanceMetrics.interactions.responseTimes = performanceMetrics.interactions.responseTimes.slice(-50);
+        }
+        
+        console.log(`[Health Check] Memory: ${performanceMetrics.health.memoryUsage}MB, Uptime: ${Math.floor(performanceMetrics.health.uptime / 3600)}h`);
+    } catch (error) {
+        console.error("Error in periodic cleanup:", error);
+    }
+}, 300000); // Every 5 minutes
