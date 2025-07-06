@@ -2424,22 +2424,18 @@ async function handleMethod24Selection(interaction) {
     const selectedValue = interaction.values[0];
     const member = interaction.member;
     
-    // Role mappings
-    const roleMap = {
-        'gamer': '1234567890123456789',      // Replace with actual role ID
-        'artist': '1234567890123456790',     // Replace with actual role ID
-        'developer': '1234567890123456791'   // Replace with actual role ID
-    };
-    
     try {
         if (selectedValue === 'remove_all') {
-            // Remove all mapped roles
-            const rolesToRemove = Object.values(roleMap).filter(roleId => member.roles.cache.has(roleId));
+            // Remove all managed roles (find by name)
+            const roleNames = ['Gamer', 'Artist', 'Developer'];
+            const rolesToRemove = member.roles.cache.filter(role => 
+                roleNames.some(name => role.name.toLowerCase() === name.toLowerCase())
+            );
             
-            if (rolesToRemove.length > 0) {
+            if (rolesToRemove.size > 0) {
                 await member.roles.remove(rolesToRemove);
                 await interaction.reply({ 
-                    content: `🗑️ **Removed all roles** (${rolesToRemove.length} roles removed)`, 
+                    content: `🗑️ **Removed all roles** (${rolesToRemove.size} roles removed)`, 
                     flags: MessageFlags.Ephemeral
                 });
             } else {
@@ -2449,37 +2445,35 @@ async function handleMethod24Selection(interaction) {
                 });
             }
         } else {
-            // Handle specific role selection
-            const roleId = roleMap[selectedValue];
+            // Handle specific role selection - find or create role by name
+            const roleName = selectedValue.charAt(0).toUpperCase() + selectedValue.slice(1);
+            let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
             
-            if (!roleId) {
-                await interaction.reply({ 
-                    content: `❌ **Invalid role selection** - please try again.`, 
-                    flags: MessageFlags.Ephemeral
-                });
-                return;
-            }
-            
-            const role = interaction.guild.roles.cache.get(roleId);
             if (!role) {
-                await interaction.reply({ 
-                    content: `❌ **Role not found** - the ${selectedValue} role may have been deleted.`, 
-                    flags: MessageFlags.Ephemeral
+                // Create the role if it doesn't exist
+                const colors = { 
+                    gamer: 0x00FF00, 
+                    artist: 0xFF69B4, 
+                    developer: 0x0099FF 
+                };
+                role = await interaction.guild.roles.create({
+                    name: roleName,
+                    color: colors[selectedValue] || 0x99AAB5,
+                    reason: 'Method 24 - Sapphire role selection'
                 });
-                return;
             }
             
             // Toggle the role
-            const hasRole = member.roles.cache.has(roleId);
+            const hasRole = member.roles.cache.has(role.id);
             
             if (hasRole) {
-                await member.roles.remove(roleId);
+                await member.roles.remove(role.id);
                 await interaction.reply({ 
                     content: `➖ **Removed role** ${role.name} - You no longer have this role.`, 
                     flags: MessageFlags.Ephemeral
                 });
             } else {
-                await member.roles.add(roleId);
+                await member.roles.add(role.id);
                 await interaction.reply({ 
                     content: `➕ **Added role** ${role.name} - You now have this role!`, 
                     flags: MessageFlags.Ephemeral
