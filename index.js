@@ -13138,8 +13138,10 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle info page interactions
     if (type === "hybrid-info-select") {
-      // Defer for followUp pattern
-      await interaction.deferReply({ flags: 64 });
+      // Defer for followUp pattern only if not already deferred
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: 64 });
+      }
       
       const selectedPageId = interaction.values[0].split(':')[2]; // Extract page ID from value
       const page = menu.pages?.find(p => p.id === selectedPageId);
@@ -13197,8 +13199,10 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle role interactions
     if (type === "hybrid-role-select") {
-      // Defer for followUp pattern
-      await interaction.deferReply({ flags: 64 });
+      // Defer for followUp pattern only if not already deferred
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: 64 });
+      }
       
       // Sapphire-style: handle role toggle and rebuild dropdown dynamically
       const selectedRoleIds = interaction.values;
@@ -13289,8 +13293,10 @@ async function handleHybridMenuInteraction(interaction) {
     }
 
     if (type === "hybrid-role-button") {
-      // Defer for followUp pattern
-      await interaction.deferReply({ flags: 64 });
+      // Defer for followUp pattern only if not already deferred
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: 64 });
+      }
       
       const roleId = parts[2];
       
