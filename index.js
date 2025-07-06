@@ -5508,33 +5508,47 @@ client.on("interactionCreate", async (interaction) => {
             return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
           }
 
-          const modal = new ModalBuilder()
-            .setCustomId(`hybrid:modal:role_exclusions:${hybridMenuId}`)
-            .setTitle("🚫 Role Exclusions Configuration")
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("excluded_roles")
-                  .setLabel("🚫 Blocked Role IDs")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("123456789, 987654321\n(Right-click role → Copy ID)")
-                  .setValue((menu.exclusions || []).join(", "))
-                  .setMaxLength(1000)
-              ),
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId("exclusion_message")
-                  .setLabel("💬 Custom Error Message (Optional)")
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(false)
-                  .setPlaceholder("e.g., 'You cannot select roles while having the @Muted role!'")
-                  .setValue(menu.exclusionMessage || "")
-                  .setMaxLength(500)
-              )
-            );
+          // Get all roles from the hybrid menu (both dropdown and button roles)
+          const allMenuRoles = [];
+          if (menu.dropdownRoles && Array.isArray(menu.dropdownRoles)) {
+            allMenuRoles.push(...menu.dropdownRoles);
+          }
+          if (menu.buttonRoles && Array.isArray(menu.buttonRoles)) {
+            allMenuRoles.push(...menu.buttonRoles);
+          }
 
-          return interaction.showModal(modal);
+          if (allMenuRoles.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ No roles configured in this hybrid menu. Please add roles first.", "#FF0000", "No Roles", false);
+          }
+
+          // Filter roles to only show existing ones
+          const existingRoles = allMenuRoles.filter(roleId => interaction.guild.roles.cache.has(roleId));
+          
+          if (existingRoles.length === 0) {
+            return sendEphemeralEmbed(interaction, "❌ None of the configured roles exist anymore. Please update the menu.", "#FF0000", "No Valid Roles", false);
+          }
+
+          const roleOptions = existingRoles.slice(0, 25).map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            return {
+              label: role.name,
+              value: roleId,
+              description: `Set exclusions for ${role.name}`
+            };
+          });
+
+          const selectTriggerRole = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid:select_trigger_role:${hybridMenuId}`)
+            .setPlaceholder("Select a role to set its exclusions...")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(roleOptions);
+
+          return interaction.editReply({
+            content: "**🚫 Role Exclusions Configuration**\n\nSelect the role that, when picked, should remove other roles:",
+            components: [new ActionRowBuilder().addComponents(selectTriggerRole)],
+            flags: MessageFlags.Ephemeral
+          });
         }
 
         if (action === "max_role_limit") {
@@ -8910,6 +8924,106 @@ client.on("interactionCreate", async (interaction) => {
           } catch (error) {
             console.error(`[Hybrid Debug] Error in save_role_override:`, error);
             return sendEphemeralEmbed(interaction, "❌ Error saving role override. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "select_trigger_role") {
+          const hybridMenuId = parts[2];
+          const triggerRoleId = interaction.values[0];
+          
+          console.log(`[Hybrid Debug] Processing select_trigger_role for menu: ${hybridMenuId}, trigger role: ${triggerRoleId}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            // Get all roles from the hybrid menu (both dropdown and button roles)
+            const allMenuRoles = [];
+            if (menu.dropdownRoles && Array.isArray(menu.dropdownRoles)) {
+              allMenuRoles.push(...menu.dropdownRoles);
+            }
+            if (menu.buttonRoles && Array.isArray(menu.buttonRoles)) {
+              allMenuRoles.push(...menu.buttonRoles);
+            }
+
+            // Filter out the trigger role itself and get valid roles for exclusions
+            const availableRoles = allMenuRoles.filter(roleId => 
+              roleId !== triggerRoleId && interaction.guild.roles.cache.has(roleId)
+            );
+
+            if (availableRoles.length === 0) {
+              return sendEphemeralEmbed(interaction, "❌ No other roles available to set as exclusions.", "#FF0000", "No Roles Found", false);
+            }
+
+            const roleOptions = availableRoles.slice(0, 25).map(roleId => {
+              const role = interaction.guild.roles.cache.get(roleId);
+              return {
+                label: role.name,
+                value: roleId,
+                default: (menu.exclusionMap && menu.exclusionMap[triggerRoleId] || []).includes(roleId)
+              };
+            });
+
+            const selectExclusionRoles = new StringSelectMenuBuilder()
+              .setCustomId(`hybrid:select_exclusion_roles:${triggerRoleId}:${hybridMenuId}`)
+              .setPlaceholder("Select roles to exclude when " + String(interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role") + " is picked...")
+              .setMinValues(0)
+              .setMaxValues(Math.min(availableRoles.length, 25))
+              .addOptions(roleOptions);
+
+            return interaction.editReply({
+              content: `**🚫 Configuring Exclusions for <@&${triggerRoleId}>**\n\nSelect roles to be **removed** when this role is added:`,
+              components: [new ActionRowBuilder().addComponents(selectExclusionRoles)],
+              flags: MessageFlags.Ephemeral
+            });
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in select_trigger_role:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error configuring trigger role exclusions. Please try again.", "#FF0000", "Error", false);
+          }
+        }
+
+        if (action === "select_exclusion_roles") {
+          const triggerRoleId = parts[2];
+          const hybridMenuId = parts[3];
+          const exclusionRoleIds = interaction.values;
+          
+          console.log(`[Hybrid Debug] Processing select_exclusion_roles for menu: ${hybridMenuId}, trigger: ${triggerRoleId}, exclusions: ${exclusionRoleIds.join(', ')}`);
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            // Update the exclusion map
+            const newExclusionMap = { ...(menu.exclusionMap || {}), [triggerRoleId]: exclusionRoleIds };
+            await db.updateHybridMenu(hybridMenuId, { exclusionMap: newExclusionMap });
+
+            const triggerRole = interaction.guild.roles.cache.get(triggerRoleId);
+            const triggerRoleName = triggerRole ? triggerRole.name : "Unknown Role";
+
+            if (exclusionRoleIds.length > 0) {
+              const excludedRoleNames = exclusionRoleIds.map(roleId => {
+                const role = interaction.guild.roles.cache.get(roleId);
+                return role ? role.name : "Unknown Role";
+              }).join(", ");
+
+              await sendEphemeralEmbed(interaction, 
+                `✅ **Exclusion rules updated!**\n\nWhen users select **${triggerRoleName}**, these roles will be removed:\n${excludedRoleNames}`, 
+                "#00FF00", "Exclusions Configured", false);
+            } else {
+              await sendEphemeralEmbed(interaction, 
+                `✅ **Exclusions cleared!**\n\n**${triggerRoleName}** no longer removes any other roles.`, 
+                "#00FF00", "Exclusions Cleared", false);
+            }
+
+            console.log(`[Hybrid Debug] Successfully updated exclusion map for trigger role: ${triggerRoleId}`);
+            return showAdvancedRoleSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid Debug] Error in select_exclusion_roles:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Error saving exclusion roles. Please try again.", "#FF0000", "Error", false);
           }
         }
 
