@@ -19,7 +19,7 @@ const activeMenus = new Map();
 client.once('ready', () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`🚀 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📝 Available commands: !test1, !test2, !test3, !test4, !test5, !test6, !test7, !test8, !test9`);
+    console.log(`📝 Available commands: !test1, !test2, !test3, !test4, !test5, !test6, !test7, !test8, !test9, !test10, !test11, !test12, !test13, !test14`);
 });
 
 // Message handler for commands
@@ -60,6 +60,21 @@ client.on('messageCreate', async (message) => {
                 break;
             case 'test9':
                 await handleTest9(message);
+                break;
+            case 'test10':
+                await handleTest10(message);
+                break;
+            case 'test11':
+                await handleTest11(message);
+                break;
+            case 'test12':
+                await handleTest12(message);
+                break;
+            case 'test13':
+                await handleTest13(message);
+                break;
+            case 'test14':
+                await handleTest14(message);
                 break;
             default:
                 // Ignore unknown commands
@@ -436,6 +451,201 @@ async function handleTest9(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
+// Test 10: Method using Message Deletion and Recreation
+async function handleTest10(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔄 Method 10: Message Delete + Recreate')
+        .setDescription('Testing dropdown refresh by deleting and recreating the message')
+        .setColor(0x9b59b6)
+        .setFooter({ text: 'Method 10 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method10_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 11: Method using Interaction Token with Direct API Call
+async function handleTest11(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔧 Method 11: Direct API Call')
+        .setDescription('Testing dropdown refresh using direct Discord API calls')
+        .setColor(0xe74c3c)
+        .setFooter({ text: 'Method 11 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method11_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 12: Method using Component State Reset
+async function handleTest12(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('⚡ Method 12: Component State Reset')
+        .setDescription('Testing dropdown refresh by resetting component state')
+        .setColor(0x3498db)
+        .setFooter({ text: 'Method 12 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method12_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 13: Method using Webhook Recreation
+async function handleTest13(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🪝 Method 13: Webhook Recreation')
+        .setDescription('Testing dropdown refresh using webhook to recreate message')
+        .setColor(0x16a085)
+        .setFooter({ text: 'Method 13 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method13_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 14: Method using Channel State Manipulation
+async function handleTest14(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🌊 Method 14: Channel State Manipulation')
+        .setDescription('Testing dropdown refresh by manipulating channel state')
+        .setColor(0x8e44ad)
+        .setFooter({ text: 'Method 14 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method14_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
 // Handle dropdown interactions
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isStringSelectMenu()) return;
@@ -469,11 +679,20 @@ client.on('interactionCreate', async (interaction) => {
             case 'method9_select':
                 await handleMethod9Selection(interaction);
                 break;
-            case 'method8_select':
-                await handleMethod8Selection(interaction);
+            case 'method10_select':
+                await handleMethod10Selection(interaction);
                 break;
-            case 'method9_select':
-                await handleMethod9Selection(interaction);
+            case 'method11_select':
+                await handleMethod11Selection(interaction);
+                break;
+            case 'method12_select':
+                await handleMethod12Selection(interaction);
+                break;
+            case 'method13_select':
+                await handleMethod13Selection(interaction);
+                break;
+            case 'method14_select':
+                await handleMethod14Selection(interaction);
                 break;
             default:
                 await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
@@ -1105,100 +1324,718 @@ async function handleMethod9Selection(interaction) {
     await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-// Handle color selection
-async function handleColorSelection(interaction) {
-    const selectedColor = interaction.values[0];
+// Method 10: Message Delete + Recreate approach
+async function handleMethod10Selection(interaction) {
+    const selectedRole = interaction.values[0];
     const member = interaction.member;
     
-    // Remove existing color roles
-    const colorRoles = ['Red', 'Blue', 'Green', 'Purple', 'Orange', 'Yellow'];
-    const existingColorRoles = member.roles.cache.filter(role => 
-        colorRoles.includes(role.name)
-    );
+    // Find or create the role
+    const roleName = selectedRole === 'remove_all' ? 'RemoveAll' : selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
     
-    if (existingColorRoles.size > 0) {
-        await member.roles.remove(existingColorRoles);
-    }
-    
-    // Add new color role
-    const roleName = selectedColor.charAt(0).toUpperCase() + selectedColor.slice(1);
-    let role = interaction.guild.roles.cache.find(r => r.name === roleName);
-    
-    if (!role) {
-        const colors = {
-            red: 0xFF0000,
-            blue: 0x0000FF,
-            green: 0x00FF00,
-            purple: 0x800080,
-            orange: 0xFFA500,
-            yellow: 0xFFFF00
-        };
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method10-gamer', 'method10-artist', 'method10-developer'].includes(role.name.toLowerCase())
+        );
         
-        role = await interaction.guild.roles.create({
-            name: roleName,
-            color: colors[selectedColor],
-            reason: 'Color role selection'
-        });
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 10: All roles removed! Message will be recreated...', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method10-${roleName.toLowerCase()}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x9b59b6, artist: 0x9b59b6, developer: 0x9b59b6 };
+            role = await interaction.guild.roles.create({
+                name: `Method10-${roleName}`,
+                color: colors[selectedRole] || 0x9b59b6,
+                reason: 'Method 10 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 10: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 10: Added **${role.name}** role!`, ephemeral: true });
+        }
     }
     
-    await member.roles.add(role);
-    await interaction.reply({ content: `🌈 Your color has been set to **${roleName}**!`, ephemeral: true });
+    // Method 10: Delete and recreate the message
+    setTimeout(async () => {
+        try {
+            const originalMessage = interaction.message;
+            const channel = originalMessage.channel;
+            
+            // Delete the original message
+            await originalMessage.delete();
+            
+            // Recreate the message
+            const embed = new EmbedBuilder()
+                .setTitle('🔄 Method 10: Message Delete + Recreate')
+                .setDescription('Testing dropdown refresh by deleting and recreating the message')
+                .setColor(0x9b59b6)
+                .setFooter({ text: 'Method 10 Test - Message Recreated' });
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('method10_select')
+                .setPlaceholder('Choose a role...')
+                .addOptions([
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('Gamer')
+                        .setDescription('For gaming enthusiasts')
+                        .setValue('gamer')
+                        .setEmoji('🎮'),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('Artist')
+                        .setDescription('For creative minds')
+                        .setValue('artist')
+                        .setEmoji('🎨'),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('Developer')
+                        .setDescription('For coding wizards')
+                        .setValue('developer')
+                        .setEmoji('💻'),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel('Remove All Roles')
+                        .setDescription('Remove all selected roles')
+                        .setValue('remove_all')
+                        .setEmoji('🗑️')
+                ]);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            await channel.send({ embeds: [embed], components: [row] });
+        } catch (error) {
+            console.error('Method 10 message recreation failed:', error);
+        }
+    }, 1000);
+}
+
+// Method 11: Direct API Call approach
+async function handleMethod11Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
     
-    // Reset the dropdown menu
+    // Find or create the role
+    const roleName = selectedRole === 'remove_all' ? 'RemoveAll' : selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method11-gamer', 'method11-artist', 'method11-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 11: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method11-${roleName.toLowerCase()}`);
+        
+        if (!role) {
+            const colors = { gamer: 0xe74c3c, artist: 0xe74c3c, developer: 0xe74c3c };
+            role = await interaction.guild.roles.create({
+                name: `Method11-${roleName}`,
+                color: colors[selectedRole] || 0xe74c3c,
+                reason: 'Method 11 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 11: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 11: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 11: Direct API call to edit message
+    try {
+        const embed = new EmbedBuilder()
+            .setTitle('🔧 Method 11: Direct API Call')
+            .setDescription('Testing dropdown refresh using direct Discord API calls')
+            .setColor(0xe74c3c)
+            .setFooter({ text: 'Method 11 Test - API Updated' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method11_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        // Direct API call using REST
+        await interaction.client.rest.patch(
+            `/channels/${interaction.channelId}/messages/${interaction.message.id}`,
+            {
+                body: {
+                    embeds: [embed.toJSON()],
+                    components: [row.toJSON()]
+                }
+            }
+        );
+    } catch (error) {
+        console.error('Method 11 direct API call failed:', error);
+        // Fallback to regular edit
+        const embed = new EmbedBuilder()
+            .setTitle('🔧 Method 11: Direct API Call (Fallback)')
+            .setDescription('Testing dropdown refresh using direct Discord API calls')
+            .setColor(0xe74c3c)
+            .setFooter({ text: 'Method 11 Test - Fallback' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method11_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        await interaction.message.edit({ embeds: [embed], components: [row] });
+    }
+}
+
+// Method 12: Component State Reset approach
+async function handleMethod12Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    // Find or create the role
+    const roleName = selectedRole === 'remove_all' ? 'RemoveAll' : selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method12-gamer', 'method12-artist', 'method12-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 12: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method12-${roleName.toLowerCase()}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x3498db, artist: 0x3498db, developer: 0x3498db };
+            role = await interaction.guild.roles.create({
+                name: `Method12-${roleName}`,
+                color: colors[selectedRole] || 0x3498db,
+                reason: 'Method 12 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 12: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 12: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 12: Reset component state by creating new customId
+    const newCustomId = `method12_select_${Date.now()}`;
     const embed = new EmbedBuilder()
-        .setTitle('🌈 Color Role Selection')
-        .setDescription('Choose a color for your username!')
-        .setColor(0x9B59B6)
-        .setFooter({ text: 'Colors make everything better!' });
+        .setTitle('⚡ Method 12: Component State Reset')
+        .setDescription('Testing dropdown refresh by resetting component state')
+        .setColor(0x3498db)
+        .setFooter({ text: 'Method 12 Test - State Reset' });
 
     const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('color_select')
-        .setPlaceholder('Choose your color...')
+        .setCustomId(newCustomId)
+        .setPlaceholder('Choose a role...')
         .addOptions([
             new StringSelectMenuOptionBuilder()
-                .setLabel('Red')
-                .setDescription('Passionate and bold')
-                .setValue('red')
-                .setEmoji('🔴'),
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Blue')
-                .setDescription('Cool and calm')
-                .setValue('blue')
-                .setEmoji('🔵'),
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Green')
-                .setDescription('Natural and fresh')
-                .setValue('green')
-                .setEmoji('🟢'),
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Purple')
-                .setDescription('Royal and mysterious')
-                .setValue('purple')
-                .setEmoji('🟣'),
-            new StringSelectMenuOptionBuilder()
-                .setLabel('Orange')
-                .setDescription('Energetic and warm')
-                .setValue('orange')
-                .setEmoji('🟠'),
-            new StringSelectMenuOptionBuilder()
-                .setLabel('Yellow')
-                .setDescription('Bright and cheerful')
-                .setValue('yellow')
-                .setEmoji('🟡')
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
         ]);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
     await interaction.message.edit({ embeds: [embed], components: [row] });
 }
 
-// Error handling
-client.on('error', error => {
-    console.error('Discord client error:', error);
+// Method 13: Webhook Recreation approach
+async function handleMethod13Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    // Find or create the role
+    const roleName = selectedRole === 'remove_all' ? 'RemoveAll' : selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method13-gamer', 'method13-artist', 'method13-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 13: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method13-${roleName.toLowerCase()}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x16a085, artist: 0x16a085, developer: 0x16a085 };
+            role = await interaction.guild.roles.create({
+                name: `Method13-${roleName}`,
+                color: colors[selectedRole] || 0x16a085,
+                reason: 'Method 13 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 13: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 13: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 13: Webhook recreation (simplified approach)
+    try {
+        const embed = new EmbedBuilder()
+            .setTitle('🪝 Method 13: Webhook Recreation')
+            .setDescription('Testing dropdown refresh using webhook to recreate message')
+            .setColor(0x16a085)
+            .setFooter({ text: 'Method 13 Test - Webhook Style' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method13_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        // Use a more direct edit approach for Method 13
+        await interaction.message.edit({ embeds: [embed], components: [row] });
+    } catch (error) {
+        console.error('Method 13 webhook recreation failed:', error);
+    }
+}
+
+// Method 14: Channel State Manipulation approach
+async function handleMethod14Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    // Find or create the role
+    const roleName = selectedRole === 'remove_all' ? 'RemoveAll' : selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method14-gamer', 'method14-artist', 'method14-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 14: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method14-${roleName.toLowerCase()}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x8e44ad, artist: 0x8e44ad, developer: 0x8e44ad };
+            role = await interaction.guild.roles.create({
+                name: `Method14-${roleName}`,
+                color: colors[selectedRole] || 0x8e44ad,
+                reason: 'Method 14 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 14: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 14: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 14: Channel state manipulation
+    const embed = new EmbedBuilder()
+        .setTitle('🌊 Method 14: Channel State Manipulation')
+        .setDescription('Testing dropdown refresh by manipulating channel state')
+        .setColor(0x8e44ad)
+        .setFooter({ text: 'Method 14 Test - Channel State' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method14_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    // Try to force a "clean" update by editing twice
+    await interaction.message.edit({ embeds: [embed], components: [row] });
+    
+    // Second edit after a tiny delay
+    setTimeout(async () => {
+        try {
+            await interaction.message.edit({ embeds: [embed], components: [row] });
+        } catch (error) {
+            console.error('Method 14 second edit failed:', error);
+        }
+    }, 50);
+}
+
+// Handle color selection
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isStringSelectMenu()) return;
+
+    try {
+        switch (interaction.customId) {
+            case 'role_select_basic':
+                await handleBasicRoleSelection(interaction);
+                break;
+            case 'role_select_multi':
+                await handleMultiRoleSelection(interaction);
+                break;
+            case 'direct_role_select':
+                await handleDirectRoleSelection(interaction);
+                break;
+            case 'color_select':
+                await handleColorSelection(interaction);
+                break;
+            case 'method5_select':
+                await handleMethod5Selection(interaction);
+                break;
+            case 'method6_select':
+                await handleMethod6Selection(interaction);
+                break;
+            case 'method7_select':
+                await handleMethod7Selection(interaction);
+                break;
+            case 'method8_select':
+                await handleMethod8Selection(interaction);
+                break;
+            case 'method9_select':
+                await handleMethod9Selection(interaction);
+                break;
+            case 'method10_select':
+                await handleMethod10Selection(interaction);
+                break;
+            case 'method11_select':
+                await handleMethod11Selection(interaction);
+                break;
+            case 'method12_select':
+                await handleMethod12Selection(interaction);
+                break;
+            case 'method13_select':
+                await handleMethod13Selection(interaction);
+                break;
+            case 'method14_select':
+                await handleMethod14Selection(interaction);
+                break;
+            default:
+                await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
+        }
+    } catch (error) {
+        console.error('Error handling interaction:', error);
+        const errorMessage = '❌ An error occurred while processing your selection.';
+        
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: errorMessage, ephemeral: true });
+        } else {
+            await interaction.reply({ content: errorMessage, ephemeral: true });
+        }
+    }
 });
 
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', error);
+// Handle basic role selection
+async function handleBasicRoleSelection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'musician'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+            await interaction.reply({ content: '🗑️ All roles have been removed!', ephemeral: true });
+        } else {
+            await interaction.reply({ content: '❌ You don\'t have any roles to remove!', ephemeral: true });
+        }
+        
+        // Reset the dropdown menu
+        const embed = new EmbedBuilder()
+            .setTitle('🎭 Role Selection Menu')
+            .setDescription('Select a role from the dropdown menu below:')
+            .setColor(0x00AE86)
+            .setFooter({ text: 'Choose wisely!' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('role_select_basic')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Musician')
+                    .setDescription('For music lovers')
+                    .setValue('musician')
+                    .setEmoji('🎵'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        await interaction.message.edit({ embeds: [embed], components: [row] });
+        return;
+    }
+    
+    // Find or create the role
+    const roleName = selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
+    let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
+    
+    if (!role) {
+        const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF, musician: 0xFFFF00 };
+        role = await interaction.guild.roles.create({
+            name: roleName,
+            color: colors[selectedRole] || 0x99AAB5,
+            reason: 'Role selection menu'
+        });
+    }
+    
+    if (member.roles.cache.has(role.id)) {
+        await member.roles.remove(role);
+        await interaction.reply({ content: `➖ Removed the **${roleName}** role!`, ephemeral: true });
+    } else {
+        await member.roles.add(role);
+        await interaction.reply({ content: `➕ Added the **${roleName}** role!`, ephemeral: true });
+    }
+    
+    // Reset the dropdown menu
+    const embed = new EmbedBuilder()
+        .setTitle('🎭 Role Selection Menu')
+        .setDescription('Select a role from the dropdown menu below:')
+        .setColor(0x00AE86)
+        .setFooter({ text: 'Choose wisely!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('role_select_basic')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Musician')
+                .setDescription('For music lovers')
+                .setValue('musician')
+                .setEmoji('🎵'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.message.edit({ embeds: [embed], components: [row] });
+}
+
+// Handle color selection
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isStringSelectMenu()) return;
+
+    try {
+        switch (interaction.customId) {
+            case 'role_select_basic':
+                await handleBasicRoleSelection(interaction);
+                break;
+            case 'role_select_multi':
+                await handleMultiRoleSelection(interaction);
+                break;
+            case 'direct_role_select':
+                await handleDirectRoleSelection(interaction);
+                break;
+            case 'color_select':
+                await handleColorSelection(interaction);
+                break;
+            case 'method5_select':
+                await handleMethod5Selection(interaction);
+                break;
+            case 'method6_select':
+                await handleMethod6Selection(interaction);
+                break;
+            case 'method7_select':
+                await handleMethod7Selection(interaction);
+                break;
+            case 'method8_select':
+                await handleMethod8Selection(interaction);
+                break;
+            case 'method9_select':
+                await handleMethod9Selection(interaction);
+                break;
+            case 'method10_select':
+                await handleMethod10Selection(interaction);
+                break;
+            case 'method11_select':
+                await handleMethod11Selection(interaction);
+                break;
+            case 'method12_select':
+                await handleMethod12Selection(interaction);
+                break;
+            case 'method13_select':
+                await handleMethod13Selection(interaction);
+                break;
+            case 'method14_select':
+                await handleMethod14Selection(interaction);
+                break;
+            default:
+                await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
+        }
+    } catch (error) {
+        console.error('Error handling interaction:', error);
+        const errorMessage = '❌ An error occurred while processing your selection.';
+        
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: errorMessage, ephemeral: true });
+        } else {
+            await interaction.reply({ content: errorMessage, ephemeral: true });
+        }
+    }
 });
 
-// Login to Discord
-client.login(process.env.TOKEN);
