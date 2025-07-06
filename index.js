@@ -1103,7 +1103,7 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
 
 /**
  * Handles hybrid info dropdown selection with Sapphire-style reset behavior
- * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction (already deferred)
  * @param {Object} menu - The hybrid menu configuration
  * @param {Object} page - The selected page data
  * @param {string} hybridMenuId - The hybrid menu ID
@@ -1112,11 +1112,8 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
   try {
     console.log("🔄 Starting professional hybrid info dropdown handling with reset...");
     
-    // 🔥 HYBRID MENU SAPPHIRE APPROACH: Different handling for webhook vs bot messages
-    
-    // First, acknowledge the interaction without updating components
-    await interaction.deferUpdate();
-    console.log("✅ Hybrid info dropdown interaction deferred without showing 'edited' mark");
+    // Note: Interaction should already be deferred by the caller with deferReply({ flags: 64 })
+    console.log("✅ Hybrid info dropdown interaction handling (already deferred)");
     
     // Get the original message
     const originalMessage = interaction.message;
@@ -1414,7 +1411,7 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
     const regularMessage = await interaction.followUp({
       embeds: [embed],
       components: components,
-      ephemeral: false
+      flags: 0  // Public message
     });
     
     await db.saveMessageId(menuId, interaction.channelId, regularMessage.id);
@@ -7846,7 +7843,7 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.editReply({
             content: `🎨 **Change Button Color for ${role.name}**\n\nCurrent color: **${menu.buttonColors?.[roleId] || 'Primary'}**`,
             components: [row],
-            flags: MessageFlags.Ephemeral
+            flags: 64
           });
         }
 
@@ -7881,7 +7878,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle("✅ Success")
                 .setDescription("All items set to dropdown display! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
             console.log(`[Bulk Debug] Response sent successfully:`, result);
             
@@ -7923,7 +7920,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle("✅ Success")
                 .setDescription("All items set to button display! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
             console.log(`[Bulk Debug] Response sent successfully:`, result);
             
@@ -7959,7 +7956,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle("✅ Success")
                 .setDescription("All items set to both dropdown and button display! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error("Error in bulk_all_both:", error);
@@ -7991,7 +7988,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle("✅ Success")
                 .setDescription("Info pages set to dropdown, roles set to buttons! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error("Error in bulk_info_dropdown_roles_button:", error);
@@ -8023,7 +8020,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle("✅ Success")
                 .setDescription("Info pages set to buttons, roles set to dropdown! Use 'Display Types Configuration' to see the changes.")
                 .setColor("#00FF00")],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error("Error in bulk_info_button_roles_dropdown:", error);
@@ -8185,7 +8182,7 @@ client.on("interactionCreate", async (interaction) => {
           if (!infoMenuId || !pageAction || !pageId) {
             return interaction.editReply({
               content: "❌ Invalid page action selection.",
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
 
@@ -8193,7 +8190,7 @@ client.on("interactionCreate", async (interaction) => {
           if (!menu) {
             return interaction.editReply({
               content: "❌ Information menu not found.",
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
 
@@ -8201,7 +8198,7 @@ client.on("interactionCreate", async (interaction) => {
           if (!page) {
             return interaction.editReply({
               content: "❌ Page not found.",
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
 
@@ -8251,7 +8248,7 @@ client.on("interactionCreate", async (interaction) => {
               console.error("Error serializing page data for edit:", jsonError);
               return interaction.editReply({
                 content: "❌ Error preparing page data for editing. The page data may be corrupted.",
-                flags: MessageFlags.Ephemeral
+                flags: 64
               });
             }
           } 
@@ -8270,7 +8267,7 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.editReply({
               content: `⚠️ Are you sure you want to delete the page "${page.name}"? This cannot be undone.`,
               components: [row],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
         }
@@ -8677,7 +8674,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setEmoji("⬅️")
             );
 
-            const responseData = { embeds: [embed], components: [actionRow1, actionRow2], flags: MessageFlags.Ephemeral };
+            const responseData = { embeds: [embed], components: [actionRow1, actionRow2], flags: 64 };
             
             if (interaction.deferred || interaction.replied) {
               await interaction.editReply(responseData);
@@ -8741,7 +8738,7 @@ client.on("interactionCreate", async (interaction) => {
                 .setEmoji("⬅️")
             );
 
-            const responseData = { embeds: [embed], components: [actionRow], flags: MessageFlags.Ephemeral };
+            const responseData = { embeds: [embed], components: [actionRow], flags: 64 };
             
             if (interaction.deferred || interaction.replied) {
               await interaction.editReply(responseData);
@@ -8824,7 +8821,7 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.editReply({
               content: `🎯 **Override Display Type for "${page.name}"**\n\nThis will override the menu-wide default:`,
               components: [row],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error(`[Hybrid Debug] Error in select_page_override:`, error);
@@ -8864,7 +8861,7 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.editReply({
               content: `🎯 **Override Display Type for "${role.name}"**\n\nThis will override the menu-wide default:`,
               components: [row],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error(`[Hybrid Debug] Error in select_role_override:`, error);
@@ -9221,7 +9218,7 @@ client.on("interactionCreate", async (interaction) => {
             }
           }
 
-          await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+          await interaction.editReply({ embeds: [embed], flags: 64 });
         } catch (error) {
           console.error("Error displaying info page from button:", error);
           return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
@@ -9254,7 +9251,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (ctx === "schedule" && action === "modal") {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.editReply({ content: "❌ You need Administrator permissions to schedule messages.", components: [], flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ content: "❌ You need Administrator permissions to schedule messages.", components: [], flags: 64 });
         }
 
         if (modalType === "create") {
@@ -9267,19 +9264,19 @@ client.on("interactionCreate", async (interaction) => {
           // Validate channel
           const channel = interaction.guild.channels.cache.get(channelId);
           if (!channel || !channel.isTextBased()) {
-            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: 64 });
           }
 
           // Validate date format
           const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
           if (!dateRegex.test(scheduleTime)) {
-            return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: 64 });
           }
 
           // Parse and validate the date
           const scheduledDate = new Date(scheduleTime);
           if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
-            return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: 64 });
           }
 
           // Create schedule entry
@@ -9311,10 +9308,10 @@ client.on("interactionCreate", async (interaction) => {
                 { name: "Scheduled Time", value: `<t:${Math.floor(scheduledDate.getTime() / 1000)}:F>`, inline: false }
               ]);
 
-            await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ embeds: [embed], components: [], flags: 64 });
           } catch (error) {
             console.error("Error saving scheduled message:", error);
-            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: 64 });
           }
         }
 
@@ -9329,7 +9326,7 @@ client.on("interactionCreate", async (interaction) => {
           // Validate channel
           const channel = interaction.guild.channels.cache.get(channelId);
           if (!channel || !channel.isTextBased()) {
-            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid channel ID. Please provide a valid text channel ID.", components: [], flags: 64 });
           }
 
           // Validate date format (if provided)
@@ -9337,13 +9334,13 @@ client.on("interactionCreate", async (interaction) => {
           if (scheduleTime && scheduleTime.trim()) {
             const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
             if (!dateRegex.test(scheduleTime)) {
-              return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: MessageFlags.Ephemeral });
+              return interaction.editReply({ content: "❌ Invalid date format. Please use YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)", components: [], flags: 64 });
             }
 
             // Parse and validate the date
             scheduledDate = new Date(scheduleTime);
             if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
-              return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: MessageFlags.Ephemeral });
+              return interaction.editReply({ content: "❌ Invalid date or date is in the past. Please provide a future date.", components: [], flags: 64 });
             }
           } else {
             // If no schedule time provided, start immediately
@@ -9355,7 +9352,7 @@ client.on("interactionCreate", async (interaction) => {
           try {
             parsedMessage = JSON.parse(messageJson);
           } catch (jsonError) {
-            return interaction.editReply({ content: "❌ Invalid JSON format. Please provide valid JSON for the message.", components: [], flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid JSON format. Please provide valid JSON for the message.", components: [], flags: 64 });
           }
 
           // Validate and parse recurring interval FIRST
@@ -9384,7 +9381,7 @@ client.on("interactionCreate", async (interaction) => {
                 recurringDisplay = `Every ${minutes} minutes`;
                 isRecurring = true;
               } else {
-                return interaction.editReply({ content: "❌ Invalid recurring interval. Use 'daily', 'weekly', 'hourly', or a number of minutes (e.g., 30).", components: [], flags: MessageFlags.Ephemeral });
+                return interaction.editReply({ content: "❌ Invalid recurring interval. Use 'daily', 'weekly', 'hourly', or a number of minutes (e.g., 30).", components: [], flags: 64 });
               }
             }
           }
@@ -9394,7 +9391,7 @@ client.on("interactionCreate", async (interaction) => {
           if (duration && !isRecurring) {
             const durationNum = parseInt(duration);
             if (isNaN(durationNum) || durationNum <= 0) {
-              return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: MessageFlags.Ephemeral });
+              return interaction.editReply({ content: "❌ Invalid duration. Please provide a positive number of minutes.", components: [], flags: 64 });
             }
             autoDeletDuration = durationNum;
           }
@@ -9452,10 +9449,10 @@ client.on("interactionCreate", async (interaction) => {
                 .setStyle(ButtonStyle.Secondary)
             );
 
-            await interaction.editReply({ embeds: [embed], components: [webhookButton], flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ embeds: [embed], components: [webhookButton], flags: 64 });
           } catch (error) {
             console.error("Error saving scheduled message:", error);
-            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: MessageFlags.Ephemeral });
+            await interaction.editReply({ content: "❌ Error saving scheduled message. Please try again.", components: [], flags: 64 });
           }
         }
 
@@ -9463,7 +9460,7 @@ client.on("interactionCreate", async (interaction) => {
           const scheduleId = parts[3];
           const schedule = scheduledMessages.get(scheduleId);
           if (!schedule) {
-            return interaction.editReply({ content: "❌ Schedule not found.", flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Schedule not found.", flags: 64 });
           }
           
           const useWebhookInput = interaction.fields.getTextInputValue("use_webhook").toLowerCase().trim();
@@ -9472,14 +9469,14 @@ client.on("interactionCreate", async (interaction) => {
           
           // Validate webhook toggle
           if (useWebhookInput !== "yes" && useWebhookInput !== "no") {
-            return interaction.editReply({ content: "❌ Invalid webhook setting. Please enter 'yes' or 'no'.", flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Invalid webhook setting. Please enter 'yes' or 'no'.", flags: 64 });
           }
           
           const useWebhook = useWebhookInput === "yes";
           
           // Validate webhook name (if provided)
           if (webhookName && webhookName.length > 80) {
-            return interaction.editReply({ content: "❌ Webhook name too long. Maximum 80 characters.", flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: "❌ Webhook name too long. Maximum 80 characters.", flags: 64 });
           }
           
           // Validate webhook avatar URL (if provided)
@@ -9487,7 +9484,7 @@ client.on("interactionCreate", async (interaction) => {
             try {
               new URL(webhookAvatar);
             } catch {
-              return interaction.editReply({ content: "❌ Invalid webhook avatar URL. Please provide a valid URL.", flags: MessageFlags.Ephemeral });
+              return interaction.editReply({ content: "❌ Invalid webhook avatar URL. Please provide a valid URL.", flags: 64 });
             }
           }
           
@@ -9510,7 +9507,7 @@ client.on("interactionCreate", async (interaction) => {
               { name: "Webhook Avatar", value: webhookAvatar ? "Custom URL" : "Default", inline: true }
             ]);
           
-          await interaction.editReply({ embeds: [embed], components: [], flags: MessageFlags.Ephemeral });
+          await interaction.editReply({ embeds: [embed], components: [], flags: 64 });
           return;
         }
       } else if (ctx === "rr" && action === "modal") {
@@ -10142,7 +10139,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!pageData.id || !pageData.name || !pageData.content) {
               return interaction.reply({
                 content: "❌ JSON must include 'id', 'name', and 'content' fields.\n\n**Tip:** You can paste Discohook JSON directly and it will be auto-converted!",
-                flags: MessageFlags.Ephemeral
+                flags: 64
               });
             }
 
@@ -10163,13 +10160,13 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.reply({
               content: `✅ Page "${pageData.name}" updated successfully!`,
               components: [row],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error("Error parsing/updating page JSON:", error);
             return interaction.reply({
               content: "❌ Invalid JSON format. Please check your JSON syntax.\n\n**Tip:** You can paste Discohook JSON directly!",
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
         }
@@ -10183,7 +10180,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!menu) {
               return interaction.reply({
                 content: "❌ Information menu not found.",
-                flags: MessageFlags.Ephemeral
+                flags: 64
               });
             }
 
@@ -10191,7 +10188,7 @@ client.on("interactionCreate", async (interaction) => {
             if (!pages || pages.length < 2) {
               return interaction.reply({
                 content: "❌ You need at least 2 pages to reorder them.",
-                flags: MessageFlags.Ephemeral
+                flags: 64
               });
             }
 
@@ -10202,7 +10199,7 @@ client.on("interactionCreate", async (interaction) => {
             if (orderNumbers.length !== pages.length) {
               return interaction.reply({
                 content: `❌ You must provide exactly ${pages.length} numbers (one for each page).`,
-                flags: MessageFlags.Ephemeral
+                flags: 64
               });
             }
 
@@ -10212,13 +10209,13 @@ client.on("interactionCreate", async (interaction) => {
               if (isNaN(num) || num < 1 || num > pages.length) {
                 return interaction.reply({
                   content: `❌ All numbers must be between 1 and ${pages.length}.`,
-                  flags: MessageFlags.Ephemeral
+                  flags: 64
                 });
               }
               if (validNumbers.has(num)) {
                 return interaction.reply({
                   content: `❌ Each number can only be used once. Duplicate found: ${num}`,
-                  flags: MessageFlags.Ephemeral
+                  flags: 64
                 });
               }
               validNumbers.add(num);
@@ -10242,13 +10239,13 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.reply({
               content: `✅ Pages reordered successfully!`,
               components: [row],
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           } catch (error) {
             console.error("Error reordering pages:", error);
             return interaction.reply({
               content: "❌ Invalid order format. Please use numbers separated by commas (e.g., 1, 3, 2).",
-              flags: MessageFlags.Ephemeral
+              flags: 64
             });
           }
         }
@@ -11314,7 +11311,7 @@ client.on("interactionCreate", async (interaction) => {
     // Use safe interaction reply
     await safeInteractionReply(interaction, {
       content: friendlyError,
-      flags: MessageFlags.Ephemeral
+      flags: 64
     }, "❌ An error occurred while processing your request.");
   }
 
@@ -11688,9 +11685,9 @@ async function handleRoleInteraction(interaction) {
                     // Fallback
                     try {
                         if (interaction.deferred) {
-                            await interaction.followUp({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+                            await interaction.followUp({ content: "No changes made to your roles.", flags: 64 });
                         } else if (!interaction.replied) {
-                            await interaction.reply({ content: "No changes made to your roles.", flags: MessageFlags.Ephemeral });
+                            await interaction.reply({ content: "No changes made to your roles.", flags: 64 });
                         }
                     } catch (fallbackError) {
                         console.error("Fallback error handling failed:", fallbackError);
@@ -11731,9 +11728,9 @@ async function handleRoleInteraction(interaction) {
         if (interaction.isStringSelectMenu()) {
             try {
                 if (interaction.deferred) {
-                    await interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral });
+                    await interaction.followUp({ content: errorMessage, flags: 64 });
                 } else if (!interaction.replied) {
-                    await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+                    await interaction.reply({ content: errorMessage, flags: 64 });
                 }
             } catch (replyError) {
                 console.error("Error sending error message:", replyError);
@@ -11779,7 +11776,7 @@ async function promptManageRoles(interaction, menuId, type) {
     await interaction.editReply({
       content: `Please select all roles you want for the **${type}** menu (select/deselect to add/remove):`,
       components: [new ActionRowBuilder().addComponents(select)],
-      flags: MessageFlags.Ephemeral
+      flags: 64
     });
 }
 
@@ -11897,7 +11894,7 @@ async function showPerformanceDashboard(interaction) {
       )
     ];
 
-    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components, flags: 64 });
   } catch (error) {
     logger.error("Error showing performance dashboard:", error);
     await handleInteractionError(interaction, error, 'showPerformanceDashboard');
@@ -11983,10 +11980,10 @@ async function showScheduledMessagesDashboard(interaction) {
         .setStyle(ButtonStyle.Secondary)
     );
     
-    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [row], flags: 64 });
   } catch (error) {
     console.error("Error showing scheduled messages dashboard:", error);
-    await interaction.editReply({ content: "❌ Error loading scheduled messages dashboard.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error loading scheduled messages dashboard.", flags: 64 });
   }
 }
 
@@ -12040,10 +12037,10 @@ async function showDynamicContentHelp(interaction) {
         .setStyle(ButtonStyle.Secondary)
     );
     
-    await interaction.editReply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [row], flags: 64 });
   } catch (error) {
     console.error("Error showing dynamic content help:", error);
-    await interaction.editReply({ content: "❌ Error loading dynamic content help.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error loading dynamic content help.", flags: 64 });
   }
 }
 
@@ -12055,7 +12052,7 @@ async function showScheduleNewMessageMenu(interaction) {
     if (infoMenus.length === 0) {
       await interaction.editReply({ 
         content: "❌ No info menus found. Create some info menus first before scheduling messages.",
-        flags: MessageFlags.Ephemeral 
+        flags: 64 
       });
       return;
     }
@@ -12089,11 +12086,11 @@ async function showScheduleNewMessageMenu(interaction) {
     await interaction.editReply({ 
       embeds: [embed], 
       components: [selectRow, buttonRow], 
-      flags: MessageFlags.Ephemeral 
+      flags: 64 
     });
   } catch (error) {
     console.error("Error showing schedule new message menu:", error);
-    await interaction.editReply({ content: "❌ Error loading schedule menu.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error loading schedule menu.", flags: 64 });
   }
 }
 
@@ -12105,7 +12102,7 @@ async function showManageSchedulesMenu(interaction) {
     if (schedules.length === 0) {
       await interaction.editReply({ 
         content: "❌ No scheduled messages found. Create some schedules first!",
-        flags: MessageFlags.Ephemeral 
+        flags: 64 
       });
       return;
     }
@@ -12166,11 +12163,11 @@ async function showManageSchedulesMenu(interaction) {
     await interaction.editReply({ 
       embeds: [embed], 
       components: [selectRow, buttonRow], 
-      flags: MessageFlags.Ephemeral 
+      flags: 64 
     });
   } catch (error) {
     console.error("Error showing manage schedules menu:", error);
-    await interaction.editReply({ content: "❌ Error loading manage schedules menu.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error loading manage schedules menu.", flags: 64 });
   }
 }
 
@@ -12181,7 +12178,7 @@ async function showScheduleDetailsMenu(interaction, scheduleId) {
     if (!schedule) {
       await interaction.editReply({ 
         content: "❌ Schedule not found.",
-        flags: MessageFlags.Ephemeral 
+        flags: 64 
       });
       return;
     }
@@ -12242,11 +12239,11 @@ async function showScheduleDetailsMenu(interaction, scheduleId) {
     await interaction.editReply({ 
       embeds: [embed], 
       components: [row1, row2], 
-      flags: MessageFlags.Ephemeral 
+      flags: 64 
     });
   } catch (error) {
     console.error("Error showing schedule details menu:", error);
-    await interaction.editReply({ content: "❌ Error loading schedule details.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Error loading schedule details.", flags: 64 });
   }
 }
 
@@ -12977,7 +12974,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
     return interaction.editReply({
       embeds: [embed],
       components: [backRow],
-      flags: MessageFlags.Ephemeral
+      flags: 64
     });
   }
 
@@ -13107,7 +13104,7 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
   await interaction.editReply({
     embeds: [embed],
     components,
-    flags: MessageFlags.Ephemeral
+    flags: 64
   });
   
   } catch (error) {
@@ -13121,25 +13118,19 @@ async function showIndividualItemConfiguration(interaction, hybridMenuId) {
  * @param {import('discord.js').Interaction} interaction - The interaction to handle
  */
 async function handleHybridMenuInteraction(interaction) {
-  // Deferral is handled at the main interaction level for consistency
-
   try {
     const parts = interaction.customId.split(":");
     const type = parts[0]; // "hybrid-info-select", "hybrid-role-select", "hybrid-info-page", or "hybrid-role-button"
     const hybridMenuId = parts[1];
     
     if (!hybridMenuId) {
-      if (interaction.isStringSelectMenu()) {
-        return interaction.followUp({ content: "❌ Invalid hybrid menu configuration.", flags: 64 });
-      } else {
-        return sendEphemeralEmbed(interaction, "❌ Invalid hybrid menu configuration.", "#FF0000", "Error", false);
-      }
+      return sendEphemeralEmbed(interaction, "❌ Invalid hybrid menu configuration.", "#FF0000", "Error", false);
     }
 
     const menu = db.getHybridMenu(hybridMenuId);
     if (!menu) {
-      if (interaction.isStringSelectMenu()) {
-        return interaction.followUp({ content: "❌ Hybrid menu not found.", flags: 64 });
+      if (interaction.deferred) {
+        return interaction.editReply({ content: "❌ Hybrid menu not found.", flags: 64 });
       } else {
         return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
       }
@@ -13147,6 +13138,9 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle info page interactions
     if (type === "hybrid-info-select") {
+      // Defer for followUp pattern
+      await interaction.deferReply({ flags: 64 });
+      
       const selectedPageId = interaction.values[0].split(':')[2]; // Extract page ID from value
       const page = menu.pages?.find(p => p.id === selectedPageId);
       
@@ -13158,7 +13152,7 @@ async function handleHybridMenuInteraction(interaction) {
         // Apply Sapphire-style dropdown reset
         await handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId);
       } catch (error) {
-        console.error("Error handling hybrid info dropdown selection:", error);
+        console.error("❌ Error in professional hybrid info dropdown handling:", error);
         return interaction.followUp({ content: "❌ Error displaying page content.", flags: 64 });
       }
 
@@ -13198,11 +13192,14 @@ async function handleHybridMenuInteraction(interaction) {
         }
       }
 
-      return interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      return interaction.editReply({ embeds: [embed], flags: 64 });
     }
 
     // Handle role interactions
     if (type === "hybrid-role-select") {
+      // Defer for followUp pattern
+      await interaction.deferReply({ flags: 64 });
+      
       // Sapphire-style: handle role toggle and rebuild dropdown dynamically
       const selectedRoleIds = interaction.values;
       const member = interaction.member;
@@ -13237,7 +13234,7 @@ async function handleHybridMenuInteraction(interaction) {
       
       await interaction.followUp({ 
         content: confirmationMessage || "✅ Role selection updated!", 
-        flags: MessageFlags.Ephemeral
+        flags: 64
       });
       
       // Dynamically rebuild the dropdown menu (Sapphire style)
@@ -13292,20 +13289,23 @@ async function handleHybridMenuInteraction(interaction) {
     }
 
     if (type === "hybrid-role-button") {
+      // Defer for followUp pattern
+      await interaction.deferReply({ flags: 64 });
+      
       const roleId = parts[2];
       
       if (!interaction.guild || !interaction.member) {
-        return sendEphemeralEmbed(interaction, "❌ Unable to process role interaction.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Unable to process role interaction.", flags: 64 });
       }
 
       const role = interaction.guild.roles.cache.get(roleId);
       if (!role) {
-        return sendEphemeralEmbed(interaction, "❌ Role not found.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Role not found.", flags: 64 });
       }
 
       const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
       if (!member) {
-        return sendEphemeralEmbed(interaction, "❌ Unable to fetch member information.", "#FF0000", "Error", false);
+        return interaction.followUp({ content: "❌ Unable to fetch member information.", flags: 64 });
       }
 
       const hasRole = member.roles.cache.has(roleId);
@@ -13313,16 +13313,16 @@ async function handleHybridMenuInteraction(interaction) {
       if (hasRole) {
         await member.roles.remove(roleId);
         // Sapphire-style ephemeral confirmation
-        await interaction.reply({ 
+        await interaction.followUp({ 
           content: `❌ **Role Removed:** <@&${roleId}>`, 
-          flags: MessageFlags.Ephemeral
+          flags: 64
         });
       } else {
         await member.roles.add(roleId);
         // Sapphire-style ephemeral confirmation
-        await interaction.reply({ 
+        await interaction.followUp({ 
           content: `✅ **Role Added:** <@&${roleId}>`, 
-          flags: MessageFlags.Ephemeral
+          flags: 64
         });
       }
       
@@ -13384,7 +13384,7 @@ async function sendMainDashboard(interaction) {
             .setEmoji("🔮")
     );
     
-    await interaction.editReply({ embeds: [embed], components: [row1, row2], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components: [row1, row2], flags: 64 });
   } catch (error) {
     console.error("Error in sendMainDashboard:", error);
     throw error; // Re-throw to be caught by the caller
@@ -13448,13 +13448,13 @@ async function showReactionRolesDashboard(interaction) {
   console.log(`[Debug] RR Dashboard components: ${components.length} rows`);
 
   try {
-      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ embeds: [embed], components, flags: 64 });
   } catch (error) {
       console.error("Error displaying reaction roles dashboard:", error);
       console.error("Dashboard components structure:", JSON.stringify(components.map(row => ({
         components: row.components.length
       })), null, 2));
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the reaction roles dashboard.", flags: 64 });
   }
 }
 
@@ -13468,14 +13468,14 @@ async function showMenuConfiguration(interaction, menuId) {
       console.error(`Invalid menuId provided to showMenuConfiguration: ${menuId}`);
       return interaction.editReply({
         content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
-        flags: MessageFlags.Ephemeral
+        flags: 64
       });
     }
 
     const menu = db.getMenu(menuId);
     if (!menu) {
       console.error(`Menu not found for ID: ${menuId}`);
-      return interaction.editReply({ content: "Menu not found. It might have been deleted.", flags: MessageFlags.Ephemeral });
+      return interaction.editReply({ content: "Menu not found. It might have been deleted.", flags: 64 });
     }
 
     const embed = new EmbedBuilder()
@@ -13725,13 +13725,13 @@ async function showMenuConfiguration(interaction, menuId) {
     });
 
     try {
-      await interaction.editReply({ embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ embeds: [embed], components: finalComponents, flags: 64 });
     } catch (error) {
       console.error("Error displaying menu configuration:", error);
       console.error("Components structure:", JSON.stringify(finalComponents.map(row => ({
         components: row.components.length
       })), null, 2));
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the menu configuration.", flags: 64 });
     }
 }
 
@@ -13937,7 +13937,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
         
         await interaction.editReply({
             content: `✅ Menu published successfully using ${menu.useWebhook ? "WEBHOOK" : "BOT"}!${invalidRoles.length > 0 ? `\n⚠️ Warning: ${invalidRoles.length} invalid roles were removed from the menu.` : ''}`,
-            flags: MessageFlags.Ephemeral
+            flags: 64
         });
         
         return showMenuConfiguration(interaction, menuId);
@@ -13951,7 +13951,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
             const friendlyError = generateUserFriendlyError(error, { action: 'publish_menu' });
             await safeInteractionReply(interaction, {
                 content: friendlyError,
-                flags: MessageFlags.Ephemeral
+                flags: 64
             });
             return;
         }
@@ -13973,7 +13973,7 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
         await safeInteractionReply(interaction, {
             content: errorMsg,
-            flags: MessageFlags.Ephemeral
+            flags: 64
         });
     }
 }
@@ -14037,7 +14037,7 @@ async function showPageCreationOptions(interaction, infoMenuId) {
   const responseData = {
     embeds: [embed],
     components: [row1, row2, row3],
-    flags: MessageFlags.Ephemeral
+    flags: 64
   };
 
   return interaction.deferred || interaction.replied ? 
@@ -14143,7 +14143,7 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
       content: "❌ Information menu not found.",
       embeds: [],
       components: [],
-      flags: MessageFlags.Ephemeral
+      flags: 64
     };
     return interaction.deferred || interaction.replied ? 
       interaction.editReply(errorMessage) : 
@@ -14237,7 +14237,7 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
   const responseData = {
     embeds: [embed],
     components: components,
-    flags: MessageFlags.Ephemeral
+    flags: 64
   };
 
   return interaction.deferred || interaction.replied ? 
@@ -14258,7 +14258,7 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
       content: "❌ Information menu not found.",
       embeds: [],
       components: [],
-      flags: MessageFlags.Ephemeral
+      flags: 64
     };
     return interaction.deferred || interaction.replied ? 
       interaction.editReply(errorMessage) : 
@@ -14272,7 +14272,7 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
       content: "❌ No pages found. Add some pages first!",
       embeds: [],
       components: [],
-      flags: MessageFlags.Ephemeral
+      flags: 64
     };
     return interaction.deferred || interaction.replied ? 
       interaction.editReply(errorMessage) : 
@@ -14336,7 +14336,7 @@ async function showPageDisplayConfiguration(interaction, infoMenuId) {
   const responseData = {
     embeds: [embed],
     components: components,
-    flags: MessageFlags.Ephemeral
+    flags: 64
   };
 
   return interaction.deferred || interaction.replied ? 
@@ -14556,10 +14556,10 @@ async function showInfoMenusDashboard(interaction) {
   console.log(`[Debug] Info Menu Dashboard components: ${components.length} rows`);
 
   try {
-      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ embeds: [embed], components, flags: 64 });
   } catch (error) {
       console.error("Error displaying information menus dashboard:", error);
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the information menus dashboard.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the information menus dashboard.", flags: 64 });
   }
 }
 
@@ -14615,10 +14615,10 @@ async function showHybridMenusDashboard(interaction) {
   components.push(buttonRow);
 
   try {
-      await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ embeds: [embed], components, flags: 64 });
   } catch (error) {
       console.error("Error displaying hybrid menus dashboard:", error);
-      await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menus dashboard.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: "❌ Something went wrong while displaying the hybrid menus dashboard.", flags: 64 });
   }
 }
 
@@ -14780,7 +14780,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
   const components = [row1, row2, row3, row4, row5];
 
   try {
-    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    const responseData = { embeds: [embed], components, flags: 64 };
     
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(responseData);
@@ -14790,7 +14790,7 @@ async function showHybridMenuConfiguration(interaction, hybridMenuId) {
   } catch (error) {
     console.error("Error displaying hybrid menu configuration:", error);
     
-    const errorData = { content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: MessageFlags.Ephemeral };
+    const errorData = { content: "❌ Something went wrong while displaying the hybrid menu configuration.", flags: 64 };
     
     try {
       if (interaction.deferred || interaction.replied) {
@@ -14923,7 +14923,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       console.error(`Invalid infoMenuId provided to showInfoMenuConfiguration: ${infoMenuId}`);
       const errorMessage = {
         content: "❌ Invalid menu configuration. Please recreate the menu or select a valid one from the dashboard.",
-        flags: MessageFlags.Ephemeral
+        flags: 64
       };
       return interaction.deferred || interaction.replied ? 
         interaction.editReply(errorMessage) : 
@@ -14935,7 +14935,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       console.error(`Info menu not found for ID: ${infoMenuId}`);
       const errorMessage = {
         content: "Information menu not found. It might have been deleted.",
-        flags: MessageFlags.Ephemeral
+        flags: 64
       };
       return interaction.deferred || interaction.replied ? 
         interaction.editReply(errorMessage) : 
@@ -15147,7 +15147,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
     console.log(`[Debug] Info Menu ${infoMenuId} components: ${finalComponents.length} rows`);
 
     try {
-      const responseData = { embeds: [embed], components: finalComponents, flags: MessageFlags.Ephemeral };
+      const responseData = { embeds: [embed], components: finalComponents, flags: 64 };
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply(responseData);
       } else {
@@ -15155,7 +15155,7 @@ async function showInfoMenuConfiguration(interaction, infoMenuId) {
       }
     } catch (error) {
       console.error("Error displaying info menu configuration:", error);
-      const errorMessage = { content: "❌ Something went wrong while displaying the info menu configuration.", flags: MessageFlags.Ephemeral };
+      const errorMessage = { content: "❌ Something went wrong while displaying the info menu configuration.", flags: 64 };
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply(errorMessage);
       } else {
@@ -15242,7 +15242,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId, successMes
   components.push(backRow);
 
   try {
-    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    const responseData = { embeds: [embed], components, flags: 64 };
     
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(responseData);
@@ -15252,7 +15252,7 @@ async function showHybridInfoConfiguration(interaction, hybridMenuId, successMes
   } catch (error) {
     console.error("Error displaying hybrid info configuration:", error);
     
-    const errorData = { content: "❌ Something went wrong while displaying the info configuration.", flags: MessageFlags.Ephemeral };
+    const errorData = { content: "❌ Something went wrong while displaying the info configuration.", flags: 64 };
     
     try {
       if (interaction.deferred || interaction.replied) {
@@ -15367,7 +15367,7 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId, successMe
   components.push(backRow);
 
   try {
-    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    const responseData = { embeds: [embed], components, flags: 64 };
     
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(responseData);
@@ -15377,7 +15377,7 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId, successMe
   } catch (error) {
     console.error("Error displaying hybrid roles configuration:", error);
     
-    const errorData = { content: "❌ Something went wrong while displaying the roles configuration.", flags: MessageFlags.Ephemeral };
+    const errorData = { content: "❌ Something went wrong while displaying the roles configuration.", flags: 64 };
     
     try {
       if (interaction.deferred || interaction.replied) {
@@ -15399,28 +15399,28 @@ async function showHybridEmbedCustomization(interaction, hybridMenuId) {
 // Hybrid Menu Publishing (placeholder)
 async function publishHybridMenu(interaction, hybridMenuId) {
   if (!hybridMenuId || typeof hybridMenuId !== 'string') {
-    return interaction.editReply({ content: "❌ Invalid hybrid menu ID provided.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ Invalid hybrid menu ID provided.", flags: 64 });
   }
 
   const menu = db.getHybridMenu(hybridMenuId);
   if (!menu) {
-    return interaction.editReply({ content: "❌ Hybrid menu not found.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ Hybrid menu not found.", flags: 64 });
   }
 
   // Validate guild and permissions
   if (!interaction.guild) {
-    return interaction.editReply({ content: "❌ This command can only be used in a server.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ This command can only be used in a server.", flags: 64 });
   }
 
   // Check if bot has necessary permissions
   const botMember = interaction.guild.members.me;
   if (!botMember) {
-    return interaction.editReply({ content: "❌ Unable to verify bot permissions.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ Unable to verify bot permissions.", flags: 64 });
   }
 
   const channel = interaction.channel;
   if (!channel.permissionsFor(botMember).has(['SendMessages', 'UseExternalEmojis', 'EmbedLinks'])) {
-    return interaction.editReply({ content: "❌ Bot lacks required permissions in this channel: Send Messages, Use External Emojis, Embed Links.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ Bot lacks required permissions in this channel: Send Messages, Use External Emojis, Embed Links.", flags: 64 });
   }
 
   // Validate configuration - check if at least info pages OR roles are configured
@@ -15428,7 +15428,7 @@ async function publishHybridMenu(interaction, hybridMenuId) {
   const hasRoles = (menu.dropdownRoles && menu.dropdownRoles.length > 0) || (menu.buttonRoles && menu.buttonRoles.length > 0);
   
   if (!hasInfoPages && !hasRoles) {
-    return interaction.editReply({ content: "❌ Cannot publish: Please configure at least one information page or reaction role.", flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: "❌ Cannot publish: Please configure at least one information page or reaction role.", flags: 64 });
   }
 
   // Validate roles still exist (if any are configured)
@@ -15493,7 +15493,7 @@ async function publishHybridMenu(interaction, hybridMenuId) {
 
   } catch (error) {
     console.error("Error publishing hybrid menu:", error);
-    await interaction.editReply({ content: "❌ Failed to publish hybrid menu. Please try again.", flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: "❌ Failed to publish hybrid menu. Please try again.", flags: 64 });
   }
 }
 
@@ -15677,7 +15677,7 @@ async function previewHybridMenu(interaction, hybridMenuId) {
       components.push(...buttonRows);
     }
 
-    await interaction.editReply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed], components, flags: 64 });
 
   } catch (error) {
     console.error("Error previewing hybrid menu:", error);
@@ -15763,7 +15763,7 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
   components.push(reorderRow1, reorderRow2);
 
   try {
-    const responseData = { embeds: [embed], components, flags: MessageFlags.Ephemeral };
+    const responseData = { embeds: [embed], components, flags: 64 };
     
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(responseData);
