@@ -2423,72 +2423,71 @@ async function handleMethod15Selection(interaction) {
 async function handleMethod24Selection(interaction) {
     const selectedValue = interaction.values[0];
     const member = interaction.member;
-    
+
     try {
+        // 1) ACKNOWLEDGE but DO NOT EDIT the original message
+        //    This tells Discord "interaction handled" and also resets the select state.
+        await interaction.deferUpdate();
+
+        // 2) Now send your ephemeral confirmation
         if (selectedValue === 'remove_all') {
-            // Remove all managed roles (find by name)
             const roleNames = ['Gamer', 'Artist', 'Developer'];
-            const rolesToRemove = member.roles.cache.filter(role => 
-                roleNames.some(name => role.name.toLowerCase() === name.toLowerCase())
+            const rolesToRemove = member.roles.cache.filter(r =>
+                roleNames.some(name => r.name.toLowerCase() === name.toLowerCase())
             );
-            
-            if (rolesToRemove.size > 0) {
+
+            if (rolesToRemove.size) {
                 await member.roles.remove(rolesToRemove);
-                await interaction.reply({ 
-                    content: `🗑️ **Removed all roles** (${rolesToRemove.size} roles removed)`, 
+                await interaction.followUp({
+                    content: `🗑️ **Removed all roles** (${rolesToRemove.size} roles removed)`,
                     flags: MessageFlags.Ephemeral
                 });
             } else {
-                await interaction.reply({ 
-                    content: `ℹ️ **No roles to remove** - you don't have any of the available roles.`, 
+                await interaction.followUp({
+                    content: `ℹ️ **No roles to remove** — you had none of those.`,
                     flags: MessageFlags.Ephemeral
                 });
             }
+
         } else {
-            // Handle specific role selection - find or create role by name
+            // Handle single role toggle
             const roleName = selectedValue.charAt(0).toUpperCase() + selectedValue.slice(1);
-            let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
+            let role = interaction.guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase()
+            );
             
             if (!role) {
-                // Create the role if it doesn't exist
-                const colors = { 
-                    gamer: 0x00FF00, 
-                    artist: 0xFF69B4, 
-                    developer: 0x0099FF 
-                };
+                const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF };
                 role = await interaction.guild.roles.create({
                     name: roleName,
                     color: colors[selectedValue] || 0x99AAB5,
-                    reason: 'Method 24 - Sapphire role selection'
+                    reason: 'Method 24 — Sapphire role select'
                 });
             }
-            
-            // Toggle the role
-            const hasRole = member.roles.cache.has(role.id);
-            
-            if (hasRole) {
-                await member.roles.remove(role.id);
-                await interaction.reply({ 
-                    content: `➖ **Removed role** ${role.name} - You no longer have this role.`, 
+
+            if (member.roles.cache.has(role.id)) {
+                await member.roles.remove(role);
+                await interaction.followUp({
+                    content: `➖ **Removed** ${role.name} - You no longer have this role.`,
                     flags: MessageFlags.Ephemeral
                 });
             } else {
-                await member.roles.add(role.id);
-                await interaction.reply({ 
-                    content: `➕ **Added role** ${role.name} - You now have this role!`, 
+                await member.roles.add(role);
+                await interaction.followUp({
+                    content: `➕ **Added** ${role.name} - You now have this role!`,
                     flags: MessageFlags.Ephemeral
                 });
             }
         }
-        
-        // CRITICAL: We never edit the original message!
-        // The dropdown remains completely untouched, no "edited" mark appears
-        // This is the key difference from all other methods
-        
-    } catch (error) {
-        console.error('Error in Method 24 (Sapphire):', error);
-        await interaction.reply({ 
-            content: `❌ **Error occurred** - Unable to manage roles. Please try again.`, 
+
+    } catch (err) {
+        console.error('Error in Method 24 (Sapphire):', err);
+        // If something goes wrong, still defer and send an error
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.deferUpdate();
+        }
+        await interaction.followUp({
+            content: `❌ **Error occurred** - Unable to manage roles. Please try again.`,
             flags: MessageFlags.Ephemeral
         });
     }
