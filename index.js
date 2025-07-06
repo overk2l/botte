@@ -1789,69 +1789,6 @@ async function handleMethod14Selection(interaction) {
     }, 50);
 }
 
-// Handle color selection
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isStringSelectMenu()) return;
-
-    try {
-        switch (interaction.customId) {
-            case 'role_select_basic':
-                await handleBasicRoleSelection(interaction);
-                break;
-            case 'role_select_multi':
-                await handleMultiRoleSelection(interaction);
-                break;
-            case 'direct_role_select':
-                await handleDirectRoleSelection(interaction);
-                break;
-            case 'color_select':
-                await handleColorSelection(interaction);
-                break;
-            case 'method5_select':
-                await handleMethod5Selection(interaction);
-                break;
-            case 'method6_select':
-                await handleMethod6Selection(interaction);
-                break;
-            case 'method7_select':
-                await handleMethod7Selection(interaction);
-                break;
-            case 'method8_select':
-                await handleMethod8Selection(interaction);
-                break;
-            case 'method9_select':
-                await handleMethod9Selection(interaction);
-                break;
-            case 'method10_select':
-                await handleMethod10Selection(interaction);
-                break;
-            case 'method11_select':
-                await handleMethod11Selection(interaction);
-                break;
-            case 'method12_select':
-                await handleMethod12Selection(interaction);
-                break;
-            case 'method13_select':
-                await handleMethod13Selection(interaction);
-                break;
-            case 'method14_select':
-                await handleMethod14Selection(interaction);
-                break;
-            default:
-                await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
-        }
-    } catch (error) {
-        console.error('Error handling interaction:', error);
-        const errorMessage = '❌ An error occurred while processing your selection.';
-        
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: errorMessage, ephemeral: true });
-        } else {
-            await interaction.reply({ content: errorMessage, ephemeral: true });
-        }
-    }
-});
-
 // Handle basic role selection
 async function handleBasicRoleSelection(interaction) {
     const selectedRole = interaction.values[0];
@@ -1977,65 +1914,99 @@ async function handleBasicRoleSelection(interaction) {
 }
 
 // Handle color selection
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isStringSelectMenu()) return;
-
-    try {
-        switch (interaction.customId) {
-            case 'role_select_basic':
-                await handleBasicRoleSelection(interaction);
-                break;
-            case 'role_select_multi':
-                await handleMultiRoleSelection(interaction);
-                break;
-            case 'direct_role_select':
-                await handleDirectRoleSelection(interaction);
-                break;
-            case 'color_select':
-                await handleColorSelection(interaction);
-                break;
-            case 'method5_select':
-                await handleMethod5Selection(interaction);
-                break;
-            case 'method6_select':
-                await handleMethod6Selection(interaction);
-                break;
-            case 'method7_select':
-                await handleMethod7Selection(interaction);
-                break;
-            case 'method8_select':
-                await handleMethod8Selection(interaction);
-                break;
-            case 'method9_select':
-                await handleMethod9Selection(interaction);
-                break;
-            case 'method10_select':
-                await handleMethod10Selection(interaction);
-                break;
-            case 'method11_select':
-                await handleMethod11Selection(interaction);
-                break;
-            case 'method12_select':
-                await handleMethod12Selection(interaction);
-                break;
-            case 'method13_select':
-                await handleMethod13Selection(interaction);
-                break;
-            case 'method14_select':
-                await handleMethod14Selection(interaction);
-                break;
-            default:
-                await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
-        }
-    } catch (error) {
-        console.error('Error handling interaction:', error);
-        const errorMessage = '❌ An error occurred while processing your selection.';
-        
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: errorMessage, ephemeral: true });
-        } else {
-            await interaction.reply({ content: errorMessage, ephemeral: true });
-        }
+async function handleColorSelection(interaction) {
+    const selectedColor = interaction.values[0];
+    const member = interaction.member;
+    
+    // Remove existing color roles
+    const colorRoles = ['Red', 'Blue', 'Green', 'Purple', 'Orange', 'Yellow'];
+    const existingColorRoles = member.roles.cache.filter(role => 
+        colorRoles.includes(role.name)
+    );
+    
+    if (existingColorRoles.size > 0) {
+        await member.roles.remove(existingColorRoles);
     }
+    
+    // Add new color role
+    const roleName = selectedColor.charAt(0).toUpperCase() + selectedColor.slice(1);
+    let role = interaction.guild.roles.cache.find(r => r.name === roleName);
+    
+    if (!role) {
+        const colors = {
+            red: 0xFF0000,
+            blue: 0x0000FF,
+            green: 0x00FF00,
+            purple: 0x800080,
+            orange: 0xFFA500,
+            yellow: 0xFFFF00
+        };
+        
+        role = await interaction.guild.roles.create({
+            name: roleName,
+            color: colors[selectedColor],
+            reason: 'Color role selection'
+        });
+    }
+    
+    await member.roles.add(role);
+    await interaction.reply({ content: `🌈 Your color has been set to **${roleName}**!`, ephemeral: true });
+    
+    // Reset the dropdown menu
+    const embed = new EmbedBuilder()
+        .setTitle('🌈 Color Role Selection')
+        .setDescription('Choose a color for your username!')
+        .setColor(0x9B59B6)
+        .setFooter({ text: 'Colors make everything better!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('color_select')
+        .setPlaceholder('Choose your color...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Red')
+                .setDescription('Passionate and bold')
+                .setValue('red')
+                .setEmoji('🔴'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Blue')
+                .setDescription('Cool and calm')
+                .setValue('blue')
+                .setEmoji('🔵'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Green')
+                .setDescription('Natural and fresh')
+                .setValue('green')
+                .setEmoji('🟢'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Purple')
+                .setDescription('Royal and mysterious')
+                .setValue('purple')
+                .setEmoji('🟣'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Orange')
+                .setDescription('Energetic and warm')
+                .setValue('orange')
+                .setEmoji('🟠'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Yellow')
+                .setDescription('Bright and cheerful')
+                .setValue('yellow')
+                .setEmoji('🟡')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.message.edit({ embeds: [embed], components: [row] });
+}
+
+// Error handling
+client.on('error', error => {
+    console.error('Discord client error:', error);
 });
 
+process.on('unhandledRejection', error => {
+    console.error('Unhandled promise rejection:', error);
+});
+
+// Login to Discord
+client.login(process.env.TOKEN);
