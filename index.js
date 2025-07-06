@@ -4125,6 +4125,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isButton() && interaction.customId.startsWith("hybrid:toggle_member_counts:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:regional_limits:")) ||
+    (interaction.isButton() && interaction.customId.startsWith("hybrid:role_exclusions:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:max_role_limit:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role_added_message:")) ||
     (interaction.isButton() && interaction.customId.startsWith("hybrid:edit_role_removed_message:")) ||
@@ -4502,6 +4503,7 @@ client.on("interactionCreate", async (interaction) => {
             action === "configure_max_roles" ||
             action === "edit_role" ||
             action === "regional_limits" ||
+            action === "role_exclusions" ||
             action === "max_role_limit" ||
             action === "edit_role_added_message" ||
             action === "edit_role_removed_message" ||
@@ -5485,33 +5487,33 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:regional_limits:${hybridMenuId}`)
-            .setTitle("Configure Regional Limits")
+            .setTitle("🌍 Regional Limits Configuration")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("au_limit")
-                  .setLabel("Australia (AU) Region Limit")
+                  .setLabel("🇦🇺 Australia/Oceania - Max Roles")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("Enter max roles for AU region (e.g., 2)")
+                  .setPlaceholder("e.g., 2 (leave empty to disable)")
                   .setValue(String(menu.regionalLimits?.AU?.limit || ""))
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("eu_limit")
-                  .setLabel("Europe (EU) Region Limit")
+                  .setLabel("🇪🇺 Europe - Max Roles")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("Enter max roles for EU region (e.g., 3)")
+                  .setPlaceholder("e.g., 3 (leave empty to disable)")
                   .setValue(String(menu.regionalLimits?.EU?.limit || ""))
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("na_limit")
-                  .setLabel("North America (NA) Region Limit")
+                  .setLabel("🇺🇸 North America - Max Roles")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("Enter max roles for NA region (e.g., 1)")
+                  .setPlaceholder("e.g., 1 (leave empty to disable)")
                   .setValue(String(menu.regionalLimits?.NA?.limit || ""))
               )
             );
@@ -5522,7 +5524,38 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "role_exclusions") {
           const hybridMenuId = parts[2];
           
-          return sendEphemeralEmbed(interaction, "🚧 Role exclusions configuration will be available via role editing interface.", "#FFA500", "Info", false);
+          const menu = db.getHybridMenu(hybridMenuId);
+          if (!menu) {
+            return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+          }
+
+          const modal = new ModalBuilder()
+            .setCustomId(`hybrid:modal:role_exclusions:${hybridMenuId}`)
+            .setTitle("🚫 Role Exclusions Configuration")
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("excluded_roles")
+                  .setLabel("🚫 Blocked Role IDs")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("123456789, 987654321\n(Right-click role → Copy ID)")
+                  .setValue((menu.exclusions || []).join(", "))
+                  .setMaxLength(1000)
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId("exclusion_message")
+                  .setLabel("💬 Custom Error Message (Optional)")
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(false)
+                  .setPlaceholder("e.g., 'You cannot select roles while having the @Muted role!'")
+                  .setValue(menu.exclusionMessage || "")
+                  .setMaxLength(500)
+              )
+            );
+
+          return interaction.showModal(modal);
         }
 
         if (action === "max_role_limit") {
@@ -5535,24 +5568,24 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:max_roles:${hybridMenuId}`)
-            .setTitle("Configure Maximum Roles")
+            .setTitle("📊 Max Roles Per User")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("max_roles")
-                  .setLabel("Maximum Roles Per User")
+                  .setLabel("📊 Maximum Roles Each User Can Have")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(false)
-                  .setPlaceholder("Enter max roles (leave empty for unlimited)")
+                  .setPlaceholder("e.g., 5 (leave empty for unlimited)")
                   .setValue(String(menu.maxRoleLimit || ""))
               ),
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("enable_limit")
-                  .setLabel("Enable Max Role Limit")
+                  .setLabel("🔒 Enable This Limit? (true/false)")
                   .setStyle(TextInputStyle.Short)
                   .setRequired(true)
-                  .setPlaceholder("true or false")
+                  .setPlaceholder("true = enabled, false = disabled")
                   .setValue(String(menu.maxRoleLimit > 0 ? "true" : "false"))
               )
             );
@@ -5572,9 +5605,7 @@ client.on("interactionCreate", async (interaction) => {
           
           await db.updateHybridMenu(hybridMenuId, {
             showUserCount: newValue
-          });
-
-          await sendEphemeralEmbed(interaction, `✅ User count ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          });            await sendEphemeralEmbed(interaction, `✅ User count display ${newValue ? 'enabled' : 'disabled'}! ${newValue ? 'Member counts will now show next to roles.' : 'Member counts are now hidden.'}`, "#00FF00", "Setting Updated", false);
           return showVisualSettings(interaction, hybridMenuId);
         }
 
@@ -5590,9 +5621,7 @@ client.on("interactionCreate", async (interaction) => {
           
           await db.updateHybridMenu(hybridMenuId, {
             showRoleIcons: newValue
-          });
-
-          await sendEphemeralEmbed(interaction, `✅ Role icons ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          });            await sendEphemeralEmbed(interaction, `✅ Role icons ${newValue ? 'enabled' : 'disabled'}! ${newValue ? 'Role icons will now appear in the menu.' : 'Menu will show text-only role names.'}`, "#00FF00", "Setting Updated", false);
           return showVisualSettings(interaction, hybridMenuId);
         }
 
@@ -5608,9 +5637,7 @@ client.on("interactionCreate", async (interaction) => {
           
           await db.updateHybridMenu(hybridMenuId, {
             showStatistics: newValue
-          });
-
-          await sendEphemeralEmbed(interaction, `✅ Statistics ${newValue ? 'enabled' : 'disabled'}!`, "#00FF00", "Success", false);
+          });            await sendEphemeralEmbed(interaction, `✅ Menu statistics ${newValue ? 'enabled' : 'disabled'}! ${newValue ? 'Usage stats will be tracked and displayed.' : 'Statistics tracking is now disabled.'}`, "#00FF00", "Setting Updated", false);
           return showVisualSettings(interaction, hybridMenuId);
         }
 
@@ -5624,16 +5651,17 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:role_added_message:${hybridMenuId}`)
-            .setTitle("Edit Role Added Message")
+            .setTitle("✅ Role Added Message")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("message")
-                  .setLabel("Role Added Message")
+                  .setLabel("💬 Message When Role is Added")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("Enter custom message for when a role is added")
+                  .setPlaceholder("e.g., 'Welcome to {role}! You now have access to special channels.'")
                   .setValue(menu.customSuccessMessages?.roleAdded || "")
+                  .setMaxLength(1000)
               )
             );
 
@@ -5650,16 +5678,17 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:role_removed_message:${hybridMenuId}`)
-            .setTitle("Edit Role Removed Message")
+            .setTitle("❌ Role Removed Message")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("message")
-                  .setLabel("Role Removed Message")
+                  .setLabel("💬 Message When Role is Removed")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("Enter custom message for when a role is removed")
+                  .setPlaceholder("e.g., 'You have left {role}. Thanks for being part of our community!'")
                   .setValue(menu.customSuccessMessages?.roleRemoved || "")
+                  .setMaxLength(1000)
               )
             );
 
@@ -5676,20 +5705,42 @@ client.on("interactionCreate", async (interaction) => {
 
           const modal = new ModalBuilder()
             .setCustomId(`hybrid:modal:info_page_message:${hybridMenuId}`)
-            .setTitle("Edit Info Page Message")
+            .setTitle("ℹ️ Info Page Message")
             .addComponents(
               new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
                   .setCustomId("message")
-                  .setLabel("Info Page Message")
+                  .setLabel("💬 Message When Info Page is Viewed")
                   .setStyle(TextInputStyle.Paragraph)
                   .setRequired(false)
-                  .setPlaceholder("Enter custom message for info page views")
+                  .setPlaceholder("e.g., 'Thanks for reading our {page}! Need help? Ask in #support.'")
                   .setValue(menu.customSuccessMessages?.infoPageView || "")
+                  .setMaxLength(1000)
               )
             );
 
           return interaction.showModal(modal);
+        }
+
+        if (action === "reset_messages") {
+          const hybridMenuId = parts[2];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              customSuccessMessages: {}
+            });
+
+            await sendEphemeralEmbed(interaction, "🔄 All custom messages have been reset to defaults!", "#00FF00", "Reset Complete", false);
+            return showMessageSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error resetting messages:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to reset messages.", "#FF0000", "Error", false);
+          }
         }
 
         if (action === "config_back") {
@@ -11008,6 +11059,58 @@ client.on("interactionCreate", async (interaction) => {
           }
         }
 
+        if (modalType === "role_exclusions") {
+          const hybridMenuId = parts[3];
+          
+          try {
+            const menu = db.getHybridMenu(hybridMenuId);
+            if (!menu) {
+              return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
+            }
+
+            const excludedRolesInput = interaction.fields.getTextInputValue("excluded_roles").trim();
+            const exclusionMessage = interaction.fields.getTextInputValue("exclusion_message").trim();
+
+            // Parse role IDs
+            const excludedRoles = excludedRolesInput
+              .split(",")
+              .map(id => id.trim())
+              .filter(id => id.length > 0);
+
+            // Validate role IDs
+            const invalidRoles = [];
+            for (const roleId of excludedRoles) {
+              if (!/^\d+$/.test(roleId)) {
+                invalidRoles.push(roleId);
+                continue;
+              }
+              const role = interaction.guild.roles.cache.get(roleId);
+              if (!role) {
+                invalidRoles.push(roleId);
+              }
+            }
+
+            if (invalidRoles.length > 0) {
+              return sendEphemeralEmbed(interaction, `❌ Invalid role IDs: ${invalidRoles.join(", ")}`, "#FF0000", "Error", false);
+            }
+
+            await db.updateHybridMenu(hybridMenuId, { 
+              exclusions: excludedRoles,
+              exclusionMessage: exclusionMessage || null
+            });
+
+            const message = excludedRoles.length > 0
+              ? `🚫 Role exclusions configured! Users with ${excludedRoles.length} specific role(s) will be blocked from using this menu.`
+              : "✅ Role exclusions cleared! All users can now interact with this menu.";
+              
+            await sendEphemeralEmbed(interaction, message, "#00FF00", "Exclusions Updated", false);
+            return showAdvancedRoleSettings(interaction, hybridMenuId);
+          } catch (error) {
+            console.error(`[Hybrid] Error configuring role exclusions:`, error);
+            return sendEphemeralEmbed(interaction, "❌ Failed to configure role exclusions.", "#FF0000", "Error", false);
+          }
+        }
+
         if (modalType === "max_roles") {
           const hybridMenuId = parts[3];
           
@@ -11098,7 +11201,7 @@ client.on("interactionCreate", async (interaction) => {
               'customSuccessMessages.roleAdded': message
             });
 
-            await sendEphemeralEmbed(interaction, "✅ Role added message updated successfully!", "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, "✅ Role added message updated! Users will now see your custom message when they get a role.", "#00FF00", "Message Updated", false);
             return showMessageSettings(interaction, hybridMenuId);
           } catch (error) {
             console.error(`[Hybrid] Error updating role added message:`, error);
@@ -11121,7 +11224,7 @@ client.on("interactionCreate", async (interaction) => {
               'customSuccessMessages.roleRemoved': message
             });
 
-            await sendEphemeralEmbed(interaction, "✅ Role removed message updated successfully!", "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, "✅ Role removed message updated! Users will now see your custom message when they remove a role.", "#00FF00", "Message Updated", false);
             return showMessageSettings(interaction, hybridMenuId);
           } catch (error) {
             console.error(`[Hybrid] Error updating role removed message:`, error);
@@ -11144,7 +11247,7 @@ client.on("interactionCreate", async (interaction) => {
               'customSuccessMessages.infoPageView': message
             });
 
-            await sendEphemeralEmbed(interaction, "✅ Info page message updated successfully!", "#00FF00", "Success", false);
+            await sendEphemeralEmbed(interaction, "✅ Info page message updated! Users will now see your custom message when viewing info pages.", "#00FF00", "Message Updated", false);
             return showMessageSettings(interaction, hybridMenuId);
           } catch (error) {
             console.error(`[Hybrid] Error updating info page message:`, error);
@@ -13093,8 +13196,92 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle role interactions
     if (type === "hybrid-role-select") {
-      // Use the same role interaction handler for consistency
-      return handleRoleInteraction(interaction, hybridMenuId);
+      // Sapphire-style: handle role toggle and rebuild dropdown dynamically
+      const selectedRoleIds = interaction.values;
+      const member = interaction.member;
+      const guild = interaction.guild;
+      
+      let addedRoles = [];
+      let removedRoles = [];
+      
+      for (const roleId of selectedRoleIds) {
+        const role = guild.roles.cache.get(roleId);
+        if (!role) continue;
+        
+        if (member.roles.cache.has(roleId)) {
+          // User has role - remove it
+          await member.roles.remove(roleId);
+          removedRoles.push(role);
+        } else {
+          // User doesn't have role - add it
+          await member.roles.add(roleId);
+          addedRoles.push(role);
+        }
+      }
+      
+      // Send ephemeral confirmation (Sapphire style)
+      let confirmationMessage = "";
+      if (addedRoles.length > 0) {
+        confirmationMessage += `✅ **Roles Added:** ${addedRoles.map(r => `<@&${r.id}>`).join(", ")}\n`;
+      }
+      if (removedRoles.length > 0) {
+        confirmationMessage += `❌ **Roles Removed:** ${removedRoles.map(r => `<@&${r.id}>`).join(", ")}`;
+      }
+      
+      await interaction.followUp({ 
+        content: confirmationMessage || "✅ Role selection updated!", 
+        ephemeral: true 
+      });
+      
+      // Dynamically rebuild the dropdown menu (Sapphire style)
+      // Filter out roles the user already has to make them "disappear"
+      const availableRoleIds = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
+      const userRoleIds = member.roles.cache.map(r => r.id);
+      
+      // Only show roles the user doesn't have
+      const filteredRoleIds = availableRoleIds.filter(roleId => !userRoleIds.includes(roleId));
+      
+      if (filteredRoleIds.length === 0) {
+        // No more roles to select - show completion message
+        return interaction.editReply({
+          content: "🎉 **All roles selected!** You have all available roles from this menu.",
+          components: []
+        });
+      }
+      
+      // Rebuild the dropdown with remaining roles
+      const roleOptions = filteredRoleIds.map(roleId => {
+        const role = guild.roles.cache.get(roleId);
+        if (!role) return null;
+        
+        const memberCount = menu.memberCountOptions?.showInDropdowns || menu.showMemberCounts 
+          ? ` (${role.members.size})` : '';
+        const emoji = menu.dropdownEmojis?.[roleId] || '';
+        const description = menu.dropdownRoleDescriptions?.[roleId] || '';
+        
+        return {
+          label: `${role.name}${memberCount}`,
+          value: `hybrid-role-toggle:${hybridMenuId}:${roleId}`,
+          description: description || undefined,
+          emoji: emoji || undefined
+        };
+      }).filter(Boolean);
+      
+      if (roleOptions.length > 0) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`hybrid-role-select:${hybridMenuId}`)
+          .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select roles to toggle...")
+          .setMinValues(1)
+          .setMaxValues(Math.min(roleOptions.length, 25))
+          .addOptions(roleOptions);
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        // Update the original message with filtered options
+        return interaction.editReply({ components: [row] });
+      }
+      
+      return;
     }
 
     if (type === "hybrid-role-button") {
@@ -13118,11 +13305,22 @@ async function handleHybridMenuInteraction(interaction) {
       
       if (hasRole) {
         await member.roles.remove(roleId);
-        return sendRoleChangeNotification(interaction, [], [roleId], member);
+        // Sapphire-style ephemeral confirmation
+        await interaction.followUp({ 
+          content: `❌ **Role Removed:** <@&${roleId}>`, 
+          ephemeral: true 
+        });
       } else {
         await member.roles.add(roleId);
-        return sendRoleChangeNotification(interaction, [roleId], [], member);
+        // Sapphire-style ephemeral confirmation
+        await interaction.followUp({ 
+          content: `✅ **Role Added:** <@&${roleId}>`, 
+          ephemeral: true 
+        });
       }
+      
+      // Don't edit the original message - let it stay unchanged (Sapphire style)
+      return;
     }
 
     return sendEphemeralEmbed(interaction, "❌ Unknown interaction type.", "#FF0000", "Error", false);
@@ -16193,13 +16391,32 @@ async function showAdvancedRoleSettings(interaction, hybridMenuId) {
 
     const embed = new EmbedBuilder()
       .setTitle("⚙️ Advanced Role Settings")
-      .setDescription("Configure advanced role behavior and restrictions")
+      .setDescription("Fine-tune how users can interact with roles in your menu")
       .setColor("#3498db")
       .addFields(
-        { name: "🌍 Regional Limits", value: menu.regionalLimits?.enabled ? `Enabled (${menu.regionalLimits.regions?.join(", ") || "None"})` : "Disabled", inline: true },
-        { name: "🚫 Role Exclusions", value: menu.exclusions?.length ? `${menu.exclusions.length} exclusions` : "None", inline: true },
-        { name: "📊 Max Role Limit", value: menu.maxRoleLimit ? `${menu.maxRoleLimit} roles` : "No limit", inline: true }
-      );
+        { 
+          name: "🌍 Regional Limits", 
+          value: menu.regionalLimits && Object.keys(menu.regionalLimits).length > 0 
+            ? `✅ Active for: ${Object.keys(menu.regionalLimits).join(", ")}` 
+            : "❌ Not configured", 
+          inline: true 
+        },
+        { 
+          name: "🚫 Role Exclusions", 
+          value: menu.exclusions?.length 
+            ? `✅ Blocking ${menu.exclusions.length} role(s)` 
+            : "❌ No restrictions", 
+          inline: true 
+        },
+        { 
+          name: "📊 Max Roles Per User", 
+          value: menu.maxRoleLimit 
+            ? `✅ Limited to ${menu.maxRoleLimit} role(s)` 
+            : "❌ Unlimited", 
+          inline: true 
+        }
+      )
+      .setFooter({ text: "💡 Click a button below to configure each setting" });
 
     const row1 = new ActionRowBuilder()
       .addComponents(
@@ -16207,17 +16424,17 @@ async function showAdvancedRoleSettings(interaction, hybridMenuId) {
           .setCustomId(`hybrid:regional_limits:${hybridMenuId}`)
           .setLabel("Regional Limits")
           .setEmoji("🌍")
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(`hybrid:role_exclusions:${hybridMenuId}`)
           .setLabel("Role Exclusions")
           .setEmoji("🚫")
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(`hybrid:max_role_limit:${hybridMenuId}`)
-          .setLabel("Max Role Limit")
+          .setLabel("Max Roles Limit")
           .setEmoji("📊")
-          .setStyle(ButtonStyle.Secondary)
+          .setStyle(ButtonStyle.Primary)
       );
 
     const row2 = new ActionRowBuilder()
@@ -16245,31 +16462,52 @@ async function showVisualSettings(interaction, hybridMenuId) {
 
     const embed = new EmbedBuilder()
       .setTitle("🎨 Visual Settings")
-      .setDescription("Configure menu appearance and visual elements")
+      .setDescription("Customize the look and feel of your menu")
       .setColor("#9b59b6")
       .addFields(
-        { name: "🎭 Show User Count", value: menu.showUserCount ? "Enabled" : "Disabled", inline: true },
-        { name: "🎨 Custom Color", value: menu.embedColor || "Default", inline: true },
-        { name: "🖼️ Custom Thumbnail", value: menu.thumbnailUrl ? "Set" : "Not set", inline: true },
-        { name: "🌟 Show Role Icons", value: menu.showRoleIcons ? "Enabled" : "Disabled", inline: true },
-        { name: "📊 Show Statistics", value: menu.showStatistics ? "Enabled" : "Disabled", inline: true }
-      );
+        { 
+          name: "👥 User Count Display", 
+          value: menu.showUserCount ? "✅ Showing member counts" : "❌ Hidden", 
+          inline: true 
+        },
+        { 
+          name: "🎨 Custom Embed Color", 
+          value: menu.embedColor ? `✅ Set to ${menu.embedColor}` : "❌ Using default", 
+          inline: true 
+        },
+        { 
+          name: "🖼️ Custom Thumbnail", 
+          value: menu.thumbnailUrl ? "✅ Custom image set" : "❌ No custom image", 
+          inline: true 
+        },
+        { 
+          name: "🌟 Role Icons", 
+          value: menu.showRoleIcons ? "✅ Showing role icons" : "❌ Text only", 
+          inline: true 
+        },
+        { 
+          name: "📊 Menu Statistics", 
+          value: menu.showStatistics ? "✅ Showing usage stats" : "❌ Hidden", 
+          inline: true 
+        }
+      )
+      .setFooter({ text: "💡 Toggle features on/off with the buttons below" });
 
     const row1 = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
           .setCustomId(`hybrid:toggle_user_count:${hybridMenuId}`)
-          .setLabel("Toggle User Count")
-          .setEmoji("🎭")
+          .setLabel(`${menu.showUserCount ? "Hide" : "Show"} User Count`)
+          .setEmoji("👥")
           .setStyle(menu.showUserCount ? ButtonStyle.Success : ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`hybrid:toggle_role_icons:${hybridMenuId}`)
-          .setLabel("Toggle Role Icons")
+          .setLabel(`${menu.showRoleIcons ? "Hide" : "Show"} Role Icons`)
           .setEmoji("🌟")
           .setStyle(menu.showRoleIcons ? ButtonStyle.Success : ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`hybrid:toggle_statistics:${hybridMenuId}`)
-          .setLabel("Toggle Statistics")
+          .setLabel(`${menu.showStatistics ? "Hide" : "Show"} Statistics`)
           .setEmoji("📊")
           .setStyle(menu.showStatistics ? ButtonStyle.Success : ButtonStyle.Secondary)
       );
@@ -16300,14 +16538,27 @@ async function showMessageSettings(interaction, hybridMenuId) {
     const customMessages = menu.customSuccessMessages || {};
     
     const embed = new EmbedBuilder()
-      .setTitle("💬 Message Settings")
-      .setDescription("Configure custom messages for different actions")
+      .setTitle("💬 Custom Messages")
+      .setDescription("Personalize the messages users see when interacting with your menu")
       .setColor("#e74c3c")
       .addFields(
-        { name: "✅ Role Added", value: customMessages.roleAdded || "Default message", inline: false },
-        { name: "❌ Role Removed", value: customMessages.roleRemoved || "Default message", inline: false },
-        { name: "ℹ️ Info Page View", value: customMessages.infoPageView || "Default message", inline: false }
-      );
+        { 
+          name: "✅ Role Added Message", 
+          value: customMessages.roleAdded ? `"${customMessages.roleAdded.slice(0, 100)}${customMessages.roleAdded.length > 100 ? "..." : ""}"` : "❌ Using default message", 
+          inline: false 
+        },
+        { 
+          name: "❌ Role Removed Message", 
+          value: customMessages.roleRemoved ? `"${customMessages.roleRemoved.slice(0, 100)}${customMessages.roleRemoved.length > 100 ? "..." : ""}"` : "❌ Using default message", 
+          inline: false 
+        },
+        { 
+          name: "ℹ️ Info Page Message", 
+          value: customMessages.infoPageView ? `"${customMessages.infoPageView.slice(0, 100)}${customMessages.infoPageView.length > 100 ? "..." : ""}"` : "❌ Using default message", 
+          inline: false 
+        }
+      )
+      .setFooter({ text: "💡 Click a button below to customize each message" });
 
     const row1 = new ActionRowBuilder()
       .addComponents(
@@ -16315,12 +16566,12 @@ async function showMessageSettings(interaction, hybridMenuId) {
           .setCustomId(`hybrid:edit_role_added_message:${hybridMenuId}`)
           .setLabel("Edit Role Added Message")
           .setEmoji("✅")
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(`hybrid:edit_role_removed_message:${hybridMenuId}`)
           .setLabel("Edit Role Removed Message")
           .setEmoji("❌")
-          .setStyle(ButtonStyle.Secondary)
+          .setStyle(ButtonStyle.Primary)
       );
 
     const row2 = new ActionRowBuilder()
@@ -16329,7 +16580,12 @@ async function showMessageSettings(interaction, hybridMenuId) {
           .setCustomId(`hybrid:edit_info_page_message:${hybridMenuId}`)
           .setLabel("Edit Info Page Message")
           .setEmoji("ℹ️")
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`hybrid:reset_messages:${hybridMenuId}`)
+          .setLabel("Reset All Messages")
+          .setEmoji("🔄")
+          .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId(`hybrid:config_back:${hybridMenuId}`)
           .setLabel("Back")
