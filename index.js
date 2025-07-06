@@ -5503,6 +5503,11 @@ client.on("interactionCreate", async (interaction) => {
         if (action === "role_exclusions") {
           const hybridMenuId = parts[2];
           
+          // Defer the reply first for button interactions
+          if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          }
+          
           const menu = db.getHybridMenu(hybridMenuId);
           if (!menu) {
             return sendEphemeralEmbed(interaction, "❌ Hybrid menu not found.", "#FF0000", "Error", false);
