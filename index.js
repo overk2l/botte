@@ -273,6 +273,9 @@ async function handleBasicRoleSelection(interaction) {
     const selectedRole = interaction.values[0];
     const member = interaction.member;
     
+    // Defer the update to avoid "edited" mark
+    await interaction.deferUpdate();
+    
     if (selectedRole === 'remove_all') {
         // Remove all managed roles
         const rolesToRemove = member.roles.cache.filter(role => 
@@ -281,10 +284,51 @@ async function handleBasicRoleSelection(interaction) {
         
         if (rolesToRemove.size > 0) {
             await member.roles.remove(rolesToRemove);
-            await interaction.reply({ content: '🗑️ All roles have been removed!', ephemeral: true });
+            await interaction.followUp({ content: '🗑️ All roles have been removed!', ephemeral: true });
         } else {
-            await interaction.reply({ content: '❌ You don\'t have any roles to remove!', ephemeral: true });
+            await interaction.followUp({ content: '❌ You don\'t have any roles to remove!', ephemeral: true });
         }
+        
+        // Reset the dropdown menu
+        const embed = new EmbedBuilder()
+            .setTitle('🎭 Role Selection Menu')
+            .setDescription('Select a role from the dropdown menu below:')
+            .setColor(0x00AE86)
+            .setFooter({ text: 'Choose wisely!' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('role_select_basic')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Musician')
+                    .setDescription('For music lovers')
+                    .setValue('musician')
+                    .setEmoji('🎵'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        await interaction.editReply({ embeds: [embed], components: [row] });
         return;
     }
     
@@ -303,11 +347,52 @@ async function handleBasicRoleSelection(interaction) {
     
     if (member.roles.cache.has(role.id)) {
         await member.roles.remove(role);
-        await interaction.reply({ content: `➖ Removed the **${roleName}** role!`, ephemeral: true });
+        await interaction.followUp({ content: `➖ Removed the **${roleName}** role!`, ephemeral: true });
     } else {
         await member.roles.add(role);
-        await interaction.reply({ content: `➕ Added the **${roleName}** role!`, ephemeral: true });
+        await interaction.followUp({ content: `➕ Added the **${roleName}** role!`, ephemeral: true });
     }
+    
+    // Reset the dropdown menu
+    const embed = new EmbedBuilder()
+        .setTitle('🎭 Role Selection Menu')
+        .setDescription('Select a role from the dropdown menu below:')
+        .setColor(0x00AE86)
+        .setFooter({ text: 'Choose wisely!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('role_select_basic')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Musician')
+                .setDescription('For music lovers')
+                .setValue('musician')
+                .setEmoji('🎵'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
 // Handle multi-role selection
@@ -315,6 +400,9 @@ async function handleMultiRoleSelection(interaction) {
     const selectedRoles = interaction.values;
     const member = interaction.member;
     const results = [];
+    
+    // Defer the update to avoid "edited" mark
+    await interaction.deferUpdate();
     
     for (const roleValue of selectedRoles) {
         const roleName = roleValue.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -337,7 +425,45 @@ async function handleMultiRoleSelection(interaction) {
         }
     }
     
-    await interaction.reply({ content: results.join('\n'), ephemeral: true });
+    await interaction.followUp({ content: results.join('\n'), ephemeral: true });
+    
+    // Reset the dropdown menu
+    const embed = new EmbedBuilder()
+        .setTitle('🏷️ Multi-Role Selection')
+        .setDescription('Select multiple roles at once!\n\n**Available Roles:**\n🔥 VIP - Special privileges\n⭐ Helper - Community assistant\n🌟 Supporter - Server supporter\n🎯 Event Organizer - Event planning')
+        .setColor(0xFF6B6B)
+        .setFooter({ text: 'You can select multiple options!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('role_select_multi')
+        .setPlaceholder('Choose roles...')
+        .setMinValues(1)
+        .setMaxValues(4)
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('VIP')
+                .setDescription('Get VIP access and perks')
+                .setValue('vip')
+                .setEmoji('🔥'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Helper')
+                .setDescription('Help other community members')
+                .setValue('helper')
+                .setEmoji('⭐'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Supporter')
+                .setDescription('Show your support for the server')
+                .setValue('supporter')
+                .setEmoji('🌟'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Event Organizer')
+                .setDescription('Organize community events')
+                .setValue('event_organizer')
+                .setEmoji('🎯')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
 // Handle category selection
@@ -448,6 +574,9 @@ async function handleSubcategoryRoles(interaction) {
     const member = interaction.member;
     const results = [];
     
+    // Defer the update to avoid "edited" mark
+    await interaction.deferUpdate();
+    
     for (const roleValue of selectedRoles) {
         const roleName = roleValue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
@@ -468,13 +597,52 @@ async function handleSubcategoryRoles(interaction) {
         }
     }
     
-    await interaction.reply({ content: results.join('\n'), ephemeral: true });
+    await interaction.followUp({ content: results.join('\n'), ephemeral: true });
+    
+    // Reset back to category selection
+    const embed = new EmbedBuilder()
+        .setTitle('📋 Category Role Selection')
+        .setDescription('Choose a category to see available roles:')
+        .setColor(0x4ECDC4)
+        .addFields(
+            { name: '🎮 Gaming', value: 'Gaming-related roles', inline: true },
+            { name: '🎨 Creative', value: 'Creative and artistic roles', inline: true },
+            { name: '💼 Professional', value: 'Professional and work roles', inline: true }
+        )
+        .setFooter({ text: 'Select a category first!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('category_select')
+        .setPlaceholder('Choose a category...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gaming')
+                .setDescription('Gaming and esports roles')
+                .setValue('gaming')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Creative')
+                .setDescription('Art, music, and creative roles')
+                .setValue('creative')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Professional')
+                .setDescription('Work and professional roles')
+                .setValue('professional')
+                .setEmoji('💼')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
 // Handle color selection
 async function handleColorSelection(interaction) {
     const selectedColor = interaction.values[0];
     const member = interaction.member;
+    
+    // Defer the update to avoid "edited" mark
+    await interaction.deferUpdate();
     
     // Remove existing color roles
     const colorRoles = ['Red', 'Blue', 'Green', 'Purple', 'Orange', 'Yellow'];
@@ -508,7 +676,53 @@ async function handleColorSelection(interaction) {
     }
     
     await member.roles.add(role);
-    await interaction.reply({ content: `🌈 Your color has been set to **${roleName}**!`, ephemeral: true });
+    await interaction.followUp({ content: `🌈 Your color has been set to **${roleName}**!`, ephemeral: true });
+    
+    // Reset the dropdown menu
+    const embed = new EmbedBuilder()
+        .setTitle('🌈 Color Role Selection')
+        .setDescription('Choose a color for your username!')
+        .setColor(0x9B59B6)
+        .setFooter({ text: 'Colors make everything better!' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('color_select')
+        .setPlaceholder('Choose your color...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Red')
+                .setDescription('Passionate and bold')
+                .setValue('red')
+                .setEmoji('🔴'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Blue')
+                .setDescription('Cool and calm')
+                .setValue('blue')
+                .setEmoji('🔵'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Green')
+                .setDescription('Natural and fresh')
+                .setValue('green')
+                .setEmoji('🟢'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Purple')
+                .setDescription('Royal and mysterious')
+                .setValue('purple')
+                .setEmoji('🟣'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Orange')
+                .setDescription('Energetic and warm')
+                .setValue('orange')
+                .setEmoji('🟠'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Yellow')
+                .setDescription('Bright and cheerful')
+                .setValue('yellow')
+                .setEmoji('🟡')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
 // Error handling
