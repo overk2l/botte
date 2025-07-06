@@ -1419,11 +1419,21 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralReply(interaction, addedRoles, removedRoles, member);
     } else if (member) {
-      // No changes case - send ephemeral reply
-      await interaction.reply({ 
+      // No changes case - send ephemeral reply with auto-delete
+      const noChangeReply = await interaction.reply({ 
         content: "No changes made to your roles.", 
         flags: MessageFlags.Ephemeral 
       });
+      
+      // Auto-delete "no changes" message after 5 seconds
+      setTimeout(async () => {
+        try {
+          await interaction.deleteReply();
+          console.log("🗑️ Auto-deleted 'no changes' ephemeral notification after 5 seconds");
+        } catch (deleteError) {
+          console.log("ℹ️ 'No changes' ephemeral message already expired or deleted");
+        }
+      }, 5000);
     }
     
     console.log("✅ PRISTINE Sapphire dropdown - only ephemeral reply, original message untouched");
@@ -1527,13 +1537,23 @@ async function sendRoleChangeNotificationEphemeralReply(interaction, addedRoles,
 
   // Send ephemeral reply - this ensures privacy and never updates the original message
   try {
-    await interaction.reply({ 
+    const replyMessage = await interaction.reply({ 
       embeds: [embed], 
       flags: MessageFlags.Ephemeral 
     });
     console.log("✅ Sent role change notification as ephemeral reply");
     
-    // Note: Ephemeral messages auto-delete after 15 minutes, no need for manual deletion
+    // Auto-delete ephemeral message after 5 seconds for better UX
+    setTimeout(async () => {
+      try {
+        await interaction.deleteReply();
+        console.log("🗑️ Auto-deleted ephemeral role notification after 5 seconds");
+      } catch (deleteError) {
+        // Silently fail - ephemeral messages naturally expire anyway
+        console.log("ℹ️ Ephemeral message already expired or deleted");
+      }
+    }, 5000);
+    
   } catch (error) {
     console.error("❌ Error sending role notification:", error);
     // Fallback to simple text message
@@ -1547,10 +1567,21 @@ async function sendRoleChangeNotificationEphemeralReply(interaction, addedRoles,
         simpleMessage = `✅ Removed ${removedRoles.length} role${removedRoles.length > 1 ? 's' : ''}!`;
       }
       
-      await interaction.reply({ 
+      const fallbackReply = await interaction.reply({ 
         content: simpleMessage, 
         flags: MessageFlags.Ephemeral 
       });
+      
+      // Auto-delete fallback message too
+      setTimeout(async () => {
+        try {
+          await interaction.deleteReply();
+          console.log("🗑️ Auto-deleted fallback ephemeral notification after 5 seconds");
+        } catch (deleteError) {
+          console.log("ℹ️ Fallback ephemeral message already expired or deleted");
+        }
+      }, 5000);
+      
     } catch (fallbackError) {
       console.error("❌ Fallback role notification also failed:", fallbackError);
     }
@@ -11451,11 +11482,21 @@ async function handleButtonSelection(interaction, addedRoles = [], removedRoles 
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralReply(interaction, addedRoles, removedRoles, member, menu);
     } else if (member) {
-      // No changes case - send ephemeral reply
-      await interaction.reply({ 
+      // No changes case - send ephemeral reply with auto-delete
+      const noChangeReply = await interaction.reply({ 
         content: "No changes made to your roles.", 
         flags: MessageFlags.Ephemeral 
       });
+      
+      // Auto-delete "no changes" message after 5 seconds
+      setTimeout(async () => {
+        try {
+          await interaction.deleteReply();
+          console.log("🗑️ Auto-deleted button 'no changes' ephemeral notification after 5 seconds");
+        } catch (deleteError) {
+          console.log("ℹ️ Button 'no changes' ephemeral message already expired or deleted");
+        }
+      }, 5000);
     }
     
     console.log("✅ PRISTINE Sapphire button - only ephemeral reply, original message untouched");
@@ -11525,11 +11566,14 @@ async function handleRoleInteraction(interaction) {
         }
         
         // Try to get the menu from either regular or hybrid menu store
-        let menu = db.getMenu(menuId);
-        const isHybridMenu = !menu;
+        // Check if it's a hybrid menu based on customId pattern
+        const isHybridMenu = interaction.customId.startsWith('hybrid-role-');
+        let menu;
         
         if (isHybridMenu) {
             menu = db.getHybridMenu(menuId);
+        } else {
+            menu = db.getMenu(menuId);
         }
         
         if (!menu) {
@@ -11644,17 +11688,25 @@ async function handleRoleInteraction(interaction) {
         const rolesBeingAdded = Array.from(newRoles).filter(id => !currentRoles.has(id));
         console.log(`[DEBUG] Roles being added:`, rolesBeingAdded);
 
-        // Handle exclusions
+        // Handle exclusions - More comprehensive approach
         for (const addedRoleId of rolesBeingAdded) {
             if (menu.exclusionMap && menu.exclusionMap[addedRoleId]) {
                 const rolesToExclude = menu.exclusionMap[addedRoleId];
                 console.log(`[DEBUG] Role ${addedRoleId} excludes:`, rolesToExclude);
                 
                 for (const excludedRoleId of rolesToExclude) {
+                    // Remove from newRoles if it exists there
                     if (newRoles.has(excludedRoleId)) {
                         newRoles.delete(excludedRoleId);
                         const excludedRole = interaction.guild.roles.cache.get(excludedRoleId);
-                        console.log(`[DEBUG] Excluded role due to conflict: ${excludedRoleId} (${excludedRole?.name || 'Unknown Role'})`);
+                        console.log(`[DEBUG] Excluded role from newRoles due to conflict: ${excludedRoleId} (${excludedRole?.name || 'Unknown Role'})`);
+                    }
+                    
+                    // Also ensure it gets removed from the user if they currently have it
+                    // This is important for hybrid menus where exclusions might not be working consistently
+                    if (currentRoles.has(excludedRoleId)) {
+                        console.log(`[DEBUG] User currently has excluded role ${excludedRoleId}, ensuring it will be removed`);
+                        // This role should be removed regardless of whether it's in newRoles or not
                     }
                 }
             }
@@ -11665,10 +11717,8 @@ async function handleRoleInteraction(interaction) {
         // Extract all menu roles based on menu type
         let allMenuRoles = [];
         if (isHybridMenu) {
-            // For hybrid menus, collect all role IDs from roleButtons
-            if (menu.roleButtons && Array.isArray(menu.roleButtons)) {
-                allMenuRoles = menu.roleButtons.map(btn => btn.roleId);
-            }
+            // For hybrid menus, use dropdownRoles and buttonRoles arrays
+            allMenuRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
         } else {
             // For regular menus, use dropdownRoles and buttonRoles
             allMenuRoles = [...(menu.dropdownRoles || []), ...(menu.buttonRoles || [])];
@@ -11697,6 +11747,20 @@ async function handleRoleInteraction(interaction) {
 
         const rolesToAdd = Array.from(newRoles).filter(id => !currentRoles.has(id));
         const rolesToRemove = Array.from(currentRoles).filter(id => !newRoles.has(id));
+
+        // Additional exclusion enforcement: Make sure excluded roles are removed even if they weren't in newRoles
+        for (const addedRoleId of rolesToAdd) {
+            if (menu.exclusionMap && menu.exclusionMap[addedRoleId]) {
+                const rolesToExclude = menu.exclusionMap[addedRoleId];
+                for (const excludedRoleId of rolesToExclude) {
+                    if (currentRoles.has(excludedRoleId) && !rolesToRemove.includes(excludedRoleId)) {
+                        rolesToRemove.push(excludedRoleId);
+                        const excludedRole = interaction.guild.roles.cache.get(excludedRoleId);
+                        console.log(`[DEBUG] Force removing excluded role: ${excludedRoleId} (${excludedRole?.name || 'Unknown Role'})`);
+                    }
+                }
+            }
+        }
 
         console.log(`[DEBUG] Final roles to add:`, rolesToAdd);
         console.log(`[DEBUG] Final roles to remove:`, rolesToRemove);
