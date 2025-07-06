@@ -2854,6 +2854,83 @@ async function handleColorSelection(interaction) {
     await interaction.message.edit({ embeds: [embed], components: [row] });
 }
 
+// Method 21: Exact Content Preservation approach
+async function handleMethod21Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method21-gamer', 'method21-artist', 'method21-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 21: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method21-${selectedRole}`);
+        
+        if (!role) {
+            const colors = { gamer: 0xe74c3c, artist: 0xe74c3c, developer: 0xe74c3c };
+            role = await interaction.guild.roles.create({
+                name: `Method21-${selectedRole}`,
+                color: colors[selectedRole] || 0xe74c3c,
+                reason: 'Method 21 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 21: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 21: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 21: Keep EXACT same content - no changes at all!
+    // Use the EXACT same embed and components as the original
+    const embed = new EmbedBuilder()
+        .setTitle('🎯 Method 21: Exact Content Preservation')
+        .setDescription('Testing dropdown refresh with ZERO content changes')
+        .setColor(0xe74c3c)
+        .setFooter({ text: 'Method 21 Test' }); // EXACT same footer - no "- Updated" or anything
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method21_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    // Edit with IDENTICAL content - this should not show "edited" mark
+    await interaction.message.edit({ embeds: [embed], components: [row] });
+}
+
 // Error handling
 client.on('error', error => {
     console.error('Discord client error:', error);
