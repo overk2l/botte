@@ -19,8 +19,8 @@ const activeMenus = new Map();
 client.once('ready', () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`🚀 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📝 Available commands: !test1-25 (25 different dropdown refresh methods)`);
-    console.log(`🎯 Methods 1-14: Standard approaches | Methods 15-25: Experimental approaches`);
+    console.log(`📝 Available commands: !test1-26 (26 different dropdown refresh methods)`);
+    console.log(`🎯 Methods 1-14: Standard approaches | Methods 15-26: Experimental approaches`);
 });
 
 // Message handler for commands
@@ -95,24 +95,6 @@ client.on('messageCreate', async (message) => {
             case 'test20':
                 await handleTest20(message);
                 break;
-            case 'test15':
-                await handleTest15(message);
-                break;
-            case 'test16':
-                await handleTest16(message);
-                break;
-            case 'test17':
-                await handleTest17(message);
-                break;
-            case 'test18':
-                await handleTest18(message);
-                break;
-            case 'test19':
-                await handleTest19(message);
-                break;
-            case 'test20':
-                await handleTest20(message);
-                break;
             case 'test21':
                 await handleTest21(message);
                 break;
@@ -128,6 +110,9 @@ client.on('messageCreate', async (message) => {
             case 'test25':
                 await handleTest25(message);
                 break;
+            case 'test26':
+                await handleTest26(message);
+                break;
             case 'test22':
                 await handleTest22(message);
                 break;
@@ -139,6 +124,9 @@ client.on('messageCreate', async (message) => {
                 break;
             case 'test25':
                 await handleTest25(message);
+                break;
+            case 'test26':
+                await handleTest26(message);
                 break;
             default:
                 // Ignore unknown commands
@@ -750,7 +738,7 @@ async function handleTest15(message) {
 }
 
 // Test 16: Method using Interaction Token Manipulation
-async function handleTest16(message) {
+async function handleTest16(interaction) {
     const embed = new EmbedBuilder()
         .setTitle('🔧 Method 16: Interaction Token Manipulation')
         .setDescription('Testing dropdown using interaction token workarounds')
@@ -789,7 +777,7 @@ async function handleTest16(message) {
 }
 
 // Test 17: Method using Message Reference/Reply Chain
-async function handleTest17(message) {
+async function handleTest17(interaction) {
     const embed = new EmbedBuilder()
         .setTitle('🔗 Method 17: Message Reference Chain')
         .setDescription('Testing dropdown using message reference chains')
@@ -983,12 +971,12 @@ async function handleTest21(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
-// Test 22: Method using interaction.update() with exact same content
+// Test 22: Method using interaction.deferUpdate with NO follow-up (Sapphire-style)
 async function handleTest22(message) {
     const embed = new EmbedBuilder()
-        .setTitle('🔄 Method 22: Update with Same Content')
-        .setDescription('Testing dropdown refresh with interaction.update() and identical content')
-        .setColor(0x27ae60)
+        .setTitle('🔮 Method 22: Sapphire-Style deferUpdate')
+        .setDescription('Testing dropdown refresh using deferUpdate with no follow-up (like Sapphire bot)')
+        .setColor(0x9c88ff)
         .setFooter({ text: 'Method 22 Test' });
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -1022,12 +1010,12 @@ async function handleTest22(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
-// Test 23: Method using deferUpdate() only (no edit at all)
+// Test 23: Method using Component Replacement Strategy  
 async function handleTest23(message) {
     const embed = new EmbedBuilder()
-        .setTitle('⏸️ Method 23: Defer Only (No Edit)')
-        .setDescription('Testing dropdown with deferUpdate but never editing the message')
-        .setColor(0xf1c40f)
+        .setTitle('🔧 Method 23: Component Replacement')
+        .setDescription('Testing dropdown by replacing components with identical ones')
+        .setColor(0x8e44ad)
         .setFooter({ text: 'Method 23 Test' });
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -1061,12 +1049,12 @@ async function handleTest23(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
-// Test 24: Method using ephemeral reply only (no message edit)
+// Test 24: Method using Sapphire-style Response Pattern
 async function handleTest24(message) {
     const embed = new EmbedBuilder()
-        .setTitle('👻 Method 24: Ephemeral Only')
-        .setDescription('Testing dropdown with only ephemeral responses, no message editing')
-        .setColor(0xe67e22)
+        .setTitle('💎 Method 24: Sapphire-style Pattern')
+        .setDescription('Testing dropdown using Sapphire bot response patterns')
+        .setColor(0x3498db)
         .setFooter({ text: 'Method 24 Test' });
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -1100,16 +1088,55 @@ async function handleTest24(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
-// Test 25: Method using modal popup instead of direct edit
+// Test 25: Method using Interaction Response Type 6 (DEFERRED_UPDATE_MESSAGE)
 async function handleTest25(message) {
     const embed = new EmbedBuilder()
-        .setTitle('📝 Method 25: Modal Popup')
-        .setDescription('Testing dropdown that opens modal instead of direct edit')
-        .setColor(0x9b59b6)
+        .setTitle('⚙️ Method 25: Deferred Update Message')
+        .setDescription('Testing dropdown using DEFERRED_UPDATE_MESSAGE response type')
+        .setColor(0xf39c12)
         .setFooter({ text: 'Method 25 Test' });
 
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId('method25_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 26: Method using Message Fetch and Reapply
+async function handleTest26(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('📥 Method 26: Message Fetch & Reapply')
+        .setDescription('Testing dropdown by fetching and reapplying original state')
+        .setColor(0xe67e22)
+        .setFooter({ text: 'Method 26 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method26_select')
         .setPlaceholder('Choose a role...')
         .addOptions([
             new StringSelectMenuOptionBuilder()
@@ -1238,6 +1265,9 @@ client.on('interactionCreate', async (interaction) => {
             case 'method25_select':
                 await handleMethod25Selection(interaction);
                 break;
+            case 'method26_select':
+                await handleMethod26Selection(interaction);
+                break;
             case 'method22_select':
                 await handleMethod22Selection(interaction);
                 break;
@@ -1249,6 +1279,9 @@ client.on('interactionCreate', async (interaction) => {
                 break;
             case 'method25_select':
                 await handleMethod25Selection(interaction);
+                break;
+            case 'method26_select':
+                await handleMethod26Selection(interaction);
                 break;
             default:
                 await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
@@ -2482,12 +2515,14 @@ async function handleMethod15Selection(interaction) {
     }, 100);
 }
 
-// Test 22: Method using interaction.update() with exact same content
+// Method 22: Sapphire-Style deferUpdate approach (NO editReply)
 async function handleMethod22Selection(interaction) {
     const selectedRole = interaction.values[0];
     const member = interaction.member;
     
+    // Apply role changes first
     if (selectedRole === 'remove_all') {
+        // Remove all managed roles
         const rolesToRemove = member.roles.cache.filter(role => 
             ['gamer', 'artist', 'developer', 'method22-gamer', 'method22-artist', 'method22-developer'].includes(role.name.toLowerCase())
         );
@@ -2499,10 +2534,10 @@ async function handleMethod22Selection(interaction) {
         let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method22-${selectedRole}`);
         
         if (!role) {
-            const colors = { gamer: 0x27ae60, artist: 0x27ae60, developer: 0x27ae60 };
+            const colors = { gamer: 0x9c88ff, artist: 0x9c88ff, developer: 0x9c88ff };
             role = await interaction.guild.roles.create({
                 name: `Method22-${selectedRole}`,
-                color: colors[selectedRole] || 0x27ae60,
+                color: colors[selectedRole] || 0x9c88ff,
                 reason: 'Method 22 test'
             });
         }
@@ -2514,151 +2549,100 @@ async function handleMethod22Selection(interaction) {
         }
     }
     
-    // Method 22: Use interaction.update() with EXACT same content
+    // Method 22: Just deferUpdate and do NOTHING else (like Sapphire might do)
+    await interaction.deferUpdate();
+    
+    // Do NOT call editReply or followUp
+    // Do NOT edit the message
+    // Let the dropdown stay exactly as it was
+    
+    console.log('Method 22: Role applied, interaction deferred, no message changes - testing Sapphire approach');
+}
+
+// Handle color selection
+async function handleColorSelection(interaction) {
+    const selectedColor = interaction.values[0];
+    const member = interaction.member;
+    
+    // Remove existing color roles
+    const colorRoles = ['Red', 'Blue', 'Green', 'Purple', 'Orange', 'Yellow'];
+    const existingColorRoles = member.roles.cache.filter(role => 
+        colorRoles.includes(role.name)
+    );
+    
+    if (existingColorRoles.size > 0) {
+        await member.roles.remove(existingColorRoles);
+    }
+    
+    // Add new color role
+    const roleName = selectedColor.charAt(0).toUpperCase() + selectedColor.slice(1);
+    let role = interaction.guild.roles.cache.find(r => r.name === roleName);
+    
+    if (!role) {
+        const colors = {
+            red: 0xFF0000,
+            blue: 0x0000FF,
+            green: 0x00FF00,
+            purple: 0x800080,
+            orange: 0xFFA500,
+            yellow: 0xFFFF00
+        };
+        
+        role = await interaction.guild.roles.create({
+            name: roleName,
+            color: colors[selectedColor],
+            reason: 'Color role selection'
+        });
+    }
+    
+    await member.roles.add(role);
+    await interaction.reply({ content: `🌈 Your color has been set to **${roleName}**!`, ephemeral: true });
+    
+    // Reset the dropdown menu
     const embed = new EmbedBuilder()
-        .setTitle('🔄 Method 22: Update with Same Content')
-        .setDescription('Testing dropdown refresh with interaction.update() and identical content')
-        .setColor(0x27ae60)
-        .setFooter({ text: 'Method 22 Test' });
+        .setTitle('🌈 Color Role Selection')
+        .setDescription('Choose a color for your username!')
+        .setColor(0x9B59B6)
+        .setFooter({ text: 'Colors make everything better!' });
 
     const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('method22_select')
-        .setPlaceholder('Choose a role...')
+        .setCustomId('color_select')
+        .setPlaceholder('Choose your color...')
         .addOptions([
             new StringSelectMenuOptionBuilder()
-                .setLabel('Gamer')
-                .setDescription('For gaming enthusiasts')
-                .setValue('gamer')
-                .setEmoji('🎮'),
+                .setLabel('Red')
+                .setDescription('Passionate and bold')
+                .setValue('red')
+                .setEmoji('🔴'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Artist')
-                .setDescription('For creative minds')
-                .setValue('artist')
-                .setEmoji('🎨'),
+                .setLabel('Blue')
+                .setDescription('Cool and calm')
+                .setValue('blue')
+                .setEmoji('🔵'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Developer')
-                .setDescription('For coding wizards')
-                .setValue('developer')
-                .setEmoji('💻'),
+                .setLabel('Green')
+                .setDescription('Natural and fresh')
+                .setValue('green')
+                .setEmoji('🟢'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Remove All Roles')
-                .setDescription('Remove all selected roles')
-                .setValue('remove_all')
-                .setEmoji('🗑️')
+                .setLabel('Purple')
+                .setDescription('Royal and mysterious')
+                .setValue('purple')
+                .setEmoji('🟣'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Orange')
+                .setDescription('Energetic and warm')
+                .setValue('orange')
+                .setEmoji('🟠'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Yellow')
+                .setDescription('Bright and cheerful')
+                .setValue('yellow')
+                .setEmoji('🟡')
         ]);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
-    
-    // Use interaction.update() instead of message.edit()
-    await interaction.update({ embeds: [embed], components: [row] });
-}
-
-// Method 23: deferUpdate() only - never edit the message
-async function handleMethod23Selection(interaction) {
-    const selectedRole = interaction.values[0];
-    const member = interaction.member;
-    
-    // Just defer and never edit
-    await interaction.deferUpdate();
-    
-    if (selectedRole === 'remove_all') {
-        const rolesToRemove = member.roles.cache.filter(role => 
-            ['gamer', 'artist', 'developer', 'method23-gamer', 'method23-artist', 'method23-developer'].includes(role.name.toLowerCase())
-        );
-        
-        if (rolesToRemove.size > 0) {
-            await member.roles.remove(rolesToRemove);
-        }
-    } else {
-        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method23-${selectedRole}`);
-        
-        if (!role) {
-            const colors = { gamer: 0xf1c40f, artist: 0xf1c40f, developer: 0xf1c40f };
-            role = await interaction.guild.roles.create({
-                name: `Method23-${selectedRole}`,
-                color: colors[selectedRole] || 0xf1c40f,
-                reason: 'Method 23 test'
-            });
-        }
-        
-        if (member.roles.cache.has(role.id)) {
-            await member.roles.remove(role);
-        } else {
-            await member.roles.add(role);
-        }
-    }
-    
-    // Method 23: DON'T edit the message at all - just apply roles
-    // The dropdown should stay exactly as it was
-    console.log('Method 23: Role applied, but message left untouched');
-}
-
-// Method 24: Only ephemeral replies, no message editing
-async function handleMethod24Selection(interaction) {
-    const selectedRole = interaction.values[0];
-    const member = interaction.member;
-    
-    if (selectedRole === 'remove_all') {
-        const rolesToRemove = member.roles.cache.filter(role => 
-            ['gamer', 'artist', 'developer', 'method24-gamer', 'method24-artist', 'method24-developer'].includes(role.name.toLowerCase())
-        );
-        
-        if (rolesToRemove.size > 0) {
-            await member.roles.remove(rolesToRemove);
-        }
-        
-        await interaction.reply({ content: '🗑️ Method 24: All roles removed!', flags: 64 }); // 64 = ephemeral
-    } else {
-        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method24-${selectedRole}`);
-        
-        if (!role) {
-            const colors = { gamer: 0xe67e22, artist: 0xe67e22, developer: 0xe67e22 };
-            role = await interaction.guild.roles.create({
-                name: `Method24-${selectedRole}`,
-                color: colors[selectedRole] || 0xe67e22,
-                reason: 'Method 24 test'
-            });
-        }
-        
-        if (member.roles.cache.has(role.id)) {
-            await member.roles.remove(role);
-            await interaction.reply({ content: `➖ Method 24: Removed **${role.name}** role!`, flags: 64 });
-        } else {
-            await member.roles.add(role);
-            await interaction.reply({ content: `➕ Method 24: Added **${role.name}** role!`, flags: 64 });
-        }
-    }
-    
-    // Method 24: NEVER edit the original message - only ephemeral responses
-    // The dropdown remains completely untouched
-}
-
-// Method 25: Modal popup approach
-async function handleMethod25Selection(interaction) {
-    const selectedRole = interaction.values[0];
-    const member = interaction.member;
-    
-    // Method 25: Show a modal instead of directly applying roles
-    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder: ModalActionRowBuilder } = require('discord.js');
-    
-    const modal = new ModalBuilder()
-        .setCustomId(`method25_modal_${selectedRole}`)
-        .setTitle('Method 25: Role Confirmation');
-
-    const confirmInput = new TextInputBuilder()
-        .setCustomId('confirm_role')
-        .setLabel(`Confirm ${selectedRole} role?`)
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Type "yes" to confirm')
-        .setRequired(true)
-        .setMaxLength(3);
-
-    const firstActionRow = new ModalActionRowBuilder().addComponents(confirmInput);
-    modal.addComponents(firstActionRow);
-
-    await interaction.showModal(modal);
-    
-    // Method 25: No message editing at all - uses modal workflow
+    await interaction.message.edit({ embeds: [embed], components: [row] });
 }
 
 // Error handling
