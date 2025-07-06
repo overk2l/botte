@@ -1268,7 +1268,7 @@ async function handleBasicRoleSelection(interaction) {
     let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
     
     if (!role) {
-        const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF, musician: 0xFFFF00 };
+        const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF };
         role = await interaction.guild.roles.create({
             name: roleName,
             color: colors[selectedRole] || 0x99AAB5,
@@ -1995,7 +1995,7 @@ async function handleMethod11Selection(interaction) {
         );
     } catch (error) {
         console.error('Method 11 direct API call failed:', error);
-        // Fallback to regular edit
+               // Fallback to regular edit
         const embed = new EmbedBuilder()
             .setTitle('🔧 Method 11: Direct API Call (Fallback)')
             .setDescription('Testing dropdown refresh using direct Discord API calls')
@@ -2419,30 +2419,33 @@ async function handleMethod15Selection(interaction) {
     }, 100);
 }
 
-// Method 24: Sapphire Method - Component-only edit to clear selection
+// Method 24: Sapphire Method - NEVER update message, only ephemeral reply
 async function handleMethod24Selection(interaction) {
     const picked = interaction.values[0];
     const member = interaction.member;
-
     try {
-        // 1) Toggle roles exactly as before…
         if (picked === 'remove_all') {
-            // Remove all managed roles (find by name)
             const roleNames = ['Gamer', 'Artist', 'Developer'];
             const rolesToRemove = member.roles.cache.filter(r =>
                 roleNames.some(name => r.name.toLowerCase() === name.toLowerCase())
             );
-
             if (rolesToRemove.size > 0) {
                 await member.roles.remove(rolesToRemove);
+                await interaction.reply({
+                    content: `🗑️ **Removed all roles** (${rolesToRemove.size} roles removed)` ,
+                    flags: MessageFlags.Ephemeral
+                });
+            } else {
+                await interaction.reply({
+                    content: `ℹ️ **No roles to remove** — you had none of those.`,
+                    flags: MessageFlags.Ephemeral
+                });
             }
         } else {
-            // Handle single role toggle
             const roleName = picked.charAt(0).toUpperCase() + picked.slice(1);
             let role = interaction.guild.roles.cache.find(r =>
                 r.name.toLowerCase() === roleName.toLowerCase()
             );
-            
             if (!role) {
                 const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF };
                 role = await interaction.guild.roles.create({
@@ -2451,60 +2454,26 @@ async function handleMethod24Selection(interaction) {
                     reason: 'Method 24 — Sapphire role select'
                 });
             }
-
-            // Toggle the role
             if (member.roles.cache.has(role.id)) {
                 await member.roles.remove(role);
+                await interaction.reply({
+                    content: `➖ **Removed** ${role.name} - You no longer have this role.`,
+                    flags: MessageFlags.Ephemeral
+                });
             } else {
                 await member.roles.add(role);
+                await interaction.reply({
+                    content: `➕ **Added** ${role.name} - You now have this role!`,
+                    flags: MessageFlags.Ephemeral
+                });
             }
         }
-
-        // 2) Rebuild the select WITH NO defaultValues
-        const freshMenu = new StringSelectMenuBuilder()
-            .setCustomId('method24_select')
-            .setPlaceholder('Choose a role...')
-            .addOptions([
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Gamer')
-                    .setDescription('For gaming enthusiasts')
-                    .setValue('gamer')
-                    .setEmoji('🎮'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Artist')
-                    .setDescription('For creative minds')
-                    .setValue('artist')
-                    .setEmoji('🎨'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Developer')
-                    .setDescription('For coding wizards')
-                    .setValue('developer')
-                    .setEmoji('💻'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Remove All Roles')
-                    .setDescription('Remove all selected roles')
-                    .setValue('remove_all')
-                    .setEmoji('🗑️')
-            ]);
-        const freshRow = new ActionRowBuilder().addComponents(freshMenu);
-
-        // 3) Component‑only edit — this is what *actually* clears the highlight
-        await interaction.update({
-            components: [freshRow]
-        });
-
-        // 4) Ephemeral follow‑up
-        await interaction.followUp({
-            content: `✅ Your roles have been updated!`,
-            flags: MessageFlags.Ephemeral
-        });
-
     } catch (err) {
         console.error('Error in Method 24 (Sapphire):', err);
         if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ 
-                content: '❌ Something went wrong', 
-                flags: MessageFlags.Ephemeral 
+            await interaction.reply({
+                content: '❌ Something went wrong',
+                flags: MessageFlags.Ephemeral
             });
         }
     }
