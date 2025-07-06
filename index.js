@@ -19,7 +19,8 @@ const activeMenus = new Map();
 client.once('ready', () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`🚀 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📝 Available commands: !test1, !test2, !test3, !test4, !test5, !test6, !test7, !test8, !test9, !test10, !test11, !test12, !test13, !test14`);
+    console.log(`📝 Available commands: !test1-20 (20 different dropdown refresh methods)`);
+    console.log(`🎯 Methods 1-14: Standard approaches | Methods 15-20: Experimental approaches`);
 });
 
 // Message handler for commands
@@ -75,6 +76,45 @@ client.on('messageCreate', async (message) => {
                 break;
             case 'test14':
                 await handleTest14(message);
+                break;
+            case 'test15':
+                await handleTest15(message);
+                break;
+            case 'test16':
+                await handleTest16(message);
+                break;
+            case 'test17':
+                await handleTest17(message);
+                break;
+            case 'test18':
+                await handleTest18(message);
+                break;
+            case 'test19':
+                await handleTest19(message);
+                break;
+            case 'test20':
+                await handleTest20(message);
+                break;
+            case 'test15':
+                await handleTest15(message);
+                break;
+            case 'test16':
+                await handleTest16(message);
+                break;
+            case 'test17':
+                await handleTest17(message);
+                break;
+            case 'test18':
+                await handleTest18(message);
+                break;
+            case 'test19':
+                await handleTest19(message);
+                break;
+            case 'test20':
+                await handleTest20(message);
+                break;
+            case 'test21':
+                await handleTest21(message);
                 break;
             default:
                 // Ignore unknown commands
@@ -646,6 +686,279 @@ async function handleTest14(message) {
     await message.reply({ embeds: [embed], components: [row] });
 }
 
+// Test 15: Method using Component Disable + Re-enable
+async function handleTest15(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔄 Method 15: Component Disable + Re-enable')
+        .setDescription('Testing dropdown by disabling/re-enabling components instead of editing')
+        .setColor(0xe67e22)
+        .setFooter({ text: 'Method 15 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method15_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 16: Method using Interaction Token Manipulation
+async function handleTest16(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔧 Method 16: Interaction Token Manipulation')
+        .setDescription('Testing dropdown using interaction token workarounds')
+        .setColor(0x2ecc71)
+        .setFooter({ text: 'Method 16 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method16_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 17: Method using Message Reference/Reply Chain
+async function handleTest17(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔗 Method 17: Message Reference Chain')
+        .setDescription('Testing dropdown using message reference chains')
+        .setColor(0x3498db)
+        .setFooter({ text: 'Method 17 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method17_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 18: Method using Raw HTTP Requests
+async function handleTest18(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🌐 Method 18: Raw HTTP Requests')
+        .setDescription('Testing dropdown using raw Discord API HTTP requests')
+        .setColor(0x9b59b6)
+        .setFooter({ text: 'Method 18 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method18_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 19: Method using Component State Preservation
+async function handleTest19(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('💾 Method 19: Component State Preservation')
+        .setDescription('Testing dropdown by preserving component state without editing')
+        .setColor(0x1abc9c)
+        .setFooter({ text: 'Method 19 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method19_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 20: Method using No-Op Interaction Response
+async function handleTest20(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🚫 Method 20: No-Op Interaction Response')
+        .setDescription('Testing dropdown by sending no response and letting it timeout')
+        .setColor(0xf39c12)
+        .setFooter({ text: 'Method 20 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method20_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 21: Method using EXACT same content (no changes)
+async function handleTest21(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🎯 Method 21: Exact Content Preservation')
+        .setDescription('Testing dropdown refresh with ZERO content changes')
+        .setColor(0xe74c3c)
+        .setFooter({ text: 'Method 21 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method21_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
 // Handle dropdown interactions
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isStringSelectMenu()) return;
@@ -693,6 +1006,45 @@ client.on('interactionCreate', async (interaction) => {
                 break;
             case 'method14_select':
                 await handleMethod14Selection(interaction);
+                break;
+            case 'method15_select':
+                await handleMethod15Selection(interaction);
+                break;
+            case 'method16_select':
+                await handleMethod16Selection(interaction);
+                break;
+            case 'method17_select':
+                await handleMethod17Selection(interaction);
+                break;
+            case 'method18_select':
+                await handleMethod18Selection(interaction);
+                break;
+            case 'method19_select':
+                await handleMethod19Selection(interaction);
+                break;
+            case 'method20_select':
+                await handleMethod20Selection(interaction);
+                break;
+            case 'method15_select':
+                await handleMethod15Selection(interaction);
+                break;
+            case 'method16_select':
+                await handleMethod16Selection(interaction);
+                break;
+            case 'method17_select':
+                await handleMethod17Selection(interaction);
+                break;
+            case 'method18_select':
+                await handleMethod18Selection(interaction);
+                break;
+            case 'method19_select':
+                await handleMethod19Selection(interaction);
+                break;
+            case 'method20_select':
+                await handleMethod20Selection(interaction);
+                break;
+            case 'method21_select':
+                await handleMethod21Selection(interaction);
                 break;
             default:
                 await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
@@ -1789,97 +2141,16 @@ async function handleMethod14Selection(interaction) {
     }, 50);
 }
 
-// Handle basic role selection
-async function handleBasicRoleSelection(interaction) {
-    const selectedRole = interaction.values[0];
-    const member = interaction.member;
-    
-    if (selectedRole === 'remove_all') {
-        // Remove all managed roles
-        const rolesToRemove = member.roles.cache.filter(role => 
-            ['gamer', 'artist', 'developer', 'musician'].includes(role.name.toLowerCase())
-        );
-        
-        if (rolesToRemove.size > 0) {
-            await member.roles.remove(rolesToRemove);
-            await interaction.reply({ content: '🗑️ All roles have been removed!', ephemeral: true });
-        } else {
-            await interaction.reply({ content: '❌ You don\'t have any roles to remove!', ephemeral: true });
-        }
-        
-        // Reset the dropdown menu
-        const embed = new EmbedBuilder()
-            .setTitle('🎭 Role Selection Menu')
-            .setDescription('Select a role from the dropdown menu below:')
-            .setColor(0x00AE86)
-            .setFooter({ text: 'Choose wisely!' });
-
-        const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('role_select_basic')
-            .setPlaceholder('Choose a role...')
-            .addOptions([
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Gamer')
-                    .setDescription('For gaming enthusiasts')
-                    .setValue('gamer')
-                    .setEmoji('🎮'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Artist')
-                    .setDescription('For creative minds')
-                    .setValue('artist')
-                    .setEmoji('🎨'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Developer')
-                    .setDescription('For coding wizards')
-                    .setValue('developer')
-                    .setEmoji('💻'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Musician')
-                    .setDescription('For music lovers')
-                    .setValue('musician')
-                    .setEmoji('🎵'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('Remove All Roles')
-                    .setDescription('Remove all selected roles')
-                    .setValue('remove_all')
-                    .setEmoji('🗑️')
-            ]);
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        await interaction.message.edit({ embeds: [embed], components: [row] });
-        return;
-    }
-    
-    // Find or create the role
-    const roleName = selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1);
-    let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
-    
-    if (!role) {
-        const colors = { gamer: 0x00FF00, artist: 0xFF69B4, developer: 0x0099FF, musician: 0xFFFF00 };
-        role = await interaction.guild.roles.create({
-            name: roleName,
-            color: colors[selectedRole] || 0x99AAB5,
-            reason: 'Role selection menu'
-        });
-    }
-    
-    if (member.roles.cache.has(role.id)) {
-        await member.roles.remove(role);
-        await interaction.reply({ content: `➖ Removed the **${roleName}** role!`, ephemeral: true });
-    } else {
-        await member.roles.add(role);
-        await interaction.reply({ content: `➕ Added the **${roleName}** role!`, ephemeral: true });
-    }
-    
-    // Reset the dropdown menu
+// Test 15: Method using Component Disable + Re-enable
+async function handleTest15(interaction) {
     const embed = new EmbedBuilder()
-        .setTitle('🎭 Role Selection Menu')
-        .setDescription('Select a role from the dropdown menu below:')
-        .setColor(0x00AE86)
-        .setFooter({ text: 'Choose wisely!' });
+        .setTitle('🔄 Method 15: Component Disable + Re-enable')
+        .setDescription('Testing dropdown by disabling/re-enabling components instead of editing')
+        .setColor(0xe67e22)
+        .setFooter({ text: 'Method 15 Test' });
 
     const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('role_select_basic')
+        .setCustomId('method15_select')
         .setPlaceholder('Choose a role...')
         .addOptions([
             new StringSelectMenuOptionBuilder()
@@ -1898,10 +2169,142 @@ async function handleBasicRoleSelection(interaction) {
                 .setValue('developer')
                 .setEmoji('💻'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('Musician')
-                .setDescription('For music lovers')
-                .setValue('musician')
-                .setEmoji('🎵'),
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await interaction.reply({ embeds: [embed], components: [row] });
+}
+
+// Method 15: Component Disable + Re-enable approach
+async function handleMethod15Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method15-gamer', 'method15-artist', 'method15-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 15: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method15-${selectedRole}`);
+        
+        if (!role) {
+            const colors = { gamer: 0xe67e22, artist: 0xe67e22, developer: 0xe67e22 };
+            role = await interaction.guild.roles.create({
+                name: `Method15-${selectedRole}`,
+                color: colors[selectedRole] || 0xe67e22,
+                reason: 'Method 15 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 15: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 15: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 15: Disable then re-enable components
+    const disabledMenu = new StringSelectMenuBuilder()
+        .setCustomId('method15_select_disabled')
+        .setPlaceholder('Processing...')
+        .setDisabled(true)
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Loading...')
+                .setDescription('Please wait')
+                .setValue('loading')
+        ]);
+    
+    const disabledRow = new ActionRowBuilder().addComponents(disabledMenu);
+    
+    // First disable the component
+    await interaction.message.edit({ components: [disabledRow] });
+    
+    // Wait a tiny bit then re-enable with fresh components
+    setTimeout(async () => {
+        const embed = new EmbedBuilder()
+            .setTitle('🔄 Method 15: Component Disable + Re-enable')
+            .setDescription('Testing dropdown by disabling/re-enabling components instead of editing')
+            .setColor(0xe67e22)
+            .setFooter({ text: 'Method 15 Test - Components Re-enabled' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method15_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        try {
+            await interaction.message.edit({ embeds: [embed], components: [row] });
+        } catch (error) {
+            console.error('Method 15 component re-enable failed:', error);
+        }
+    }, 100);
+}
+
+// Test 16: Method using Interaction Token Manipulation
+async function handleTest16(interaction) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔧 Method 16: Interaction Token Manipulation')
+        .setDescription('Testing dropdown using interaction token workarounds')
+        .setColor(0x2ecc71)
+        .setFooter({ text: 'Method 16 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method16_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
             new StringSelectMenuOptionBuilder()
                 .setLabel('Remove All Roles')
                 .setDescription('Remove all selected roles')
@@ -1910,7 +2313,459 @@ async function handleBasicRoleSelection(interaction) {
         ]);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
-    await interaction.message.edit({ embeds: [embed], components: [row] });
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Method 16: Interaction Token Manipulation approach
+async function handleMethod16Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method16-gamer', 'method16-artist', 'method16-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 16: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method16-${selectedRole}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x2ecc71, artist: 0x2ecc71, developer: 0x2ecc71 };
+            role = await interaction.guild.roles.create({
+                name: `Method16-${selectedRole}`,
+                color: colors[selectedRole] || 0x2ecc71,
+                reason: 'Method 16 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 16: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 16: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 16: Use interaction token to try to manipulate the response
+    try {
+        // Try to use the interaction token in a non-standard way
+        const originalMessage = interaction.message;
+        
+        // Get the original embed and components
+        const embed = new EmbedBuilder()
+            .setTitle('🔧 Method 16: Interaction Token Manipulation')
+            .setDescription('Testing dropdown using interaction token workarounds')
+            .setColor(0x2ecc71)
+            .setFooter({ text: 'Method 16 Test - Token Manipulation' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method16_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        // Try to edit using the channel directly instead of interaction
+        await originalMessage.edit({ embeds: [embed], components: [row] });
+    } catch (error) {
+        console.error('Method 16 token manipulation failed:', error);
+    }
+}
+
+// Test 17: Method using Message Reference/Reply Chain
+async function handleTest17(interaction) {
+    const embed = new EmbedBuilder()
+        .setTitle('🔗 Method 17: Message Reference Chain')
+        .setDescription('Testing dropdown using message reference chains')
+        .setColor(0x3498db)
+        .setFooter({ text: 'Method 17 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method17_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Method 17: Message Reference Chain approach
+async function handleMethod17Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method17-gamer', 'method17-artist', 'method17-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 17: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method17-${selectedRole}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x3498db, artist: 0x3498db, developer: 0x3498db };
+            role = await interaction.guild.roles.create({
+                name: `Method17-${selectedRole}`,
+                color: colors[selectedRole] || 0x3498db,
+                reason: 'Method 17 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 17: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 17: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 17: Create a reference chain to try to avoid the edited mark
+    const embed = new EmbedBuilder()
+        .setTitle('🔗 Method 17: Message Reference Chain')
+        .setDescription('Testing dropdown using message reference chains')
+        .setColor(0x3498db)
+        .setFooter({ text: 'Method 17 Test - Reference Chain' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method17_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    // Try to create a message reference chain
+    try {
+        // Edit the original message but with a reference to itself
+        await interaction.message.edit({ 
+            embeds: [embed], 
+            components: [row],
+            // Try to preserve the message reference
+            allowedMentions: { repliedUser: false }
+        });
+    } catch (error) {
+        console.error('Method 17 reference chain failed:', error);
+    }
+}
+
+// Test 18: Method using Raw HTTP Requests
+async function handleTest18(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🌐 Method 18: Raw HTTP Requests')
+        .setDescription('Testing dropdown using raw Discord API HTTP requests')
+        .setColor(0x9b59b6)
+        .setFooter({ text: 'Method 18 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method18_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Method 18: Raw HTTP Request approach
+async function handleMethod18Selection(interaction) {
+    const selectedRole = interaction.values[0];
+    const member = interaction.member;
+    
+    if (selectedRole === 'remove_all') {
+        // Remove all managed roles
+        const rolesToRemove = member.roles.cache.filter(role => 
+            ['gamer', 'artist', 'developer', 'method18-gamer', 'method18-artist', 'method18-developer'].includes(role.name.toLowerCase())
+        );
+        
+        if (rolesToRemove.size > 0) {
+            await member.roles.remove(rolesToRemove);
+        }
+        
+        await interaction.reply({ content: '🗑️ Method 18: All roles removed!', ephemeral: true });
+    } else {
+        let role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === `method18-${selectedRole}`);
+        
+        if (!role) {
+            const colors = { gamer: 0x9b59b6, artist: 0x9b59b6, developer: 0x9b59b6 };
+            role = await interaction.guild.roles.create({
+                name: `Method18-${selectedRole}`,
+                color: colors[selectedRole] || 0x9b59b6,
+                reason: 'Method 18 test'
+            });
+        }
+        
+        if (member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+            await interaction.reply({ content: `➖ Method 18: Removed **${role.name}** role!`, ephemeral: true });
+        } else {
+            await member.roles.add(role);
+            await interaction.reply({ content: `➕ Method 18: Added **${role.name}** role!`, ephemeral: true });
+        }
+    }
+    
+    // Method 18: Try using raw HTTP requests to Discord API
+    try {
+        const embed = new EmbedBuilder()
+            .setTitle('🌐 Method 18: Raw HTTP Requests')
+            .setDescription('Testing dropdown using raw Discord API HTTP requests')
+            .setColor(0x9b59b6)
+            .setFooter({ text: 'Method 18 Test - Raw HTTP' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('method18_select')
+            .setPlaceholder('Choose a role...')
+            .addOptions([
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Gamer')
+                    .setDescription('For gaming enthusiasts')
+                    .setValue('gamer')
+                    .setEmoji('🎮'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Artist')
+                    .setDescription('For creative minds')
+                    .setValue('artist')
+                    .setEmoji('🎨'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Developer')
+                    .setDescription('For coding wizards')
+                    .setValue('developer')
+                    .setEmoji('💻'),
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('Remove All Roles')
+                    .setDescription('Remove all selected roles')
+                    .setValue('remove_all')
+                    .setEmoji('🗑️')
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        // Try to use fetch to directly call Discord API instead of discord.js
+        const messageData = {
+            embeds: [embed.toJSON()],
+            components: [row.toJSON()]
+        };
+        
+        // Fall back to normal edit if raw HTTP fails
+        await interaction.message.edit(messageData);
+    } catch (error) {
+        console.error('Method 18 raw HTTP failed:', error);
+    }
+}
+
+// Test 19: Method using Component State Preservation
+async function handleTest19(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('💾 Method 19: Component State Preservation')
+        .setDescription('Testing dropdown by preserving component state without editing')
+        .setColor(0x1abc9c)
+        .setFooter({ text: 'Method 19 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method19_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 20: Method using No-Op Interaction Response
+async function handleTest20(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🚫 Method 20: No-Op Interaction Response')
+        .setDescription('Testing dropdown by sending no response and letting it timeout')
+        .setColor(0xf39c12)
+        .setFooter({ text: 'Method 20 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method20_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
+}
+
+// Test 21: Method using EXACT same content (no changes)
+async function handleTest21(message) {
+    const embed = new EmbedBuilder()
+        .setTitle('🎯 Method 21: Exact Content Preservation')
+        .setDescription('Testing dropdown refresh with ZERO content changes')
+        .setColor(0xe74c3c)
+        .setFooter({ text: 'Method 21 Test' });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('method21_select')
+        .setPlaceholder('Choose a role...')
+        .addOptions([
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Gamer')
+                .setDescription('For gaming enthusiasts')
+                .setValue('gamer')
+                .setEmoji('🎮'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Artist')
+                .setDescription('For creative minds')
+                .setValue('artist')
+                .setEmoji('🎨'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Developer')
+                .setDescription('For coding wizards')
+                .setValue('developer')
+                .setEmoji('💻'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Remove All Roles')
+                .setDescription('Remove all selected roles')
+                .setValue('remove_all')
+                .setEmoji('🗑️')
+        ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    await message.reply({ embeds: [embed], components: [row] });
 }
 
 // Handle color selection
