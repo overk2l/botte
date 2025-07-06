@@ -1202,15 +1202,16 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
     }
 
     // Send ONLY ephemeral reply - NEVER update original message
-    const customMessage = menu.customSuccessMessages?.infoPageView?.replace('{pageName}', page.name || 'Information');
+    // Clean approach: just send the embed without any extra text
     const replyOptions = { 
       embeds: [embed], 
       flags: MessageFlags.Ephemeral 
     };
     
-    // Add custom message if configured
-    if (customMessage && customMessage !== "📋 Viewing: {pageName}") {
-      replyOptions.content = customMessage;
+    // Only add custom message if one is actually configured and it's not the default template
+    const customMessage = menu.customSuccessMessages?.infoPageView;
+    if (customMessage && customMessage.trim() && customMessage !== "📋 Viewing: {pageName}") {
+      replyOptions.content = customMessage.replace('{pageName}', page.name || 'Information');
     }
     
     await interaction.reply(replyOptions);
