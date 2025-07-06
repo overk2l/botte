@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 require('dotenv').config();
 
 // Create a new client instance
@@ -1188,16 +1188,16 @@ client.on('interactionCreate', async (interaction) => {
                 await handleMethod24Selection(interaction);
                 break;
             default:
-                await interaction.reply({ content: '❌ Unknown interaction!', ephemeral: true });
+                await interaction.reply({ content: '❌ Unknown interaction!', flags: MessageFlags.Ephemeral });
         }
     } catch (error) {
         console.error('Error handling interaction:', error);
         const errorMessage = '❌ An error occurred while processing your selection.';
         
         if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: errorMessage, ephemeral: true });
+            await interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral });
         } else {
-            await interaction.reply({ content: errorMessage, ephemeral: true });
+            await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
         }
     }
 });
@@ -2440,12 +2440,12 @@ async function handleMethod24Selection(interaction) {
                 await member.roles.remove(rolesToRemove);
                 await interaction.reply({ 
                     content: `🗑️ **Removed all roles** (${rolesToRemove.length} roles removed)`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
             } else {
                 await interaction.reply({ 
                     content: `ℹ️ **No roles to remove** - you don't have any of the available roles.`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
             }
         } else {
@@ -2455,7 +2455,7 @@ async function handleMethod24Selection(interaction) {
             if (!roleId) {
                 await interaction.reply({ 
                     content: `❌ **Invalid role selection** - please try again.`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
                 return;
             }
@@ -2464,7 +2464,7 @@ async function handleMethod24Selection(interaction) {
             if (!role) {
                 await interaction.reply({ 
                     content: `❌ **Role not found** - the ${selectedValue} role may have been deleted.`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
                 return;
             }
@@ -2476,13 +2476,13 @@ async function handleMethod24Selection(interaction) {
                 await member.roles.remove(roleId);
                 await interaction.reply({ 
                     content: `➖ **Removed role** ${role.name} - You no longer have this role.`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
             } else {
                 await member.roles.add(roleId);
                 await interaction.reply({ 
                     content: `➕ **Added role** ${role.name} - You now have this role!`, 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral
                 });
             }
         }
@@ -2495,7 +2495,7 @@ async function handleMethod24Selection(interaction) {
         console.error('Error in Method 24 (Sapphire):', error);
         await interaction.reply({ 
             content: `❌ **Error occurred** - Unable to manage roles. Please try again.`, 
-            ephemeral: true 
+            flags: MessageFlags.Ephemeral
         });
     }
 }
