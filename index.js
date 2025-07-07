@@ -1119,12 +1119,46 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting PRISTINE Sapphire hybrid info dropdown handling...");
+    console.log("🔄 Starting Sapphire hybrid info dropdown handling with reset...");
     
-    // � PRISTINE SAPPHIRE APPROACH: Never update the original message
-    // Only send ephemeral replies, no component updates
+    // 🔥 SAPPHIRE APPROACH: Update the components to reset dropdown selection
+    // This makes the dropdown appear "fresh" after each selection
     
-    // Create and send the page content as ephemeral reply
+    // First, get the current message components and reset dropdown
+    const currentComponents = interaction.message.components;
+    const updatedComponents = [];
+    
+    // Process each action row and reset dropdown selections
+    for (const actionRow of currentComponents) {
+      const newActionRow = new ActionRowBuilder();
+      
+      for (const component of actionRow.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // Reset the dropdown: set all options to default: false
+          const resetOptions = component.options.map(option => ({
+            ...option,
+            default: false  // Clear any selected state
+          }));
+          
+          const resetDropdown = new StringSelectMenuBuilder()
+            .setCustomId(component.customId)
+            .setPlaceholder(component.placeholder || 'Select an option...')
+            .setMinValues(component.minValues || 0)
+            .setMaxValues(component.maxValues || 1)
+            .addOptions(resetOptions);
+            
+          newActionRow.addComponents(resetDropdown);
+          console.log(`🔄 Reset info dropdown: ${component.customId}`);
+        } else {
+          // Keep other components (buttons) as-is
+          newActionRow.addComponents(component);
+        }
+      }
+      
+      updatedComponents.push(newActionRow);
+    }
+    
+    // Create and send the page content as ephemeral follow-up
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -1203,8 +1237,10 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
       }
     }
 
-    // Send ONLY ephemeral reply - NEVER update original message
-    // Clean approach: just send the embed without any extra text
+    // Update the message components to reset dropdown
+    await interaction.update({ components: updatedComponents });
+    
+    // Send ephemeral follow-up with page content
     const replyOptions = { 
       embeds: [embed], 
       flags: MessageFlags.Ephemeral 
@@ -1216,7 +1252,7 @@ async function handleHybridInfoDropdownSelection(interaction, menu, page, hybrid
       replyOptions.content = customMessage.replace('{pageName}', page.name || 'Information');
     }
     
-    await interaction.reply(replyOptions);
+    await interaction.followUp(replyOptions);
     
     console.log("✅ PRISTINE Sapphire hybrid info dropdown - only ephemeral reply, original message untouched");
   } catch (error) {
@@ -1412,17 +1448,59 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting PRISTINE Sapphire dropdown handling...");
+    console.log("🔄 Starting Sapphire dropdown handling with reset...");
     
-    // 🔥 PRISTINE SAPPHIRE APPROACH: Never update the original message
-    // Only send ephemeral replies, no component updates, no edits
+    // 🔥 SAPPHIRE APPROACH: Update the components to reset dropdown selection
+    // This makes the dropdown appear "fresh" after each selection
     
-    // Send role change notification as ephemeral reply
+    // First, get the current message components
+    const currentComponents = interaction.message.components;
+    const updatedComponents = [];
+    
+    // Process each action row and reset dropdown selections
+    for (const actionRow of currentComponents) {
+      const newActionRow = new ActionRowBuilder();
+      
+      for (const component of actionRow.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // Reset the dropdown: set all options to default: false
+          const resetOptions = component.options.map(option => ({
+            ...option,
+            default: false  // Clear any selected state
+          }));
+          
+          const resetDropdown = new StringSelectMenuBuilder()
+            .setCustomId(component.customId)
+            .setPlaceholder(component.placeholder || 'Select a role...')
+            .setMinValues(component.minValues || 0)
+            .setMaxValues(component.maxValues || 1)
+            .addOptions(resetOptions);
+            
+          newActionRow.addComponents(resetDropdown);
+          console.log(`🔄 Reset dropdown: ${component.customId}`);
+        } else {
+          // Keep other components (buttons) as-is
+          newActionRow.addComponents(component);
+        }
+      }
+      
+      updatedComponents.push(newActionRow);
+    }
+    
+    // Update the message components to reset dropdown and send notification
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
+      // For dropdown interactions, use interaction.update() to modify the original message
+      await interaction.update({ components: updatedComponents });
+      
+      // Send role change notification as follow-up (ephemeral)
       await sendRoleChangeNotificationEphemeralReply(interaction, addedRoles, removedRoles, member);
+      console.log("✅ Dropdown reset: Selection cleared, ready for next interaction");
     } else if (member) {
-      // No changes case - send ephemeral reply with auto-delete
-      const noChangeReply = await interaction.reply({ 
+      // No changes case - still reset dropdown
+      await interaction.update({ components: updatedComponents });
+      
+      // Send ephemeral follow-up for no changes
+      const noChangeReply = await interaction.followUp({ 
         content: "No changes made to your roles.", 
         flags: MessageFlags.Ephemeral 
       });
@@ -1430,7 +1508,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       // Auto-delete "no changes" message after 5 seconds
       setTimeout(async () => {
         try {
-          await interaction.deleteReply();
+          await interaction.deleteReply(noChangeReply.id);
           console.log("🗑️ Auto-deleted 'no changes' ephemeral notification after 5 seconds");
         } catch (deleteError) {
           console.log("ℹ️ 'No changes' ephemeral message already expired or deleted");
@@ -1438,9 +1516,9 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       }, 5000);
     }
     
-    console.log("✅ PRISTINE Sapphire dropdown - only ephemeral reply, original message untouched");
+    console.log("✅ Sapphire dropdown handling complete - dropdown reset and ephemeral notification sent");
   } catch (error) {
-    console.error("❌ Error in PRISTINE Sapphire dropdown handling:", error);
+    console.error("❌ Error in Sapphire dropdown handling:", error);
     
     // Fallback error handling
     try {
@@ -1537,18 +1615,18 @@ async function sendRoleChangeNotificationEphemeralReply(interaction, addedRoles,
   embed.setDescription(description);
   embed.setColor(color);
 
-  // Send ephemeral reply - this ensures privacy and never updates the original message
+  // Send ephemeral follow-up - this ensures privacy and never updates the original message
   try {
-    const replyMessage = await interaction.reply({ 
+    const replyMessage = await interaction.followUp({ 
       embeds: [embed], 
       flags: MessageFlags.Ephemeral 
     });
-    console.log("✅ Sent role change notification as ephemeral reply");
+    console.log("✅ Sent role change notification as ephemeral follow-up");
     
     // Auto-delete ephemeral message after 5 seconds for better UX
     setTimeout(async () => {
       try {
-        await interaction.deleteReply();
+        await interaction.deleteReply(replyMessage.id);
         console.log("🗑️ Auto-deleted ephemeral role notification after 5 seconds");
       } catch (deleteError) {
         // Silently fail - ephemeral messages naturally expire anyway
@@ -15908,64 +15986,46 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting professional info dropdown handling with reset...");
+    console.log("🔄 Starting Sapphire info dropdown handling with reset...");
     
-    // 🔥 SAPPHIRE APPROACH: Use deferUpdate to acknowledge without showing "edited"
-    // Then edit the message separately with fresh components
+    // 🔥 SAPPHIRE APPROACH: Update the components to reset dropdown selection
+    // This makes the dropdown appear "fresh" after each selection
     
-    // First, acknowledge the interaction without updating components
-    await interaction.deferUpdate();
-    console.log("✅ Info dropdown interaction deferred without showing 'edited' mark");
+    // First, get the current message components and reset dropdown
+    const currentComponents = interaction.message.components;
+    const updatedComponents = [];
     
-    // Get the original message and rebuild components with fresh custom IDs
-    const originalMessage = interaction.message;
-    
-    // Check if this is a webhook message (custom branding)
-    const isWebhookMessage = originalMessage.webhookId !== null;
-    
-    if (isWebhookMessage) {
-      console.log("🌐 Webhook message detected - using webhook-specific info dropdown reset");
+    // Process each action row and reset dropdown selections
+    for (const actionRow of currentComponents) {
+      const newActionRow = new ActionRowBuilder();
       
-      // For webhook messages, we need to use the webhook to edit the message
-      try {
-        const webhooks = await originalMessage.channel.fetchWebhooks();
-        const webhook = webhooks.find(w => w.id === originalMessage.webhookId);
-        
-        if (webhook) {
-          // For info menus, we need to rebuild the components with fresh IDs
-          const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
+      for (const component of actionRow.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // Reset the dropdown: set all options to default: false
+          const resetOptions = component.options.map(option => ({
+            ...option,
+            default: false  // Clear any selected state
+          }));
           
-          if (updatedComponents && updatedComponents.length > 0) {
-            await webhook.editMessage(originalMessage.id, {
-              components: updatedComponents
-            });
-            console.log("✅ Webhook info dropdown components refreshed with dropdown reset");
-          }
+          const resetDropdown = new StringSelectMenuBuilder()
+            .setCustomId(component.customId)
+            .setPlaceholder(component.placeholder || 'Select an option...')
+            .setMinValues(component.minValues || 0)
+            .setMaxValues(component.maxValues || 1)
+            .addOptions(resetOptions);
+            
+          newActionRow.addComponents(resetDropdown);
+          console.log(`🔄 Reset info dropdown: ${component.customId}`);
         } else {
-          console.warn("⚠️ Webhook not found for webhook message, skipping info dropdown reset");
-        }
-      } catch (webhookError) {
-        console.error("❌ Failed to reset webhook info dropdown:", webhookError);
-      }
-    } else {
-      console.log("🤖 Bot message detected - using standard info dropdown reset");
-      
-      // For regular bot messages, use the standard component rebuild
-      const updatedComponents = await rebuildDropdownComponents(originalMessage, menu, infoMenuId);
-      
-      if (updatedComponents && updatedComponents.length > 0) {
-        try {
-          await originalMessage.edit({
-            components: updatedComponents
-          });
-          console.log("✅ Info dropdown components refreshed without 'edited' mark - TRUE Sapphire style");
-        } catch (editError) {
-          console.error("❌ Failed to edit info dropdown components:", editError);
+          // Keep other components (buttons) as-is
+          newActionRow.addComponents(component);
         }
       }
+      
+      updatedComponents.push(newActionRow);
     }
     
-    // Create and send the page content as ephemeral followUp
+    // Create and send the page content as ephemeral follow-up
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -16029,7 +16089,7 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
       }
       embed.setAuthor(authorData);
     }
-
+    
     // Handle footer with validation
     if (page.content.footer && page.content.footer.text) {
       const footerData = {
@@ -16048,7 +16108,7 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
       }
       embed.setFooter(footerData);
     }
-
+    
     // Handle fields with validation
     if (page.content.fields && Array.isArray(page.content.fields)) {
       const validFields = page.content.fields
@@ -16065,19 +16125,35 @@ async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) 
       }
     }
 
-    // Send the page content as ephemeral followUp
-    await interaction.followUp({ embeds: [embed], ephemeral: true });
+    // Update the message components to reset dropdown
+    await interaction.update({ components: updatedComponents });
     
-    console.log("✅ Professional info dropdown selection processed with component reset and ephemeral followUp");
+    // Send ephemeral follow-up with page content
+    const replyOptions = { 
+      embeds: [embed], 
+      flags: MessageFlags.Ephemeral 
+    };
+    
+    // Only add custom message if one is actually configured
+    const customMessage = menu.customSuccessMessages?.infoPageView;
+    if (customMessage && customMessage.trim()) {
+      replyOptions.content = customMessage.replace('{pageName}', page.content.title || 'Information');
+    }
+    
+    await interaction.followUp(replyOptions);
+    
+    console.log("✅ Sapphire info dropdown selection processed with component reset and ephemeral follow-up");
   } catch (error) {
-    console.error("❌ Error in professional info dropdown handling:", error);
+    console.error("❌ Error in Sapphire info dropdown handling:", error);
     
     // Fallback error handling
     try {
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
+        await interaction.reply({ 
+          content: "❌ Error displaying page content.", 
+          flags: MessageFlags.Ephemeral 
+        });
       }
-      await interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
     } catch (fallbackError) {
       console.error("❌ Fallback error handling failed:", fallbackError);
     }
