@@ -1416,81 +1416,51 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting WEBHOOK-BASED auto-clearing approach...");
+    console.log("🔄 Starting PURE INTERACTION auto-clearing approach...");
     
-    // 🔥 REVOLUTIONARY APPROACH: Use webhook to recreate the message, avoiding "(edited)" badge
-    // Theory: If we recreate the exact message via webhook and delete the original, 
-    // it appears seamless and avoids Discord's edit detection
+    // 🔥 PURE APPROACH: Use the exact same interaction pattern as manual user deselection
+    // Theory: When a user manually deselects, Discord uses interaction.update() without "(edited)" badge
+    // Let's replicate that exact behavior programmatically
     
     const originalMessage = interaction.message;
-    let webhookSuccess = false;
+    const originalComponents = originalMessage.components || [];
     
-    // First, acknowledge the interaction to prevent timeout
-    await interaction.deferUpdate();
+    // Create components with the dropdown reset (mimic manual deselection)
+    const resetComponents = [];
     
-    try {
-      // Get or create a webhook for this channel
-      const webhooks = await interaction.channel.fetchWebhooks();
-      let webhook = webhooks.find(wh => wh.name === 'Auto-Clear Bot');
+    for (const row of originalComponents) {
+      const newRow = new ActionRowBuilder();
       
-      if (!webhook) {
-        webhook = await interaction.channel.createWebhook({
-          name: 'Auto-Clear Bot',
-          avatar: interaction.client.user.displayAvatarURL()
-        });
-      }
-      
-      // Prepare the message content with reset dropdowns
-      const resetComponents = [];
-      
-      for (const row of originalMessage.components) {
-        const newRow = new ActionRowBuilder();
-        
-        for (const component of row.components) {
-          if (component.type === ComponentType.StringSelect) {
-            // Reset dropdown selections
-            const resetDropdown = StringSelectMenuBuilder.from(component)
-              .setOptions(
-                component.options.map(option => ({
-                  ...option,
-                  default: false // Clear all selections
-                }))
-              );
-            newRow.addComponents(resetDropdown);
-          } else {
-            // Keep other components as-is
-            newRow.addComponents(component);
-          }
+      for (const component of row.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // Reset dropdown selections exactly as Discord does for manual deselection
+          const resetDropdown = StringSelectMenuBuilder.from(component)
+            .setOptions(
+              component.options.map(option => ({
+                ...option,
+                default: false // Reset all to unselected, just like manual clear
+              }))
+            );
+          newRow.addComponents(resetDropdown);
+        } else {
+          // Keep other components unchanged
+          newRow.addComponents(component);
         }
-        resetComponents.push(newRow);
       }
-      
-      // Send the "new" message via webhook with reset dropdown
-      const newMessage = await webhook.send({
-        content: originalMessage.content,
-        embeds: originalMessage.embeds,
-        components: resetComponents,
-        username: originalMessage.author.username,
-        avatarURL: originalMessage.author.displayAvatarURL()
-      });
-      
-      // Delete the original message (this removes the "(edited)" possibility entirely)
-      await originalMessage.delete();
-      
-      webhookSuccess = true;
-      console.log("✅ Message recreated via webhook - no '(edited)' badge possible!");
-      
-    } catch (webhookError) {
-      console.error("⚠️ Webhook approach failed, falling back to standard approach:", webhookError);
-      webhookSuccess = false;
-      
-      // Since we already deferred, we just leave the message as-is
-      // The dropdown will naturally reset for the user due to deferUpdate()
-      console.log("📝 Webhook failed - dropdown will reset naturally via deferUpdate()");
+      resetComponents.push(newRow);
     }
     
+    // Use interaction.update() to modify the message as the DIRECT response to user's interaction
+    // This should be treated as the natural result of the interaction, not a separate edit
+    await interaction.update({
+      content: originalMessage.content,
+      embeds: originalMessage.embeds,
+      components: resetComponents
+    });
+    
+    console.log("✅ Dropdown reset using pure interaction.update() - mimicking manual deselection");
+    
     // Send role change notification as ephemeral follow-up
-    // This works regardless of webhook success since we deferred the interaction
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
@@ -1500,10 +1470,10 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       });
     }
     
-    console.log(`✅ WEBHOOK-BASED dropdown handling complete (webhook: ${webhookSuccess ? 'success' : 'fallback'})`);
+    console.log("✅ PURE INTERACTION dropdown handling complete");
     
   } catch (error) {
-    console.error("❌ Error in WEBHOOK-BASED dropdown handling:", error);
+    console.error("❌ Error in PURE INTERACTION dropdown handling:", error);
     
     // Fallback error handling
     try {
@@ -11642,34 +11612,19 @@ async function safeFollowUp(interaction, messageOptions) {
 }
 
 async function handleRoleInteraction(interaction) {
-    // NEW APPROACH: Dropdown interactions are deferred by handleDropdownSelection()
-    // Button interactions still need to be handled directly
+    // PURE INTERACTION APPROACH: No deferring, use interaction.update() directly
 
     try {
-        console.log("🔄 Starting role interaction - using webhook auto-clear approach");
+        console.log("🔄 Starting role interaction - using pure interaction.update() approach");
 
-        // For dropdown interactions, don't check rate limiting here since 
-        // handleDropdownSelection will defer the interaction first
-        if (!interaction.isStringSelectMenu()) {
-            // Check rate limiting for non-dropdown interactions (buttons)
-            if (isOnRoleInteractionCooldown(interaction.user.id)) {
-                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-                
-                return interaction.reply({ 
-                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-        } else {
-            // For dropdown interactions, check rate limiting but use followUp since it's deferred
-            if (isOnRoleInteractionCooldown(interaction.user.id)) {
-                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-                
-                return interaction.followUp({ 
-                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
+        // Check rate limiting FIRST (before any interaction response)
+        if (isOnRoleInteractionCooldown(interaction.user.id)) {
+            const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+            
+            return interaction.reply({ 
+                content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
+                flags: MessageFlags.Ephemeral 
+            });
         }
 
         const parts = interaction.customId.split(":");
@@ -11719,7 +11674,7 @@ async function handleRoleInteraction(interaction) {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
-            return interaction.followUp({ 
+            return interaction.reply({ 
                 content: "❌ Unable to fetch your member information. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11739,7 +11694,7 @@ async function handleRoleInteraction(interaction) {
             // Handle empty selection (user clicked off or used X button to clear)
             if (selectedValues.length === 0) {
                 console.log(`[DEBUG] Empty selection - user cleared the dropdown`);
-                return interaction.followUp({ 
+                return interaction.reply({ 
                     content: "✅ Selection cleared!", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11767,7 +11722,7 @@ async function handleRoleInteraction(interaction) {
             });
             
             if (validRoleIds.length === 0) {
-                return interaction.followUp({ 
+                return interaction.reply({ 
                     content: "❌ None of the selected roles exist anymore. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11792,7 +11747,7 @@ async function handleRoleInteraction(interaction) {
             
             // Check if user cleared the selection (no roles selected)
             if (selectedRoleIds.length === 0) {
-                return interaction.followUp({
+                return interaction.reply({
                     content: '✅ Selection cleared!',
                     flags: MessageFlags.Ephemeral
                 });
@@ -11812,7 +11767,7 @@ async function handleRoleInteraction(interaction) {
                     return role ? role.name : `Unknown Role (${id})`;
                 }).join(', ');
                 
-                return interaction.followUp({
+                return interaction.reply({
                     content: `❌ You cannot select these roles as they are not configured for this menu: **${invalidRoleNames}**`,
                     flags: MessageFlags.Ephemeral
                 });
@@ -11823,7 +11778,7 @@ async function handleRoleInteraction(interaction) {
             const role = interaction.guild.roles.cache.get(roleId);
             
             if (!role) {
-                return interaction.followUp({
+                return interaction.reply({
                     content: '❌ Role not found!',
                     flags: MessageFlags.Ephemeral
                 });
@@ -11831,7 +11786,7 @@ async function handleRoleInteraction(interaction) {
 
             // Check if bot can manage this role
             if (!canManageRole(interaction.guild, role)) {
-                return interaction.followUp({
+                return interaction.reply({
                     content: `❌ I cannot manage the **${role.name}** role because it's higher than or equal to my highest role!`,
                     flags: MessageFlags.Ephemeral
                 });
@@ -11853,7 +11808,7 @@ async function handleRoleInteraction(interaction) {
             const clickedRole = interaction.guild.roles.cache.get(clickedRoleId);
             if (!clickedRole) {
                 console.warn(`[Warning] Clicked role ${clickedRoleId} no longer exists in guild`);
-                return interaction.followUp({ 
+                return interaction.reply({ 
                     content: "❌ The selected role no longer exists. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11866,7 +11821,7 @@ async function handleRoleInteraction(interaction) {
             }
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
-            return interaction.followUp({ 
+            return interaction.reply({ 
                 content: "❌ Unexpected interaction type. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11918,7 +11873,7 @@ async function handleRoleInteraction(interaction) {
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
-            return interaction.followUp({ 
+            return interaction.reply({ 
                 content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11927,7 +11882,7 @@ async function handleRoleInteraction(interaction) {
         // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
-                return interaction.followUp({ 
+                return interaction.reply({ 
                     content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, 
                     flags: MessageFlags.Ephemeral 
                 });
