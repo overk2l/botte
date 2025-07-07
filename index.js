@@ -3904,25 +3904,14 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
             }).filter(Boolean);
 
             if (dropdownOptions.length > 0) {
-                // Add a "Clear Selection" option at the top for better UX
-                const optionsWithClear = [
-                    {
-                        label: "❌ Clear Selection",
-                        value: "clear_selection",
-                        description: "Remove your current role selection",
-                        emoji: "❌"
-                    },
-                    ...dropdownOptions
-                ];
-
                 // Add timestamp to make dropdown truly unique and force clearing selection
                 const timestamp = Date.now();
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
                     .setPlaceholder("Select a role to toggle...")
-                    .setMinValues(1) // Require selection (including clear option)
+                    .setMinValues(0) // Allow clearing selection with native X button
                     .setMaxValues(1) // Single select for better UX
-                    .addOptions(optionsWithClear);
+                    .addOptions(dropdownOptions);
                 components.push(new ActionRowBuilder().addComponents(selectMenu));
             }
         }
