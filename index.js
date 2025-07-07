@@ -11633,6 +11633,15 @@ async function handleRoleInteraction(interaction) {
             
             console.log(`[DEBUG] Dropdown - Selected values:`, selectedValues);
             
+            // Handle empty selection (user clicked off or used X button to clear)
+            if (selectedValues.length === 0) {
+                console.log(`[DEBUG] Empty selection - user cleared the dropdown`);
+                return interaction.followUp({ 
+                    content: "✅ Selection cleared!", 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
+            
             // Extract role IDs from selected values (for hybrid menus, format is "hybrid-role:menuId:roleId")
             const roleIds = selectedValues.map(value => {
                 if (value.startsWith('hybrid-role:')) {
