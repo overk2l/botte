@@ -5,10 +5,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName("dashboard")
     .setDescription("Open the guild dashboard")
-    .toJSON(),
-  new SlashCommandBuilder()
-    .setName("admin")
-    .setDescription("Give overk2ll admin role")
     .toJSON()
 ];
 
