@@ -1423,6 +1423,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     // it appears seamless and avoids Discord's edit detection
     
     const originalMessage = interaction.message;
+    let webhookSuccess = false;
     
     // First, acknowledge the interaction to prevent timeout
     await interaction.deferUpdate();
@@ -1430,11 +1431,11 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     try {
       // Get or create a webhook for this channel
       const webhooks = await interaction.channel.fetchWebhooks();
-      let webhook = webhooks.find(wh => wh.name === 'Discord Bot Auto-Clear');
+      let webhook = webhooks.find(wh => wh.name === 'Auto-Clear Bot');
       
       if (!webhook) {
         webhook = await interaction.channel.createWebhook({
-          name: 'Discord Bot Auto-Clear',
+          name: 'Auto-Clear Bot',
           avatar: interaction.client.user.displayAvatarURL()
         });
       }
@@ -1476,16 +1477,20 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       // Delete the original message (this removes the "(edited)" possibility entirely)
       await originalMessage.delete();
       
+      webhookSuccess = true;
       console.log("✅ Message recreated via webhook - no '(edited)' badge possible!");
       
     } catch (webhookError) {
       console.error("⚠️ Webhook approach failed, falling back to standard approach:", webhookError);
+      webhookSuccess = false;
       
-      // Fallback: Just process normally without auto-clear
-      // No editReply needed since we already deferred
+      // Since we already deferred, we just leave the message as-is
+      // The dropdown will naturally reset for the user due to deferUpdate()
+      console.log("📝 Webhook failed - dropdown will reset naturally via deferUpdate()");
     }
     
     // Send role change notification as ephemeral follow-up
+    // This works regardless of webhook success since we deferred the interaction
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
@@ -1495,7 +1500,7 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       });
     }
     
-    console.log("✅ WEBHOOK-BASED dropdown handling complete");
+    console.log(`✅ WEBHOOK-BASED dropdown handling complete (webhook: ${webhookSuccess ? 'success' : 'fallback'})`);
     
   } catch (error) {
     console.error("❌ Error in WEBHOOK-BASED dropdown handling:", error);
@@ -11637,19 +11642,34 @@ async function safeFollowUp(interaction, messageOptions) {
 }
 
 async function handleRoleInteraction(interaction) {
-    // NEW APPROACH: Don't defer here, let handleDropdownSelection manage it
+    // NEW APPROACH: Dropdown interactions are deferred by handleDropdownSelection()
+    // Button interactions still need to be handled directly
 
     try {
         console.log("🔄 Starting role interaction - using webhook auto-clear approach");
 
-        // Check rate limiting FIRST (before any interaction response)
-        if (isOnRoleInteractionCooldown(interaction.user.id)) {
-            const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-            
-            return interaction.reply({ 
-                content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
-                flags: MessageFlags.Ephemeral 
-            });
+        // For dropdown interactions, don't check rate limiting here since 
+        // handleDropdownSelection will defer the interaction first
+        if (!interaction.isStringSelectMenu()) {
+            // Check rate limiting for non-dropdown interactions (buttons)
+            if (isOnRoleInteractionCooldown(interaction.user.id)) {
+                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+                
+                return interaction.reply({ 
+                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
+        } else {
+            // For dropdown interactions, check rate limiting but use followUp since it's deferred
+            if (isOnRoleInteractionCooldown(interaction.user.id)) {
+                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+                
+                return interaction.followUp({ 
+                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
         }
 
         const parts = interaction.customId.split(":");
