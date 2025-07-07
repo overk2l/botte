@@ -3280,16 +3280,42 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
       
       const guild = originalMessage.guild;
       if (guild) {
-        // Use RoleSelectMenuBuilder for better UX with native X button
-        const roleSelect = new RoleSelectMenuBuilder()
-          .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`)
-          .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
-          .setMinValues(0)
-          .setMaxValues(1) // Single select for native X button
-          .addDefaultRoles(menu.dropdownRoles); // Add the roles that can be selected
+        // Build role options with proper labels, emojis, descriptions, and member counts
+        const roleOptions = (menu.dropdownRoles || []).map(roleId => {
+          const role = guild.roles.cache.get(roleId);
+          if (!role) return null;
+          
+          // Get member count if enabled for dropdowns
+          const memberCountOptions = menu.memberCountOptions || {};
+          const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+          const memberCount = showCountsInDropdowns ? role.members.size : null;
+          const labelText = memberCount !== null 
+              ? `${role.name} (${memberCount})` 
+              : role.name;
+          
+          return {
+              label: labelText.substring(0, 100),
+              value: role.id,
+              emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || undefined,
+              description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100) || undefined,
+              default: false
+          };
+        }).filter(Boolean);
 
-        components.push(new ActionRowBuilder().addComponents(roleSelect));
-        console.log(`[Webhook Debug] FORCE Added roles dropdown with RoleSelectMenuBuilder`);
+        if (roleOptions.length > 0) {
+          // Use StringSelectMenuBuilder with only configured roles for better UX
+          const roleSelect = new StringSelectMenuBuilder()
+            .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`)
+            .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
+            .addOptions(roleOptions); // Only show configured roles
+
+          components.push(new ActionRowBuilder().addComponents(roleSelect));
+          console.log(`[Webhook Debug] FORCE Added roles dropdown with StringSelectMenuBuilder and ${roleOptions.length} configured roles`);
+        } else {
+          console.log(`[Webhook Debug] No valid configured roles found for dropdown`);
+        }
       } else {
         console.log(`[Webhook Debug] No guild found for role dropdown`);
       }
