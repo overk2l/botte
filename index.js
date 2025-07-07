@@ -3303,16 +3303,16 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
         }).filter(Boolean);
 
         if (roleOptions.length > 0) {
-          // Use RoleSelectMenuBuilder for native X button UX, but validate roles on backend
-          const roleSelect = new RoleSelectMenuBuilder()
+          // Use StringSelectMenuBuilder to show ONLY configured roles
+          const roleSelect = new StringSelectMenuBuilder()
             .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`)
             .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
-            .setMinValues(0) // Allow clearing selection with native X button
+            .setMinValues(0) // Allow clearing selection with X button
             .setMaxValues(1) // Single select for better UX
-            .addDefaultRoles(menu.dropdownRoles); // Pre-highlight the configured roles
+            .addOptions(roleOptions); // Only show configured roles
 
           components.push(new ActionRowBuilder().addComponents(roleSelect));
-          console.log(`[Webhook Debug] FORCE Added roles dropdown with RoleSelectMenuBuilder and native X button`);
+          console.log(`[Webhook Debug] FORCE Added roles dropdown with StringSelectMenuBuilder showing only ${roleOptions.length} configured roles`);
         } else {
           console.log(`[Webhook Debug] No valid configured roles found for dropdown`);
         }
@@ -12898,13 +12898,13 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
         }).filter(Boolean);
 
         if (roleOptions.length > 0) {
-            // Use RoleSelectMenuBuilder for native X button UX, validate roles on backend
-            const roleDropdown = new RoleSelectMenuBuilder()
+            // Use StringSelectMenuBuilder to show ONLY configured roles
+            const roleDropdown = new StringSelectMenuBuilder()
                 .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
                 .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
                 .setMinValues(0) // Allow clearing selection
                 .setMaxValues(1) // Single select for better UX
-                .addDefaultRoles(dropdownRoles); // Pre-highlight configured roles
+                .addOptions(roleOptions); // Only show configured roles
             
             componentParts.push({
                 order: componentOrder.roleDropdown || 2,
@@ -13903,16 +13903,40 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           });
 
           if (validRolesList.length > 0) {
-            // Add timestamp to make dropdown truly unique and force clearing selection
-            const timestamp = Date.now();
-            // Use RoleSelectMenuBuilder for native X button UX, validate roles on backend
-            const selectMenu = new RoleSelectMenuBuilder()
-              .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
-              .setPlaceholder("Select a role to toggle...")
-              .setMinValues(0) // Allow clearing selection with native X button
-              .setMaxValues(1) // Single select for better UX
-              .addDefaultRoles(validRolesList); // Pre-highlight configured roles
-            components.push(new ActionRowBuilder().addComponents(selectMenu));
+            // Build role options with proper labels, emojis, descriptions, and member counts
+            const roleOptions = validRolesList.map(roleId => {
+              const role = interaction.guild.roles.cache.get(roleId);
+              if (!role) return null;
+              
+              // Get member count if enabled for dropdowns
+              const memberCountOptions = menu.memberCountOptions || {};
+              const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+              const memberCount = showCountsInDropdowns ? role.members.size : null;
+              const labelText = memberCount !== null 
+                  ? `${role.name} (${memberCount})` 
+                  : role.name;
+              
+              return {
+                  label: labelText.substring(0, 100),
+                  value: role.id,
+                  emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || undefined,
+                  description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100) || undefined,
+                  default: false
+              };
+            }).filter(Boolean);
+
+            if (roleOptions.length > 0) {
+              // Add timestamp to make dropdown truly unique and force clearing selection
+              const timestamp = Date.now();
+              // Use StringSelectMenuBuilder to show ONLY configured roles
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
+                .setPlaceholder("Select a role to toggle...")
+                .setMinValues(0) // Allow clearing selection 
+                .setMaxValues(1) // Single select for better UX
+                .addOptions(roleOptions); // Only show configured roles
+              components.push(new ActionRowBuilder().addComponents(selectMenu));
+            }
           }
         }
 
