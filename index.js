@@ -1419,13 +1419,9 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     console.log("🔄 Starting TRUE Sapphire dropdown handling...");
     
     // 🔥 TRUE SAPPHIRE APPROACH: Never edit the original message
-    // Just acknowledge the interaction and send ephemeral feedback
+    // interaction.deferUpdate() was already called in handleRoleInteraction()
     
-    // 1. Acknowledge the interaction - this resets the dropdown without editing
-    await interaction.deferUpdate();
-    console.log("✅ Dropdown interaction deferred - menu reset, no '(edited)' badge");
-    
-    // 2. Send role change notification as ephemeral follow-up (if needed)
+    // Send role change notification as ephemeral follow-up (if needed)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
@@ -1442,9 +1438,6 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
     
     // Fallback error handling
     try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
-      }
       await interaction.followUp({ 
         content: "❌ An error occurred processing your selection.", 
         flags: MessageFlags.Ephemeral 
@@ -11559,15 +11552,18 @@ async function safeFollowUp(interaction, messageOptions) {
 
 async function handleRoleInteraction(interaction) {
     // Deferring is now handled at the main interaction level
-    // TRUE Sapphire approach: Dropdown interactions use deferUpdate(), button interactions use deferReply
+    // TRUE Sapphire approach: ALL dropdown interactions use deferUpdate() first
 
     try {
-        // Check rate limiting BEFORE processing interaction
+        // 🔥 ALWAYS defer update first - this prevents "(edited)" badge for ALL cases
+        await interaction.deferUpdate();
+        console.log("✅ Role interaction deferred - menu will reset, no '(edited)' badge");
+
+        // Check rate limiting AFTER deferring
         if (isOnRoleInteractionCooldown(interaction.user.id)) {
             const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
             
-            // For both dropdown and button interactions, use ephemeral reply (pristine Sapphire)
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11580,7 +11576,7 @@ async function handleRoleInteraction(interaction) {
         
         if (!menuId || menuId === 'undefined') {
             console.error(`[Error] Invalid menuId found in customId: ${interaction.customId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ This reaction role menu has an invalid configuration. Please contact an administrator.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11599,7 +11595,7 @@ async function handleRoleInteraction(interaction) {
         
         if (!menu) {
             console.error(`[Error] Attempted to access non-existent menu with ID: ${menuId}. CustomId: ${interaction.customId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ This reaction role menu is no longer valid. It might have been deleted or corrupted.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11611,7 +11607,7 @@ async function handleRoleInteraction(interaction) {
         // Validate guild and member
         if (!interaction.guild || !interaction.member) {
             console.error(`[Error] Invalid guild or member for menu ${menuId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ Unable to process role interaction. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11620,7 +11616,7 @@ async function handleRoleInteraction(interaction) {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
         if (!member) {
             console.error(`[Error] Could not fetch member ${interaction.user.id} for menu ${menuId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ Unable to fetch your member information. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11659,7 +11655,7 @@ async function handleRoleInteraction(interaction) {
             });
             
             if (validRoleIds.length === 0) {
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: "❌ None of the selected roles exist anymore. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11745,7 +11741,7 @@ async function handleRoleInteraction(interaction) {
             const clickedRole = interaction.guild.roles.cache.get(clickedRoleId);
             if (!clickedRole) {
                 console.warn(`[Warning] Clicked role ${clickedRoleId} no longer exists in guild`);
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: "❌ The selected role no longer exists. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11758,7 +11754,7 @@ async function handleRoleInteraction(interaction) {
             }
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ Unexpected interaction type. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11810,7 +11806,7 @@ async function handleRoleInteraction(interaction) {
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11819,7 +11815,7 @@ async function handleRoleInteraction(interaction) {
         // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, 
                     flags: MessageFlags.Ephemeral 
                 });
