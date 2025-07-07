@@ -3258,6 +3258,8 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
         const infoSelect = new StringSelectMenuBuilder()
           .setCustomId(`hybrid-info-select:${hybridMenuId}:${timestamp}`) // Fresh timestamp
           .setPlaceholder(menu.infoDropdownPlaceholder || "📋 Select information page...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(infoOptions.slice(0, 25)); // Discord limit
 
         components.push(new ActionRowBuilder().addComponents(infoSelect));
@@ -3770,29 +3772,42 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
 
         // Rebuild Dropdown Select Menu
         if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-            const orderedRoles = menu.dropdownRoleOrder.length > 0
+            const dropdownOptions = (menu.dropdownRoleOrder.length > 0
                 ? menu.dropdownRoleOrder
-                : menu.dropdownRoles;
-
-            // Filter out non-existent roles
-            const validRoles = orderedRoles.filter(roleId => {
+                : menu.dropdownRoles
+            ).map(roleId => {
                 const role = guild.roles.cache.get(roleId);
                 if (!role) {
                     console.warn(`Role ${roleId} not found in guild for menu ${menuId}`);
-                    return false;
+                    return null;
                 }
-                return true;
-            });
+                
+                // Get member count if enabled for dropdowns
+                const memberCountOptions = menu.memberCountOptions || {};
+                const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+                const memberCount = showCountsInDropdowns ? role.members.size : null;
+                const labelText = memberCount !== null 
+                    ? `${role.name} (${memberCount})` 
+                    : role.name;
+                
+                return {
+                    label: labelText.substring(0, 100),
+                    value: role.id,
+                    emoji: parseEmoji(menu.dropdownEmojis[role.id]),
+                    description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
+                    default: false // Always set default to false so roles are not pre-selected
+                };
+            }).filter(Boolean);
 
-            if (validRoles.length > 0) {
+            if (dropdownOptions.length > 0) {
                 // Add timestamp to make dropdown truly unique and force clearing selection
                 const timestamp = Date.now();
-                const selectMenu = new RoleSelectMenuBuilder()
+                const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
                     .setPlaceholder("Select a role to toggle...")
-                    .setMinValues(0)
-                    .setMaxValues(1) // Single select for native X button
-                    .addDefaultRoles(validRoles);
+                    .setMinValues(0) // Allow clearing selection for better UX
+                    .setMaxValues(1) // Single select for better UX
+                    .addOptions(dropdownOptions);
                 components.push(new ActionRowBuilder().addComponents(selectMenu));
             }
         }
@@ -4857,6 +4872,8 @@ client.on("interactionCreate", async (interaction) => {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`hybrid:select_page_display_type:${hybridMenuId}`)
               .setPlaceholder("Choose how this page should be displayed...")
+              .setMinValues(0) // Allow clearing selection with native X button
+              .setMaxValues(1) // Single select for better UX
               .addOptions([
                 { label: "Dropdown", value: "dropdown", description: "Show as dropdown option", emoji: "📋" },
                 { label: "Button", value: "button", description: "Show as individual button", emoji: "🔘" }
@@ -4931,8 +4948,8 @@ client.on("interactionCreate", async (interaction) => {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`hybrid:select_dropdown_role:${hybridMenuId}`)
               .setPlaceholder("Select roles to add to dropdown...")
-              .setMinValues(1)
-              .setMaxValues(Math.min(roleOptions.length, 25))
+              .setMinValues(0)
+              .setMaxValues(1)
               .addOptions(roleOptions);
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -4992,8 +5009,8 @@ client.on("interactionCreate", async (interaction) => {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`hybrid:select_button_role:${hybridMenuId}`)
               .setPlaceholder("Select roles to add as buttons...")
-              .setMinValues(1)
-              .setMaxValues(Math.min(roleOptions.length, 25))
+              .setMinValues(0)
+              .setMaxValues(1)
               .addOptions(roleOptions);
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -6571,6 +6588,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectMenu = new StringSelectMenuBuilder()
             .setCustomId(`rr:select_role_for_color:${menuId}`)
             .setPlaceholder("Select a role to change its button color...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions(roleOptions);
 
           const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -6678,6 +6697,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectMenu = new StringSelectMenuBuilder()
             .setCustomId("rr:select_template")
             .setPlaceholder("Choose a template...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions(templateOptions);
 
           const backButton = new ButtonBuilder()
@@ -6842,6 +6863,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectMenu = new StringSelectMenuBuilder()
             .setCustomId("info:select_template")
             .setPlaceholder("Select a template to use...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions(templateOptions);
 
           return interaction.editReply({
@@ -7410,6 +7433,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectMenu = new StringSelectMenuBuilder()
             .setCustomId(`info:select_page_for_button_color:${infoMenuId}`)
             .setPlaceholder("Select a page to configure button color...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions(pageOptions);
 
           return interaction.editReply({
@@ -7745,7 +7770,7 @@ client.on("interactionCreate", async (interaction) => {
             .setCustomId(`rr:select_exclusion_roles:${triggerRoleId}:${menuId}`)
             .setPlaceholder("Select roles to exclude when " + String(interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role") + " is picked...")
             .setMinValues(0)
-            .setMaxValues(Math.min(allRoles.size, 25))
+            .setMaxValues(1)
             .addOptions(roleOptions);
 
           return interaction.editReply({
@@ -7814,6 +7839,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectMenu = new StringSelectMenuBuilder()
             .setCustomId(`rr:set_role_button_color:${menuId}:${roleId}`)
             .setPlaceholder("Choose button color...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions([
               { label: "Primary (Blue)", value: "Primary", emoji: "🔵" },
               { label: "Secondary (Gray)", value: "Secondary", emoji: "⚪" },
@@ -8792,6 +8819,8 @@ client.on("interactionCreate", async (interaction) => {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`hybrid:save_page_override:${hybridMenuId}:${pageId}`)
               .setPlaceholder("Choose display type for this page...")
+              .setMinValues(0) // Allow clearing selection with native X button
+              .setMaxValues(1) // Single select for better UX
               .addOptions([
                 { label: "Dropdown Only", value: "dropdown", description: "Show this page as dropdown option only" },
                 { label: "Buttons Only", value: "button", description: "Show this page as button only" },
@@ -8832,6 +8861,8 @@ client.on("interactionCreate", async (interaction) => {
             const selectMenu = new StringSelectMenuBuilder()
               .setCustomId(`hybrid:save_role_override:${hybridMenuId}:${roleId}`)
               .setPlaceholder("Choose display type for this role...")
+              .setMinValues(0) // Allow clearing selection with native X button
+              .setMaxValues(1) // Single select for better UX
               .addOptions([
                 { label: "Dropdown Only", value: "dropdown", description: "Show this role as dropdown option only" },
                 { label: "Buttons Only", value: "button", description: "Show this role as button only" },
@@ -8967,7 +8998,7 @@ client.on("interactionCreate", async (interaction) => {
               .setCustomId(`hybrid:select_exclusion_roles:${triggerRoleId}:${hybridMenuId}`)
               .setPlaceholder("Select roles to exclude when " + String(interaction.guild.roles.cache.get(triggerRoleId)?.name || "Unknown Role") + " is picked...")
               .setMinValues(0)
-              .setMaxValues(Math.min(availableRoles.length, 25))
+              .setMaxValues(1)
               .addOptions(roleOptions);
 
             return interaction.editReply({
@@ -10647,6 +10678,8 @@ client.on("interactionCreate", async (interaction) => {
               const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`info-menu-select:${infoMenuId}:${Date.now()}`)
                 .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
+                .setMinValues(0) // Allow clearing selection with native X button
+                .setMaxValues(1) // Single select for better UX
                 .addOptions(pageOptions);
 
               components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -11860,7 +11893,7 @@ async function promptManageRoles(interaction, menuId, type) {
       .setCustomId(`rr:save_managed_roles:${type}:${menuId}`)
       .setPlaceholder("Select/Deselect your " + type + " roles...")
       .setMinValues(0)
-      .setMaxValues(Math.min(allRoles.size, 25))
+      .setMaxValues(1)
       .addOptions(roleOptions);
 
     await interaction.editReply({
@@ -12163,6 +12196,8 @@ async function showScheduleNewMessageMenu(interaction) {
       new StringSelectMenuBuilder()
         .setCustomId("schedule:select_menu")
         .setPlaceholder("Choose an info menu to schedule...")
+        .setMinValues(0) // Allow clearing selection with native X button
+        .setMaxValues(1) // Single select for better UX
         .addOptions(menuOptions)
     );
     
@@ -12240,6 +12275,8 @@ async function showManageSchedulesMenu(interaction) {
       new StringSelectMenuBuilder()
         .setCustomId("schedule:select_manage")
         .setPlaceholder("Choose a schedule to manage...")
+        .setMinValues(0) // Allow clearing selection with native X button
+        .setMaxValues(1) // Single select for better UX
         .addOptions(scheduleOptions)
     );
     
@@ -12768,6 +12805,8 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
         const infoDropdown = new StringSelectMenuBuilder()
             .setCustomId(`hybrid-info-select:${hybridMenuId}:${Date.now()}`)
             .setPlaceholder(menu.infoDropdownPlaceholder || "📚 Select a page to view...")
+            .setMinValues(0) // Allow clearing selection with native X button
+            .setMaxValues(1) // Single select for better UX
             .addOptions(infoOptions);
         
         componentParts.push({
@@ -12779,19 +12818,43 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add roles dropdown if we have roles to show
     if (dropdownRoles.length > 0) {
-        // Use RoleSelectMenuBuilder for better UX with native X button
-        const roleDropdown = new RoleSelectMenuBuilder()
-            .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
-            .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
-            .setMinValues(0)
-            .setMaxValues(1) // Single select for native X button
-            .addDefaultRoles(dropdownRoles); // Add the roles that can be selected
+        // Filter and build role options exactly as before, but use RoleSelectMenuBuilder for better UX
+        const roleOptions = dropdownRoles.map(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (!role) return null;
             
-        componentParts.push({
-            order: componentOrder.roleDropdown || 2,
-            type: 'roleDropdown',
-            component: new ActionRowBuilder().addComponents(roleDropdown)
-        });
+            // Get member count if enabled for dropdowns
+            const memberCountOptions = menu.memberCountOptions || {};
+            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+            const memberCount = showCountsInDropdowns ? role.members.size : null;
+            const labelText = memberCount !== null 
+                ? `${role.name} (${memberCount})` 
+                : role.name;
+            
+            return {
+                label: labelText.substring(0, 100),
+                value: role.id,
+                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || '🎭',
+                description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
+                default: false
+            };
+        }).filter(Boolean);
+
+        if (roleOptions.length > 0) {
+            // Use StringSelectMenuBuilder but with improved configuration for better UX
+            const roleDropdown = new StringSelectMenuBuilder()
+                .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
+                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
+                .setMinValues(0) // Allow clearing selection
+                .setMaxValues(1) // Single select for better UX
+                .addOptions(roleOptions);
+            
+            componentParts.push({
+                order: componentOrder.roleDropdown || 2,
+                type: 'roleDropdown',
+                component: new ActionRowBuilder().addComponents(roleDropdown)
+            });
+        }
     }
 
     // Add info pages buttons if we have pages to show as buttons
@@ -13385,6 +13448,8 @@ async function showReactionRolesDashboard(interaction) {
       const selectMenu = new StringSelectMenuBuilder()
           .setCustomId("rr:selectmenu")
           .setPlaceholder("Select a menu to configure...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(menuOptions);
       components.push(new ActionRowBuilder().addComponents(selectMenu));
   } else {
@@ -13781,15 +13846,39 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
           });
 
           if (validRolesList.length > 0) {
-            // Add timestamp to make dropdown truly unique and force clearing selection
-            const timestamp = Date.now();
-            const selectMenu = new RoleSelectMenuBuilder()
-              .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
-              .setPlaceholder("Select a role to toggle...")
-              .setMinValues(0)
-              .setMaxValues(1) // Single select for native X button
-              .addDefaultRoles(validRolesList);
-            components.push(new ActionRowBuilder().addComponents(selectMenu));
+            // Build role options with proper labels, emojis, descriptions, and member counts
+            const roleOptions = validRolesList.map(roleId => {
+              const role = interaction.guild.roles.cache.get(roleId);
+              if (!role) return null;
+              
+              // Get member count if enabled for dropdowns
+              const memberCountOptions = menu.memberCountOptions || {};
+              const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
+              const memberCount = showCountsInDropdowns ? role.members.size : null;
+              const labelText = memberCount !== null 
+                  ? `${role.name} (${memberCount})` 
+                  : role.name;
+              
+              return {
+                  label: labelText.substring(0, 100),
+                  value: role.id,
+                  emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || undefined,
+                  description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100) || undefined,
+                  default: false
+              };
+            }).filter(Boolean);
+
+            if (roleOptions.length > 0) {
+              // Add timestamp to make dropdown truly unique and force clearing selection
+              const timestamp = Date.now();
+              const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
+                .setPlaceholder("Select a role to toggle...")
+                .setMinValues(0) // Allow clearing selection with native X button
+                .setMaxValues(1) // Single select for better UX
+                .addOptions(roleOptions);
+              components.push(new ActionRowBuilder().addComponents(selectMenu));
+            }
           }
         }
 
@@ -14180,6 +14269,8 @@ async function showInfoMenuPageManagement(interaction, infoMenuId) {
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId(`info:page_action:${infoMenuId}`)
       .setPlaceholder("Select a page to edit or delete...")
+      .setMinValues(0) // Allow clearing selection with native X button
+      .setMaxValues(1) // Single select for better UX
       .addOptions(pageOptions.slice(0, 25));
 
     components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -14374,6 +14465,8 @@ async function publishInfoMenu(interaction, infoMenuId, existingMessage = null) 
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId(`info-menu-select:${infoMenuId}:${Date.now()}`)
           .setPlaceholder(menu.dropdownPlaceholder || "📚 Select a page to view...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(pageOptions);
 
         components.push(new ActionRowBuilder().addComponents(selectMenu));
@@ -14483,6 +14576,8 @@ async function showInfoMenusDashboard(interaction) {
       const selectMenu = new StringSelectMenuBuilder()
           .setCustomId("info:selectmenu")
           .setPlaceholder("Select a menu to configure...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(menuOptions);
       components.push(new ActionRowBuilder().addComponents(selectMenu));
   } else {
@@ -14549,6 +14644,8 @@ async function showHybridMenusDashboard(interaction) {
       const selectMenu = new StringSelectMenuBuilder()
           .setCustomId("hybrid:selectmenu")
           .setPlaceholder("Select a hybrid menu to configure...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(menuOptions);
       components.push(new ActionRowBuilder().addComponents(selectMenu));
   } else {
@@ -14823,6 +14920,8 @@ async function publishInfoMenuToChannel(menu, channel, mockInteraction) {
         const dropdown = new StringSelectMenuBuilder()
           .setCustomId(`info-menu:${menu.id}`)
           .setPlaceholder(menu.dropdownPlaceholder || 'Select an option...')
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(options);
         
         components.push(new ActionRowBuilder().addComponents(dropdown));
@@ -15312,6 +15411,8 @@ async function showHybridRolesConfiguration(interaction, hybridMenuId, successMe
         new StringSelectMenuBuilder()
           .setCustomId(`hybrid:manage_role:${hybridMenuId}`)
           .setPlaceholder("Select a role to edit or delete...")
+          .setMinValues(0) // Allow clearing selection with native X button
+          .setMaxValues(1) // Single select for better UX
           .addOptions(roleOptions.slice(0, 25))
       );
       components.push(roleSelectRow);
