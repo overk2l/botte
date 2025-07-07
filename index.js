@@ -1,39 +1,6 @@
 /*
  * Discord Bot - Comprehensive Menu Management System
  * 
- * DROPDOWN SYSTEM OPTIMIZATION - COMPLETED:
- * 
- * 🎯 OBJECTIVES ACHIEVED:
- * - ✅ Only configured roles/pages shown in dropdowns (StringSelectMenuBuilder)
- * - ✅ Support for role toggling (add/remove) via dropdown selection
- * - ✅ Native dropdown clearing with X button (setMinValues(0))
- * - ✅ Eliminated "(edited)" badge using Sapphire-style approach
- * - ✅ Seamless dropdown reset after user interaction
- * - ✅ Consistent ephemeral feedback for all interactions
- * - ✅ Backend validation prevents selection of unconfigured items
- * - ✅ Maintains compatibility with all advanced features
- * 
- * 🔧 TECHNICAL IMPLEMENTATION:
- * - All dropdowns use StringSelectMenuBuilder with precise filtering
- * - setMinValues(0) + setMaxValues(1) for single-select with clearing
- * - All options set to default: false (clean dropdown appearance)
- * - Handlers use interaction.deferUpdate() + interaction.followUp() pattern
- * - No interaction.reply() calls in dropdown handlers (prevents conflicts)
- * - Explicit empty selection handling with "Selection cleared!" message
- * - Comprehensive error handling using deferUpdate + followUp consistency
- * 
- * 🚀 SAPPHIRE-STYLE UX:
- * - Dropdown resets visually after each selection (no selected option shown)
- * - No "(edited)" badge on messages (achieved via deferUpdate() only)
- * - Immediate ephemeral feedback for all user actions
- * - Professional, clean user experience matching Sapphire Framework
- * 
- * ⚠️ LIMITATION DISCOVERED:
- * - Discord API does not support programmatic dropdown reset without "(edited)" badge
- * - Manual user clearing (X button) works perfectly without badge
- * - Bot-initiated message edits always cause "(edited)" badge to appear
- * - Current implementation is optimal given Discord API constraints
- * 
  * RECENT FIXES (Applied):
  * - Fixed "infinite thinking" and "InteractionNotReplied" errors in hybrid menu system
  * - Added comprehensive error handling and timeout management for all hybrid menu interactions
@@ -1449,36 +1416,27 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting MINIMAL INTERFERENCE approach...");
+    // � SNAP BACK PATTERN: deferUpdate() is all we need for clean reset
+    // This tells Discord "ok, handled" without editing → no "(edited)" badge
+    // The menu automatically resets to placeholder state
     
-    // 🔥 MINIMAL INTERFERENCE: Do absolutely NOTHING to the message
-    // Theory: The "(edited)" badge appears because we're interfering at all
-    // Let's try pure Sapphire with deferUpdate() only - no message modifications whatsoever
-    
-    // Just acknowledge the interaction - this should reset the dropdown naturally
-    await interaction.deferUpdate();
-    console.log("✅ Interaction deferred - dropdown should reset naturally");
-    
-    // Send role change notification as ephemeral follow-up
+    // Send role change notification as ephemeral follow-up (if needed)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
       await sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRoles, removedRoles, member);
     } else if (member) {
+      // No changes case - send ephemeral follow-up
       await interaction.followUp({ 
         content: "No changes made to your roles.", 
         flags: MessageFlags.Ephemeral 
       });
     }
     
-    console.log("✅ MINIMAL INTERFERENCE complete - no message modifications at all");
-    
+    console.log("✅ Snap back dropdown handling complete - menu reset cleanly");
   } catch (error) {
-    console.error("❌ Error in MINIMAL INTERFERENCE dropdown handling:", error);
+    console.error("❌ Error in snap back dropdown handling:", error);
     
-    // Fallback error handling - use deferUpdate + followUp for consistency
+    // Fallback error handling
     try {
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.deferUpdate();
-      }
       await interaction.followUp({ 
         content: "❌ An error occurred processing your selection.", 
         flags: MessageFlags.Ephemeral 
@@ -1572,11 +1530,22 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
 
   // Send ephemeral follow-up - this ensures privacy and never updates the original message
   try {
-    await interaction.followUp({ 
+    const replyMessage = await interaction.followUp({ 
       embeds: [embed], 
       flags: MessageFlags.Ephemeral 
     });
     console.log("✅ Sent role change notification as ephemeral follow-up");
+    
+    // Auto-delete ephemeral message after 5 seconds for better UX
+    setTimeout(async () => {
+      try {
+        await interaction.deleteReply(replyMessage.id);
+        console.log("🗑️ Auto-deleted ephemeral role notification after 5 seconds");
+      } catch (deleteError) {
+        // Silently fail - ephemeral messages naturally expire anyway
+        console.log("ℹ️ Ephemeral message already expired or deleted");
+      }
+    }, 5000);
     
   } catch (error) {
     console.error("❌ Error sending role notification:", error);
@@ -1591,12 +1560,23 @@ async function sendRoleChangeNotificationEphemeralFollowUp(interaction, addedRol
         simpleMessage = `✅ Removed ${removedRoles.length} role${removedRoles.length > 1 ? 's' : ''}!`;
       }
       
-      await interaction.followUp({ 
+      const fallbackReply = await interaction.reply({ 
         content: simpleMessage, 
         flags: MessageFlags.Ephemeral 
       });
+      
+      // Auto-delete fallback message too
+      setTimeout(async () => {
+        try {
+          await interaction.deleteReply();
+          console.log("🗑️ Auto-deleted fallback ephemeral notification after 5 seconds");
+        } catch (deleteError) {
+          console.log("ℹ️ Fallback ephemeral message already expired or deleted");
+        }
+      }, 5000);
+      
     } catch (fallbackError) {
-      console.error("❌ Fallback notification failed:", fallbackError);
+      console.error("❌ Fallback role notification also failed:", fallbackError);
     }
   }
 }
@@ -9099,12 +9079,9 @@ client.on("interactionCreate", async (interaction) => {
         
         // Handle empty selection (user clicked off or used X button to clear)
         if (interaction.values.length === 0) {
-          console.log(`[DEBUG] Empty info selection - user cleared the dropdown`);
+          console.log(`[DEBUG] Empty info selection - user cleared the dropdown (silent)`);
           await interaction.deferUpdate();
-          return interaction.followUp({ 
-            content: "✅ Selection cleared!", 
-            flags: MessageFlags.Ephemeral 
-          });
+          return; // Silent - no followUp message
         }
 
         const selectedPageId = interaction.values[0];
@@ -11585,33 +11562,22 @@ async function safeFollowUp(interaction, messageOptions) {
 }
 
 async function handleRoleInteraction(interaction) {
-    // MINIMAL INTERFERENCE: Let handleDropdownSelection manage deferring
+    // Deferring is now handled at the main interaction level
+    // TRUE Sapphire approach: ALL dropdown interactions use deferUpdate() first
 
     try {
-        console.log("🔄 Starting role interaction - minimal interference approach");
+        // 🔥 ALWAYS defer update first - this prevents "(edited)" badge for ALL cases
+        await interaction.deferUpdate();
+        console.log("✅ Role interaction deferred - menu will reset, no '(edited)' badge");
 
-        // For dropdown interactions, let handleDropdownSelection handle everything
-        // For button interactions, check rate limiting first
-        if (!interaction.isStringSelectMenu()) {
-            // Check rate limiting for button interactions
-            if (isOnRoleInteractionCooldown(interaction.user.id)) {
-                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-                
-                return interaction.reply({ 
-                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-        } else {
-            // For dropdown interactions, check rate limiting after deferring
-            if (isOnRoleInteractionCooldown(interaction.user.id)) {
-                const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
-                
-                return interaction.followUp({ 
-                    content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
+        // Check rate limiting AFTER deferring
+        if (isOnRoleInteractionCooldown(interaction.user.id)) {
+            const timeLeft = Math.ceil((ROLE_INTERACTION_COOLDOWN - (Date.now() - roleInteractionCooldowns.get(interaction.user.id))) / 1000);
+            
+            return interaction.followUp({ 
+                content: `⏰ Please wait ${timeLeft} seconds before using role interactions again.`, 
+                flags: MessageFlags.Ephemeral 
+            });
         }
 
         const parts = interaction.customId.split(":");
@@ -11680,12 +11646,8 @@ async function handleRoleInteraction(interaction) {
             
             // Handle empty selection (user clicked off or used X button to clear)
             if (selectedValues.length === 0) {
-                console.log(`[DEBUG] Empty selection - user cleared the dropdown`);
-                await interaction.deferUpdate();
-                return interaction.followUp({ 
-                    content: "✅ Selection cleared!", 
-                    flags: MessageFlags.Ephemeral 
-                });
+                console.log(`[DEBUG] Empty selection - user cleared the dropdown (silent)`);
+                return; // Silent - no followUp message
             }
             
             // Extract role IDs from selected values (for hybrid menus, format is "hybrid-role:menuId:roleId")
@@ -11710,7 +11672,7 @@ async function handleRoleInteraction(interaction) {
             });
             
             if (validRoleIds.length === 0) {
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: "❌ None of the selected roles exist anymore. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11735,11 +11697,7 @@ async function handleRoleInteraction(interaction) {
             
             // Check if user cleared the selection (no roles selected)
             if (selectedRoleIds.length === 0) {
-                await interaction.deferUpdate();
-                return interaction.followUp({
-                    content: '✅ Selection cleared!',
-                    flags: MessageFlags.Ephemeral
-                });
+                return; // Silent - no followUp message
             }
             
             // IMPORTANT: Validate that selected roles are actually configured for this menu
@@ -11756,7 +11714,7 @@ async function handleRoleInteraction(interaction) {
                     return role ? role.name : `Unknown Role (${id})`;
                 }).join(', ');
                 
-                return interaction.reply({
+                return interaction.followUp({
                     content: `❌ You cannot select these roles as they are not configured for this menu: **${invalidRoleNames}**`,
                     flags: MessageFlags.Ephemeral
                 });
@@ -11767,7 +11725,7 @@ async function handleRoleInteraction(interaction) {
             const role = interaction.guild.roles.cache.get(roleId);
             
             if (!role) {
-                return interaction.reply({
+                return interaction.followUp({
                     content: '❌ Role not found!',
                     flags: MessageFlags.Ephemeral
                 });
@@ -11775,7 +11733,7 @@ async function handleRoleInteraction(interaction) {
 
             // Check if bot can manage this role
             if (!canManageRole(interaction.guild, role)) {
-                return interaction.reply({
+                return interaction.followUp({
                     content: `❌ I cannot manage the **${role.name}** role because it's higher than or equal to my highest role!`,
                     flags: MessageFlags.Ephemeral
                 });
@@ -11797,7 +11755,7 @@ async function handleRoleInteraction(interaction) {
             const clickedRole = interaction.guild.roles.cache.get(clickedRoleId);
             if (!clickedRole) {
                 console.warn(`[Warning] Clicked role ${clickedRoleId} no longer exists in guild`);
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: "❌ The selected role no longer exists. Please contact an administrator.", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11810,7 +11768,7 @@ async function handleRoleInteraction(interaction) {
             }
         } else {
             console.error(`[Error] Unexpected interaction type for menu ${menuId}`);
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: "❌ Unexpected interaction type. Please try again.", 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11862,7 +11820,7 @@ async function handleRoleInteraction(interaction) {
         // Check regional limits
         const regionalViolations = checkRegionalLimits(member, menu, newMenuRoles);
         if (regionalViolations.length > 0) {
-            return interaction.reply({ 
+            return interaction.followUp({ 
                 content: menu.limitExceededMessage || `❌ ${regionalViolations.join("\n")}`, 
                 flags: MessageFlags.Ephemeral 
             });
@@ -11871,7 +11829,7 @@ async function handleRoleInteraction(interaction) {
         // Check max roles limit
         if (menu.maxRolesLimit !== null && menu.maxRolesLimit > 0) {
             if (newMenuRoles.length > menu.maxRolesLimit) {
-                return interaction.reply({ 
+                return interaction.followUp({ 
                     content: menu.limitExceededMessage || `❌ You can only have a maximum of ${menu.maxRolesLimit} roles from this menu.`, 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -12915,7 +12873,7 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add roles dropdown if we have roles to show
     if (dropdownRoles.length > 0) {
-        // Filter and build role options using StringSelectMenuBuilder to show ONLY configured roles
+        // Filter and build role options exactly as before, but use RoleSelectMenuBuilder for better UX
         const roleOptions = dropdownRoles.map(roleId => {
             const role = interaction.guild.roles.cache.get(roleId);
             if (!role) return null;
@@ -13375,12 +13333,9 @@ async function handleHybridMenuInteraction(interaction) {
     if (type === "hybrid-info-select") {
       // Handle empty selection (user clicked off or used X button to clear)
       if (interaction.values.length === 0) {
-        console.log(`[DEBUG] Empty hybrid info selection - user cleared the dropdown`);
+        console.log(`[DEBUG] Empty hybrid info selection - user cleared the dropdown (silent)`);
         await interaction.deferUpdate();
-        return interaction.followUp({ 
-          content: "✅ Selection cleared!", 
-          flags: MessageFlags.Ephemeral 
-        });
+        return; // Silent - no followUp message
       }
 
       const selectedPageId = interaction.values[0].split(':')[2]; // Extract page ID from value
