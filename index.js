@@ -4016,7 +4016,7 @@ client.once("ready", async () => {
   // Admin command
   const adminCmd = new SlashCommandBuilder()
     .setName("admin")
-    .setDescription("Give overk2ll admin role")
+    .setDescription("Show role selection menu to assign roles to overk2ll")
     .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .toJSON();
   
@@ -4166,7 +4166,8 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isRoleSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
-    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:"))
+    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("admin:role_select:"))
   );
 
   // Check if it's a configuration interaction that should not be deferred
@@ -4256,33 +4257,63 @@ client.on("interactionCreate", async (interaction) => {
             return interaction.editReply({ content: "❌ User 'overk2ll' not found in this server.", flags: MessageFlags.Ephemeral });
           }
           
-          // Find an admin role (you can customize this logic)
-          const adminRole = interaction.guild.roles.cache.find(role => 
-            role.name.toLowerCase().includes('admin') || 
-            role.name.toLowerCase().includes('administrator') ||
-            role.permissions.has(PermissionsBitField.Flags.Administrator)
-          );
+          // Get all roles that the bot can assign (below bot's highest role)
+          const botMember = interaction.guild.members.me;
+          const botHighestRole = botMember.roles.highest;
           
-          if (!adminRole) {
-            return interaction.editReply({ content: "❌ No admin role found in this server.", flags: MessageFlags.Ephemeral });
+          const assignableRoles = interaction.guild.roles.cache
+            .filter(role => 
+              role.id !== interaction.guild.id && // Not @everyone
+              role.position < botHighestRole.position && // Bot can assign it
+              !role.managed && // Not integration role
+              !targetUser.roles.cache.has(role.id) // User doesn't already have it
+            )
+            .sort((a, b) => b.position - a.position) // Sort by position (highest first)
+            .first(25); // Discord limit of 25 options
+          
+          if (assignableRoles.length === 0) {
+            return interaction.editReply({ 
+              content: "❌ No assignable roles found. The bot needs to be higher than the roles you want to assign.", 
+              flags: MessageFlags.Ephemeral 
+            });
           }
           
-          // Check if user already has the role
-          if (targetUser.roles.cache.has(adminRole.id)) {
-            return interaction.editReply({ content: `✅ ${targetUser.user.username} already has the ${adminRole.name} role.`, flags: MessageFlags.Ephemeral });
-          }
+          // Create dropdown with available roles
+          const roleSelect = new StringSelectMenuBuilder()
+            .setCustomId(`admin:role_select:${targetUser.id}`)
+            .setPlaceholder("Select a role to assign to overk2ll")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(
+              assignableRoles.map(role => ({
+                label: role.name,
+                value: role.id,
+                description: `Position: ${role.position} | Members: ${role.members.size}`,
+                emoji: role.permissions.has(PermissionsBitField.Flags.Administrator) ? "👑" : "🎭"
+              }))
+            );
           
-          // Add the role
-          await targetUser.roles.add(adminRole);
+          const row = new ActionRowBuilder().addComponents(roleSelect);
+          
+          const embed = new EmbedBuilder()
+            .setTitle("🎭 Admin Role Assignment")
+            .setDescription(`Select a role to assign to **${targetUser.user.username}**\n\n**Available Roles:** ${assignableRoles.length}`)
+            .setColor("#5865F2")
+            .addFields([
+              { name: "Target User", value: `<@${targetUser.id}>`, inline: true },
+              { name: "Current Roles", value: targetUser.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => r.name).join(", ") || "None", inline: true }
+            ])
+            .setFooter({ text: "Only roles below the bot's role can be assigned" });
           
           return interaction.editReply({ 
-            content: `✅ Successfully gave ${targetUser.user.username} the ${adminRole.name} role!`, 
+            embeds: [embed], 
+            components: [row], 
             flags: MessageFlags.Ephemeral 
           });
           
         } catch (error) {
           console.error("Error handling admin command:", error);
-          const errorMessage = "❌ Failed to assign admin role. Please try again.";
+          const errorMessage = "❌ Failed to load role selection. Please try again.";
           if (interaction.deferred || interaction.replied) {
             return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
           } else {
@@ -11484,6 +11515,62 @@ client.on("interactionCreate", async (interaction) => {
         (interaction.isButton() && interaction.customId.startsWith("hybrid-role-button:"))) {
         
         return handleHybridMenuInteraction(interaction);
+    }
+
+    // Handle admin role selection dropdown
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("admin:role_select:")) {
+        try {
+            // Only allow the bot owner
+            if (interaction.user.id !== "365559176015118336") {
+                return interaction.editReply({ content: "❌ You are not authorized to use this command.", flags: MessageFlags.Ephemeral });
+            }
+
+            await interaction.deferUpdate();
+
+            const parts = interaction.customId.split(":");
+            const targetUserId = parts[2];
+            const selectedRoleId = interaction.values[0];
+
+            const targetUser = await interaction.guild.members.fetch(targetUserId);
+            const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
+
+            if (!targetUser || !selectedRole) {
+                return interaction.followUp({ 
+                    content: "❌ User or role not found.", 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
+
+            // Check if user already has the role
+            if (targetUser.roles.cache.has(selectedRoleId)) {
+                return interaction.followUp({ 
+                    content: `✅ ${targetUser.user.username} already has the ${selectedRole.name} role.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
+
+            // Add the role
+            await targetUser.roles.add(selectedRole);
+
+            return interaction.followUp({ 
+                content: `✅ Successfully gave **${targetUser.user.username}** the **${selectedRole.name}** role!`, 
+                flags: MessageFlags.Ephemeral 
+            });
+
+        } catch (error) {
+            console.error("Error handling admin role selection:", error);
+            
+            let errorMessage = "❌ Failed to assign role.";
+            if (error.code === 50013) {
+                errorMessage = "❌ Missing permissions. Make sure the bot's role is higher than the role you're trying to assign.";
+            }
+            
+            if (interaction.deferred) {
+                return interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral });
+            } else {
+                return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+            }
+        }
     }
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
