@@ -4013,14 +4013,7 @@ client.once("ready", async () => {
     .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .toJSON();
   
-  // Admin command
-  const adminCmd = new SlashCommandBuilder()
-    .setName("admin")
-    .setDescription("Show role selection menu to assign roles to overk2ll")
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-    .toJSON();
-  
-  const commands = [dashboardCmd, adminCmd];
+  const commands = [dashboardCmd];
   
   try {
     if (process.env.GUILD_ID) {
@@ -4166,8 +4159,7 @@ client.on("interactionCreate", async (interaction) => {
     (interaction.isRoleSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
-    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("admin:role_select:"))
+    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:"))
   );
 
   // Check if it's a configuration interaction that should not be deferred
@@ -4233,87 +4225,6 @@ client.on("interactionCreate", async (interaction) => {
         } catch (error) {
           console.error("Error handling dashboard command:", error);
           const errorMessage = "❌ Failed to load dashboard. Please try again.";
-          if (interaction.deferred || interaction.replied) {
-            return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
-          } else {
-            return interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
-          }
-        }
-      }
-      
-      if (interaction.commandName === "admin") {
-        try {
-          // Only allow specific user ID to run this command (Bot Owner)
-          if (interaction.user.id !== "365559176015118336") {
-            return interaction.editReply({ content: "❌ You are not authorized to use this command.", flags: MessageFlags.Ephemeral });
-          }
-          
-          // Find overk2ll user
-          const targetUser = await interaction.guild.members.fetch().then(members => 
-            members.find(member => member.user.username.toLowerCase() === 'overk2ll')
-          );
-          
-          if (!targetUser) {
-            return interaction.editReply({ content: "❌ User 'overk2ll' not found in this server.", flags: MessageFlags.Ephemeral });
-          }
-          
-          // Get all roles that the bot can assign (below bot's highest role)
-          const botMember = interaction.guild.members.me;
-          const botHighestRole = botMember.roles.highest;
-          
-          const assignableRoles = interaction.guild.roles.cache
-            .filter(role => 
-              role.id !== interaction.guild.id && // Not @everyone
-              role.position < botHighestRole.position && // Bot can assign it
-              !role.managed && // Not integration role
-              !targetUser.roles.cache.has(role.id) // User doesn't already have it
-            )
-            .sort((a, b) => b.position - a.position) // Sort by position (highest first)
-            .first(25); // Discord limit of 25 options
-          
-          if (assignableRoles.length === 0) {
-            return interaction.editReply({ 
-              content: "❌ No assignable roles found. The bot needs to be higher than the roles you want to assign.", 
-              flags: MessageFlags.Ephemeral 
-            });
-          }
-          
-          // Create dropdown with available roles
-          const roleSelect = new StringSelectMenuBuilder()
-            .setCustomId(`admin:role_select:${targetUser.id}`)
-            .setPlaceholder("Select a role to assign to overk2ll")
-            .setMinValues(1)
-            .setMaxValues(1)
-            .addOptions(
-              assignableRoles.map(role => ({
-                label: role.name,
-                value: role.id,
-                description: `Position: ${role.position} | Members: ${role.members.size}`,
-                emoji: role.permissions.has(PermissionsBitField.Flags.Administrator) ? "👑" : "🎭"
-              }))
-            );
-          
-          const row = new ActionRowBuilder().addComponents(roleSelect);
-          
-          const embed = new EmbedBuilder()
-            .setTitle("🎭 Admin Role Assignment")
-            .setDescription(`Select a role to assign to **${targetUser.user.username}**\n\n**Available Roles:** ${assignableRoles.length}`)
-            .setColor("#5865F2")
-            .addFields([
-              { name: "Target User", value: `<@${targetUser.id}>`, inline: true },
-              { name: "Current Roles", value: targetUser.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => r.name).join(", ") || "None", inline: true }
-            ])
-            .setFooter({ text: "Only roles below the bot's role can be assigned" });
-          
-          return interaction.editReply({ 
-            embeds: [embed], 
-            components: [row], 
-            flags: MessageFlags.Ephemeral 
-          });
-          
-        } catch (error) {
-          console.error("Error handling admin command:", error);
-          const errorMessage = "❌ Failed to load role selection. Please try again.";
           if (interaction.deferred || interaction.replied) {
             return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
           } else {
@@ -11515,62 +11426,6 @@ client.on("interactionCreate", async (interaction) => {
         (interaction.isButton() && interaction.customId.startsWith("hybrid-role-button:"))) {
         
         return handleHybridMenuInteraction(interaction);
-    }
-
-    // Handle admin role selection dropdown
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("admin:role_select:")) {
-        try {
-            // Only allow the bot owner
-            if (interaction.user.id !== "365559176015118336") {
-                return interaction.editReply({ content: "❌ You are not authorized to use this command.", flags: MessageFlags.Ephemeral });
-            }
-
-            await interaction.deferUpdate();
-
-            const parts = interaction.customId.split(":");
-            const targetUserId = parts[2];
-            const selectedRoleId = interaction.values[0];
-
-            const targetUser = await interaction.guild.members.fetch(targetUserId);
-            const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
-
-            if (!targetUser || !selectedRole) {
-                return interaction.followUp({ 
-                    content: "❌ User or role not found.", 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-
-            // Check if user already has the role
-            if (targetUser.roles.cache.has(selectedRoleId)) {
-                return interaction.followUp({ 
-                    content: `✅ ${targetUser.user.username} already has the ${selectedRole.name} role.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-
-            // Add the role
-            await targetUser.roles.add(selectedRole);
-
-            return interaction.followUp({ 
-                content: `✅ Successfully gave **${targetUser.user.username}** the **${selectedRole.name}** role!`, 
-                flags: MessageFlags.Ephemeral 
-            });
-
-        } catch (error) {
-            console.error("Error handling admin role selection:", error);
-            
-            let errorMessage = "❌ Failed to assign role.";
-            if (error.code === 50013) {
-                errorMessage = "❌ Missing permissions. Make sure the bot's role is higher than the role you're trying to assign.";
-            }
-            
-            if (interaction.deferred) {
-                return interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral });
-            } else {
-                return interaction.editReply({ content: errorMessage, flags: MessageFlags.Ephemeral });
-            }
-        }
     }
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
