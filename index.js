@@ -1119,16 +1119,23 @@ async function rebuildDropdownComponents(originalMessage, menu, menuId) {
  */
 async function handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire hybrid info dropdown handling...");
+    console.log("🔄 Starting AUTO-CLEARING Sapphire hybrid info dropdown handling...");
     
-    // 🔥 TRUE SAPPHIRE APPROACH: Never edit the original message
-    // Just acknowledge the interaction and send ephemeral feedback
-    
-    // 1. Acknowledge the interaction - this resets the dropdown without editing
+    // 🔥 AUTO-CLEARING SAPPHIRE APPROACH: 
+    // 1. Acknowledge the interaction - this enables auto-clearing
     await interaction.deferUpdate();
-    console.log("✅ Info dropdown interaction deferred - menu reset, no '(edited)' badge");
+    console.log("✅ Hybrid info dropdown interaction deferred - ready for auto-clear");
     
-    // 2. Create and send the page content as ephemeral follow-up
+    // 2. AUTO-CLEAR the dropdown by reconstructing the original message with reset selection
+    try {
+      await autoClearDropdownAfterToggle(interaction);
+      console.log("✅ Hybrid info dropdown auto-cleared successfully");
+    } catch (clearError) {
+      console.error("⚠️ Failed to auto-clear hybrid info dropdown (non-critical):", clearError);
+      // Continue with normal flow even if auto-clear fails
+    }
+    
+    // 3. Create and send the page content as ephemeral follow-up
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
@@ -1416,10 +1423,21 @@ async function publishMenuWithWebhookSupport(interaction, menu, menuId, embed, c
  */
 async function handleDropdownSelection(interaction, addedRoles = [], removedRoles = [], member = null) {
   try {
-    console.log("🔄 Starting TRUE Sapphire dropdown handling...");
+    console.log("🔄 Starting AUTO-CLEARING Sapphire dropdown handling...");
     
-    // 🔥 TRUE SAPPHIRE APPROACH: Never edit the original message
-    // interaction.deferUpdate() was already called in handleRoleInteraction()
+    // 🔥 AUTO-CLEARING SAPPHIRE APPROACH: 
+    // 1. interaction.deferUpdate() was already called in handleRoleInteraction()
+    // 2. We can now use interaction.editReply() to auto-clear the dropdown
+    // 3. This won't cause "(edited)" badge because deferUpdate() was used first
+    
+    // AUTO-CLEAR the dropdown by reconstructing the original message with reset selection
+    try {
+      await autoClearDropdownAfterToggle(interaction);
+      console.log("✅ Dropdown auto-cleared successfully");
+    } catch (clearError) {
+      console.error("⚠️ Failed to auto-clear dropdown (non-critical):", clearError);
+      // Continue with normal flow even if auto-clear fails
+    }
     
     // Send role change notification as ephemeral follow-up (if needed)
     if (member && (addedRoles.length > 0 || removedRoles.length > 0)) {
@@ -1432,9 +1450,9 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
       });
     }
     
-    console.log("✅ TRUE Sapphire dropdown handling complete - original message untouched");
+    console.log("✅ AUTO-CLEARING Sapphire dropdown handling complete - dropdown reset + no '(edited)' badge");
   } catch (error) {
-    console.error("❌ Error in TRUE Sapphire dropdown handling:", error);
+    console.error("❌ Error in AUTO-CLEARING Sapphire dropdown handling:", error);
     
     // Fallback error handling
     try {
@@ -9077,28 +9095,43 @@ client.on("interactionCreate", async (interaction) => {
         // Handle user selecting a page from published info menu dropdown
         const parts = interaction.customId.split(":");
         const infoMenuId = parts[1]; // Extract menu ID regardless of timestamp
+        
+        // Handle empty selection (user clicked off or used X button to clear)
+        if (interaction.values.length === 0) {
+          console.log(`[DEBUG] Empty info selection - user cleared the dropdown`);
+          await interaction.deferUpdate();
+          return interaction.followUp({ 
+            content: "✅ Selection cleared!", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+
         const selectedPageId = interaction.values[0];
 
         if (!infoMenuId || !selectedPageId) {
-          return sendEphemeralEmbed(interaction, "❌ Invalid menu or page selection.", "#FF0000", "Error", false);
+          await interaction.deferUpdate();
+          return interaction.followUp({ content: "❌ Invalid menu or page selection.", flags: MessageFlags.Ephemeral });
         }
 
         const menu = db.getInfoMenu(infoMenuId);
         if (!menu) {
-          return sendEphemeralEmbed(interaction, "❌ Information menu not found.", "#FF0000", "Error", false);
+          await interaction.deferUpdate();
+          return interaction.followUp({ content: "❌ Information menu not found.", flags: MessageFlags.Ephemeral });
         }
 
         const page = db.getInfoMenuPage(infoMenuId, selectedPageId);
         if (!page) {
-          return sendEphemeralEmbed(interaction, "❌ Page not found.", "#FF0000", "Error", false);
+          await interaction.deferUpdate();
+          return interaction.followUp({ content: "❌ Page not found.", flags: MessageFlags.Ephemeral });
         }
 
         try {
-          // Apply Sapphire-style dropdown reset
+          // Apply TRUE Sapphire approach
           await handleInfoDropdownSelection(interaction, menu, page, infoMenuId);
         } catch (error) {
           console.error("Error handling info dropdown selection:", error);
-          return sendEphemeralEmbed(interaction, "❌ Error displaying page content.", "#FF0000", "Error", false);
+          await interaction.deferUpdate();
+          return interaction.followUp({ content: "❌ Error displaying page content.", flags: MessageFlags.Ephemeral });
         }
       } else if (interaction.customId.startsWith("info-page:")) {
         // Handle user selecting a page from published info menu button
@@ -13326,19 +13359,31 @@ async function handleHybridMenuInteraction(interaction) {
 
     // Handle info page interactions
     if (type === "hybrid-info-select") {
+      // Handle empty selection (user clicked off or used X button to clear)
+      if (interaction.values.length === 0) {
+        console.log(`[DEBUG] Empty hybrid info selection - user cleared the dropdown`);
+        await interaction.deferUpdate();
+        return interaction.followUp({ 
+          content: "✅ Selection cleared!", 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       const selectedPageId = interaction.values[0].split(':')[2]; // Extract page ID from value
       const page = menu.pages?.find(p => p.id === selectedPageId);
       
       if (!page) {
-        return interaction.followUp({ content: "❌ Page not found.", ephemeral: true });
+        await interaction.deferUpdate();
+        return interaction.followUp({ content: "❌ Page not found.", flags: MessageFlags.Ephemeral });
       }
 
       try {
-        // Apply Sapphire-style dropdown reset
+        // Apply TRUE Sapphire approach
         await handleHybridInfoDropdownSelection(interaction, menu, page, hybridMenuId);
       } catch (error) {
         console.error("Error handling hybrid info dropdown selection:", error);
-        return interaction.followUp({ content: "❌ Error displaying page content.", ephemeral: true });
+        await interaction.deferUpdate();
+        return interaction.followUp({ content: "❌ Error displaying page content.", flags: MessageFlags.Ephemeral });
       }
 
       return;
@@ -15901,16 +15946,23 @@ async function showComponentOrderConfiguration(interaction, hybridMenuId) {
  */
 async function handleInfoDropdownSelection(interaction, menu, page, infoMenuId) {
   try {
-    console.log("🔄 Starting TRUE Sapphire info dropdown handling...");
+    console.log("🔄 Starting AUTO-CLEARING Sapphire info dropdown handling...");
     
-    // 🔥 TRUE SAPPHIRE APPROACH: Never edit the original message
-    // Just acknowledge the interaction and send ephemeral feedback
-    
-    // 1. Acknowledge the interaction - this resets the dropdown without editing
+    // 🔥 AUTO-CLEARING SAPPHIRE APPROACH: 
+    // 1. Acknowledge the interaction - this enables auto-clearing
     await interaction.deferUpdate();
-    console.log("✅ Info dropdown interaction deferred - menu reset, no '(edited)' badge");
+    console.log("✅ Info dropdown interaction deferred - ready for auto-clear");
     
-    // 2. Create and send the page content as ephemeral follow-up
+    // 2. AUTO-CLEAR the dropdown by reconstructing the original message with reset selection
+    try {
+      await autoClearDropdownAfterToggle(interaction);
+      console.log("✅ Info dropdown auto-cleared successfully");
+    } catch (clearError) {
+      console.error("⚠️ Failed to auto-clear info dropdown (non-critical):", clearError);
+      // Continue with normal flow even if auto-clear fails
+    }
+    
+    // 3. Create and send the page content as ephemeral follow-up
     const embed = new EmbedBuilder();
     
     // Helper function to validate URLs
