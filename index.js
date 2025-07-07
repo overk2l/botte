@@ -1467,6 +1467,91 @@ async function handleDropdownSelection(interaction, addedRoles = [], removedRole
 }
 
 /**
+ * Auto-clears the dropdown selection after a role toggle by reconstructing the original message
+ * with the dropdown reset to its default state. This is possible because interaction.deferUpdate()
+ * was called first, so using interaction.editReply() won't show the "(edited)" badge.
+ * @param {import('discord.js').Interaction} interaction - The dropdown interaction
+ */
+async function autoClearDropdownAfterToggle(interaction) {
+  try {
+    console.log("🔄 Auto-clearing dropdown selection...");
+    
+    // Get the original message to reconstruct it
+    const originalMessage = interaction.message;
+    if (!originalMessage) {
+      throw new Error("No original message found to reconstruct");
+    }
+    
+    // Clone the original message components
+    const originalComponents = originalMessage.components || [];
+    const newComponents = [];
+    
+    // Process each action row and reset dropdown selections
+    for (const row of originalComponents) {
+      const newRow = new ActionRowBuilder();
+      
+      for (const component of row.components) {
+        if (component.type === ComponentType.StringSelect) {
+          // This is our dropdown - reconstruct it with no selections
+          const resetDropdown = new StringSelectMenuBuilder()
+            .setCustomId(component.customId)
+            .setPlaceholder(component.placeholder || "Select an option...")
+            .setMinValues(component.minValues || 0)
+            .setMaxValues(component.maxValues || 1)
+            .setDisabled(component.disabled || false)
+            .setOptions(
+              component.options.map(option => ({
+                label: option.label,
+                value: option.value,
+                description: option.description,
+                emoji: option.emoji,
+                default: false // Reset all options to not selected
+              }))
+            );
+          
+          newRow.addComponents(resetDropdown);
+          console.log(`✅ Reset dropdown: ${component.customId}`);
+        } else {
+          // Keep other components as-is (buttons, etc.)
+          // Create new component instances to avoid mutation issues
+          if (component.type === ComponentType.Button) {
+            const newButton = new ButtonBuilder()
+              .setCustomId(component.customId)
+              .setLabel(component.label)
+              .setStyle(component.style)
+              .setDisabled(component.disabled || false);
+            
+            if (component.emoji) newButton.setEmoji(component.emoji);
+            if (component.url) newButton.setURL(component.url);
+            
+            newRow.addComponents(newButton);
+          } else {
+            // For other component types, try to add them as-is
+            newRow.addComponents(component);
+          }
+        }
+      }
+      
+      newComponents.push(newRow);
+    }
+    
+    // Update the message with reset dropdowns but keep embeds and content the same
+    await interaction.editReply({
+      content: originalMessage.content,
+      embeds: originalMessage.embeds,
+      components: newComponents,
+      // Note: No flags here since we're editing the original public message
+    });
+    
+    console.log("✅ Dropdown auto-cleared successfully - no '(edited)' badge will appear");
+    
+  } catch (error) {
+    console.error("❌ Failed to auto-clear dropdown:", error);
+    throw error; // Re-throw to let caller handle gracefully
+  }
+}
+
+/**
  * Sends a role change notification as an ephemeral follow-up (TRUE Sapphire approach).
  * This function sends a rich embed response that only the interacting user can see.
  * @param {import('discord.js').Interaction} interaction - The interaction to send follow-up to
