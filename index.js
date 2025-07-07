@@ -597,6 +597,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
+  RoleSelectMenuBuilder,
   ComponentType,
   PermissionsBitField,
   MessageFlags,
@@ -743,6 +744,7 @@ function trackInteractionPerformance(interaction, startTime, success, errorType 
   let type = 'other';
   if (interaction.isButton()) type = 'button';
   else if (interaction.isStringSelectMenu()) type = 'dropdown';
+  else if (interaction.isRoleSelectMenu()) type = 'role-dropdown';
   else if (interaction.isModalSubmit()) type = 'modal';
   else if (interaction.isChatInputCommand()) type = 'command';
   
@@ -3276,46 +3278,16 @@ async function rebuildHybridMenuComponentsForWebhook(originalMessage, menu, hybr
       
       const guild = originalMessage.guild;
       if (guild) {
-        const roleOptions = menu.dropdownRoles
-          .map(roleId => {
-            const role = guild.roles.cache.get(roleId);
-            if (!role) return null;
-            
-            // Build label with optional member count
-            let label = role.name.slice(0, 100);
-            if (menu.showMemberCounts && menu.memberCountOptions?.showInDropdowns) {
-              const memberCount = role.members.size;
-              label = `${role.name} (${memberCount})`.slice(0, 100);
-            }
-            
-            // Build description with custom or default text
-            let description = menu.dropdownRoleDescriptions?.[roleId];
-            if (!description && menu.visualEnhancements?.showRoleColors && role.color !== 0) {
-              description = `Role color: #${role.color.toString(16).padStart(6, '0')}`;
-            }
-            
-            return {
-              label,
-              value: `hybrid-role:${hybridMenuId}:${roleId}`,
-              description: description?.slice(0, 100) || undefined,
-              emoji: menu.dropdownEmojis?.[roleId] || undefined
-            };
-          })
-          .filter(option => option !== null);
+        // Use RoleSelectMenuBuilder for better UX with native X button
+        const roleSelect = new RoleSelectMenuBuilder()
+          .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`)
+          .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
+          .setMinValues(0)
+          .setMaxValues(1) // Single select for native X button
+          .addDefaultRoles(menu.dropdownRoles); // Add the roles that can be selected
 
-        if (roleOptions.length > 0) {
-          const roleSelect = new StringSelectMenuBuilder()
-            .setCustomId(`hybrid-role-select:${hybridMenuId}:${timestamp}`) // Fresh timestamp
-            .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select your roles...")
-            .setMinValues(0)
-            .setMaxValues(Math.min(roleOptions.length, 25))
-            .addOptions(roleOptions.slice(0, 25)); // Discord limit
-
-          components.push(new ActionRowBuilder().addComponents(roleSelect));
-          console.log(`[Webhook Debug] FORCE Added roles dropdown`);
-        } else {
-          console.log(`[Webhook Debug] No valid role options found`);
-        }
+        components.push(new ActionRowBuilder().addComponents(roleSelect));
+        console.log(`[Webhook Debug] FORCE Added roles dropdown with RoleSelectMenuBuilder`);
       } else {
         console.log(`[Webhook Debug] No guild found for role dropdown`);
       }
@@ -3798,42 +3770,29 @@ async function updatePublishedMessageComponents(interaction, menu, menuId, force
 
         // Rebuild Dropdown Select Menu
         if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-            const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+            const orderedRoles = menu.dropdownRoleOrder.length > 0
                 ? menu.dropdownRoleOrder
-                : menu.dropdownRoles
-            ).map(roleId => {
+                : menu.dropdownRoles;
+
+            // Filter out non-existent roles
+            const validRoles = orderedRoles.filter(roleId => {
                 const role = guild.roles.cache.get(roleId);
                 if (!role) {
                     console.warn(`Role ${roleId} not found in guild for menu ${menuId}`);
-                    return null;
+                    return false;
                 }
-                
-                // Get member count if enabled for dropdowns
-                const memberCountOptions = menu.memberCountOptions || {};
-                const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
-                const memberCount = showCountsInDropdowns ? role.members.size : null;
-                const labelText = memberCount !== null 
-                    ? `${role.name} (${memberCount})` 
-                    : role.name;
-                
-                return {
-                    label: labelText.substring(0, 100),
-                    value: role.id,
-                    emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-                    description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-                    default: false // Always set default to false so roles are not pre-selected
-                };
-            }).filter(Boolean);
+                return true;
+            });
 
-            if (dropdownOptions.length > 0) {
+            if (validRoles.length > 0) {
                 // Add timestamp to make dropdown truly unique and force clearing selection
                 const timestamp = Date.now();
-                const selectMenu = new StringSelectMenuBuilder()
+                const selectMenu = new RoleSelectMenuBuilder()
                     .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
                     .setPlaceholder("Select a role to toggle...")
-                    .setMinValues(1)
-                    .setMaxValues(1)
-                    .addOptions(dropdownOptions);
+                    .setMinValues(0)
+                    .setMaxValues(1) // Single select for native X button
+                    .addDefaultRoles(validRoles);
                 components.push(new ActionRowBuilder().addComponents(selectMenu));
             }
         }
@@ -4079,7 +4038,7 @@ client.on("interactionCreate", async (interaction) => {
   
   // Early return for DMs
   if (!interaction.guild) {
-    if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu()) {
+    if (interaction.isCommand() || interaction.isButton() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu()) {
       return interaction.reply({ content: "This bot can only be used in servers.", flags: MessageFlags.Ephemeral });
     }
     return;
@@ -4161,8 +4120,10 @@ client.on("interactionCreate", async (interaction) => {
   const isPublishedDropdownInteraction = (
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("info-menu-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
+    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
     (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
-    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:"))
+    (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
+    (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:"))
   );
 
   // Check if it's a configuration interaction that should not be deferred
@@ -11394,6 +11355,7 @@ client.on("interactionCreate", async (interaction) => {
     // Handle hybrid menu interactions (published hybrid menus)
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-info-select:")) ||
         (interaction.isStringSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
+        (interaction.isRoleSelectMenu() && interaction.customId.startsWith("hybrid-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("hybrid-info-page:")) ||
         (interaction.isButton() && interaction.customId.startsWith("hybrid-role-button:"))) {
         
@@ -11401,6 +11363,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if ((interaction.isStringSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
+        (interaction.isRoleSelectMenu() && interaction.customId.startsWith("rr-role-select:")) ||
         (interaction.isButton() && interaction.customId.startsWith("rr-role-button:"))) {
         
         return handleRoleInteraction(interaction);
@@ -11654,6 +11617,46 @@ async function handleRoleInteraction(interaction) {
                     newRoles.add(selectedRoleId);
                     console.log(`[DEBUG] Toggled ON role: ${selectedRoleId} (${selectedRole.name})`);
                 }
+            }
+        } else if (interaction.isRoleSelectMenu()) {
+            // Handle RoleSelectMenuBuilder interactions
+            const selectedRoleIds = interaction.values;
+            
+            console.log(`[DEBUG] RoleSelectMenu - Selected role IDs:`, selectedRoleIds);
+            
+            // Check if user cleared the selection (no roles selected)
+            if (selectedRoleIds.length === 0) {
+                return interaction.followUp({
+                    content: '✅ Selection cleared!',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            
+            // For single-select role menus, toggle the selected role
+            const roleId = selectedRoleIds[0];
+            const role = interaction.guild.roles.cache.get(roleId);
+            
+            if (!role) {
+                return interaction.followUp({
+                    content: '❌ Role not found!',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            // Check if bot can manage this role
+            if (!canManageRole(interaction.guild, role)) {
+                return interaction.followUp({
+                    content: `❌ I cannot manage the **${role.name}** role because it's higher than or equal to my highest role!`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (currentRoles.has(roleId)) {
+                newRoles.delete(roleId); // Remove role
+                console.log(`[DEBUG] Toggled OFF role: ${roleId} (${role.name})`);
+            } else {
+                newRoles.add(roleId); // Add role
+                console.log(`[DEBUG] Toggled ON role: ${roleId} (${role.name})`);
             }
             
         } else if (interaction.isButton()) { // Button
@@ -12776,41 +12779,19 @@ async function buildHybridMenuComponents(interaction, menu, hybridMenuId) {
 
     // Add roles dropdown if we have roles to show
     if (dropdownRoles.length > 0) {
-        const roleOptions = dropdownRoles.map(roleId => {
-            const role = interaction.guild.roles.cache.get(roleId);
-            if (!role) return null;
+        // Use RoleSelectMenuBuilder for better UX with native X button
+        const roleDropdown = new RoleSelectMenuBuilder()
+            .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
+            .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
+            .setMinValues(0)
+            .setMaxValues(1) // Single select for native X button
+            .addDefaultRoles(dropdownRoles); // Add the roles that can be selected
             
-            // Get member count if enabled for dropdowns
-            const memberCountOptions = menu.memberCountOptions || {};
-            const showCountsInDropdowns = memberCountOptions.showInDropdowns || (menu.showMemberCounts && !memberCountOptions.showInButtons);
-            const memberCount = showCountsInDropdowns ? role.members.size : null;
-            const labelText = memberCount !== null 
-                ? `${role.name} (${memberCount})` 
-                : role.name;
-            
-            return {
-                label: labelText.substring(0, 100),
-                value: role.id,
-                emoji: parseEmoji(menu.dropdownEmojis?.[role.id]) || '🎭',
-                description: menu.dropdownRoleDescriptions?.[role.id]?.substring(0, 100),
-                default: false
-            };
-        }).filter(Boolean);
-
-        if (roleOptions.length > 0) {
-            const roleDropdown = new StringSelectMenuBuilder()
-                .setCustomId(`hybrid-role-select:${hybridMenuId}:${Date.now()}`)
-                .setPlaceholder(menu.roleDropdownPlaceholder || "🎭 Select a role to toggle...")
-                .setMinValues(1)
-                .setMaxValues(1)
-                .addOptions(roleOptions);
-            
-            componentParts.push({
-                order: componentOrder.roleDropdown || 2,
-                type: 'roleDropdown',
-                component: new ActionRowBuilder().addComponents(roleDropdown)
-            });
-        }
+        componentParts.push({
+            order: componentOrder.roleDropdown || 2,
+            type: 'roleDropdown',
+            component: new ActionRowBuilder().addComponents(roleDropdown)
+        });
     }
 
     // Add info pages buttons if we have pages to show as buttons
@@ -13786,37 +13767,28 @@ async function publishMenu(interaction, menuId, messageToEdit = null) {
 
         // Build dropdown components
         if (menu.selectionType.includes("dropdown") && (menu.dropdownRoles && menu.dropdownRoles.length > 0)) {
-          const dropdownOptions = (menu.dropdownRoleOrder.length > 0
+          const orderedRoles = menu.dropdownRoleOrder.length > 0
             ? menu.dropdownRoleOrder
-            : menu.dropdownRoles
-          ).map(roleId => {
+            : menu.dropdownRoles;
+          
+          const validRolesList = orderedRoles.filter(roleId => {
             const role = interaction.guild.roles.cache.get(roleId);
-            if (!role) return null;
-            
-            // Get member count if enabled
-            const memberCount = menu.showMemberCounts ? role.members.size : null;
-            const labelText = memberCount !== null 
-                ? `${role.name} (${memberCount})` 
-                : role.name;
-            
-            return {
-              label: labelText.substring(0, 100),
-              value: role.id,
-              emoji: parseEmoji(menu.dropdownEmojis[role.id]),
-              description: menu.dropdownRoleDescriptions[role.id] ? menu.dropdownRoleDescriptions[role.id].substring(0, 100) : undefined,
-              default: false
-            };
-          }).filter(Boolean);
+            if (!role) {
+              console.warn(`Role ${roleId} not found in guild for menu ${menuId}`);
+              return false;
+            }
+            return true;
+          });
 
-          if (dropdownOptions.length > 0) {
+          if (validRolesList.length > 0) {
             // Add timestamp to make dropdown truly unique and force clearing selection
             const timestamp = Date.now();
-            const selectMenu = new StringSelectMenuBuilder()
+            const selectMenu = new RoleSelectMenuBuilder()
               .setCustomId(`rr-role-select:${menuId}:${timestamp}`)
               .setPlaceholder("Select a role to toggle...")
-              .setMinValues(1)
-              .setMaxValues(1)
-              .addOptions(dropdownOptions);
+              .setMinValues(0)
+              .setMaxValues(1) // Single select for native X button
+              .addDefaultRoles(validRolesList);
             components.push(new ActionRowBuilder().addComponents(selectMenu));
           }
         }
