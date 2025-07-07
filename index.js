@@ -11681,7 +11681,8 @@ async function handleRoleInteraction(interaction) {
             // Handle empty selection (user clicked off or used X button to clear)
             if (selectedValues.length === 0) {
                 console.log(`[DEBUG] Empty selection - user cleared the dropdown`);
-                return interaction.reply({ 
+                await interaction.deferUpdate();
+                return interaction.followUp({ 
                     content: "✅ Selection cleared!", 
                     flags: MessageFlags.Ephemeral 
                 });
@@ -11734,7 +11735,8 @@ async function handleRoleInteraction(interaction) {
             
             // Check if user cleared the selection (no roles selected)
             if (selectedRoleIds.length === 0) {
-                return interaction.reply({
+                await interaction.deferUpdate();
+                return interaction.followUp({
                     content: '✅ Selection cleared!',
                     flags: MessageFlags.Ephemeral
                 });
